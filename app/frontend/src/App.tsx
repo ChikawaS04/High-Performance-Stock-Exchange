@@ -80,7 +80,7 @@ export default function App() {
                         />
                     }
                 />
-                <Route path="/chart" element={<PriceChartPage state={state} />} />
+                <Route path="/chart" element={<PriceChartPage state={state} openCents={openCents} />} />
             </Routes>
         </div>
     );

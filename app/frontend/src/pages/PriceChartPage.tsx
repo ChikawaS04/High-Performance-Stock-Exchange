@@ -1,26 +1,33 @@
 /**
- * Price chart page scaffold (P10-4).
+ * Price chart page (P10-4 scaffold, P12-3 fill).
  *
- * An empty two-region layout, a chart region (left) and a side-panel region
- * (right), both placeholders this phase. It receives the shared reducer state so
- * the data source is already wired for the price chart (P12) and the side panel
- * (P13); it renders nothing functional yet. The state prop is intentionally unused
- * for now (prefixed to satisfy noUnusedParameters) and kept on the signature so the
- * seam is visible and P12 / P13 need no App change to start consuming it.
+ * A two-region layout, the chart region (left) and the side-panel region (right).
+ * P12-3 fills the chart region with <PriceChart>, fed from the shared reducer
+ * state: state.tape is the session's trade-print series, and state.sessionOpenCents
+ * is the engine's first-trade anchor (the same value the header Chg uses). The
+ * optional openCents is the Alpaca market open (P11), threaded from App and drawn
+ * only when it falls inside the plotted price domain. The side-panel region stays a
+ * placeholder for P13; P12 touches only the chart region.
  */
 
 import type { AppState } from "../state/reducer";
+import { PriceChart } from "../components/PriceChart";
 
 export interface PriceChartPageProps {
     readonly state: AppState;
+    readonly openCents?: number;
 }
 
-export function PriceChartPage({ state: _state }: PriceChartPageProps) {
+export function PriceChartPage({ state, openCents }: PriceChartPageProps) {
     return (
         <main className="chart-page" aria-label="Price chart">
             <section className="chart-page__region chart-page__region--chart" aria-label="Chart">
                 <h2 className="panel__title">Price chart</h2>
-                <div className="chart-page__placeholder">Chart arrives in P12.</div>
+                <PriceChart
+                    tape={state.tape}
+                    sessionOpenCents={state.sessionOpenCents}
+                    openCents={openCents}
+                />
             </section>
 
             <section className="chart-page__region chart-page__region--panel" aria-label="Side panel">
