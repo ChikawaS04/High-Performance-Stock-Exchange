@@ -93,6 +93,17 @@ If unset, `useOrderBook` falls back to that same default, so the app works out o
 against a local backend on the default port. Point `VITE_WS_URL` elsewhere to target a
 different host/port.
 
+For the header Open field (P11), the Vite dev server proxies `/alpaca` to Alpaca. Put
+your Alpaca market-data credentials in `frontend/.env.local` (gitignored), which the dev
+server reads server-side; they are never bundled into the client:
+
+```
+ALPACA_KEY_ID=your-key-id
+ALPACA_SECRET_KEY=your-secret-key
+```
+
+Without them the Open field shows the empty marker and everything else runs unchanged.
+
 ---
 
 ## Wire contract
@@ -199,6 +210,15 @@ These are real properties of the running system, documented rather than glossed:
   WebSocket direction, where both arrive as inbound WebSocket messages. Inbound entries show
   the real echoed FIX bytes the server parsed (P7-2); outbound entries show the actual EXEC
   JSON, labelled as such, never a fabricated FIX message.
+- **The Open field is the instrument's official daily open, pulled once from Alpaca.**
+  On app load a dedicated hook fetches the snapshot open (`dailyBar.o`) once, converts it
+  to integer cents at the edge (reusing `dollarsToCents`), and shows it in the header Open
+  field. It is a distinct quantity from Chg: Chg is the session change against the engine's
+  first trade and is not re-anchored to the market open, so the header never conflates the
+  two opens. If Alpaca is unreachable, the credentials are missing, or the value is
+  unusable, Open shows the empty marker and Chg is unaffected. The fetch is off the socket
+  entirely and never runs on the hot path, and it is fetched once per app open (it does not
+  roll across a trading-day boundary without a reload).
 - **No server reject feedback for malformed input.** Bad orders are logged and dropped
   server-side with no message back to the client, so the UI validates price/quantity locally
   before sending (`> 0`, `≤ 2` decimal places, positive integer qty). `ORDER_REJECTED` can
@@ -257,6 +277,13 @@ If every step behaves as above, the round-trip is proven end to end and Phase 5 
   stay exact.
 - **No reject feedback path.** Malformed input is guarded client-side; the server silently
   drops bad frames.
+- **Ignition price is a dev-time integration.** Alpaca credentials are held server-side by
+  the Vite dev-server proxy (read from `.env.local`, never `VITE_`-prefixed, so they never
+  enter the client bundle), and the client fetches a same-origin relative path (`/alpaca/...`)
+  so browser CORS does not arise. This works under `npm run dev` only: a static `vite build`
+  has no dev server and therefore no proxy, so a real deployment would need a small backend
+  proxy holding the credentials. `VITE_IGNITION_SYMBOL` and the header's `SYMBOL` both
+  default to `ASML` and should be kept in step.
 - **Single instrument, no session management, no auth, no persistence** — all out of scope for
   this practice build.
 

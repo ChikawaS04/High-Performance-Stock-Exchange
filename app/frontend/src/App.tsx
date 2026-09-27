@@ -12,9 +12,13 @@
  * entryRef / click-to-ticket seam) moved verbatim into pages/TradingPage. App no
  * longer holds inspector or entryRef state; those are Trading-local and live there.
  *
- * P10-5: the Header gains an optional openCents seam for the P11 ignition price. It
- * is passed undefined this phase, so the Open field renders the "—" sentinel until
- * P11 supplies a value.
+ * P10-5: the Header gains an optional openCents seam for the P11 ignition price.
+ *
+ * P11-4: that seam is now filled. useIgnitionPrice() fetches the official market
+ * open once on app open, entirely off the socket, and its openCents flows into the
+ * Header prop (undefined until it resolves, which renders the "—" sentinel). It is a
+ * separate hook from useOrderBook and never touches the reducer or the hot path. Chg
+ * is not affected: it stays anchored to the session's first trade (P11 D6).
  *
  * The Header strip and Navbar render above <Routes> so both persist across pages;
  * the connection badge stays inside the Header, visible on every route.
@@ -23,6 +27,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useOrderBook } from "./state/useOrderBook";
+import { useIgnitionPrice } from "./state/useIgnitionPrice";
 import { cancelOrderFrame, newOrderFrame, nextClOrdId } from "./protocol/encode";
 import type { Side } from "./protocol/messages";
 
@@ -35,6 +40,7 @@ import "./styles/terminal.css";
 
 export default function App() {
     const { state, send } = useOrderBook();
+    const { openCents } = useIgnitionPrice();
 
     const handleSubmit = (side: Side, priceCents: number, qty: number): void => {
         send(newOrderFrame(nextClOrdId(), side, priceCents, qty));
@@ -55,7 +61,7 @@ export default function App() {
                     sessionOpenCents={state.sessionOpenCents}
                     lastFrameNanos={state.lastFrameNanos}
                     connection={state.connection}
-                    openCents={undefined /* P11: Alpaca ignition price; sentinel for now */}
+                    openCents={openCents}
                 />
             </header>
 

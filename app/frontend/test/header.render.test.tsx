@@ -83,6 +83,20 @@ describe("<Header /> open field", () => {
         renderHeader({ openCents: 14980 });
         expect(screen.getByTestId("header-open").textContent).toBe("149.80");
     });
+
+    it("does not re-anchor Chg when openCents is supplied (P11 D6)", () => {
+        // Chg stays anchored to sessionOpenCents (the first trade), independent of the
+        // market-open value in the Open field. A wildly different openCents must leave
+        // Chg and its percent identical to the no-openCents render.
+        const first = renderHeader();
+        const chg = screen.getByTestId("header-change").textContent;
+        const pct = screen.getByTestId("header-change-pct").textContent;
+        first.unmount();
+
+        renderHeader({ openCents: 99999 });
+        expect(screen.getByTestId("header-change").textContent).toBe(chg);
+        expect(screen.getByTestId("header-change-pct").textContent).toBe(pct);
+    });
 });
 
 describe("<Header /> connection badge and session meta", () => {

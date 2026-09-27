@@ -4,16 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/app/frontend/src/components/Navbar.tsx" afterDir="false" />
+    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/.env" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/.env" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/FrontendREADME.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/FrontendREADME.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/Header.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/Header.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/main.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/main.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/vite-env.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/vite-env.d.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/vite.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/vite.config.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -55,23 +53,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.7379163825427066" />
-      <entry key="MS500" value="3.9176276990553034" />
-      <entry key="S2" value="10.837204095120718" />
-      <entry key="S5" value="20.75615990436098" />
-      <entry key="S10" value="28.580202633734128" />
-      <entry key="S30" value="36.66714642784438" />
-      <entry key="S60" value="39.2062826450092" />
-      <entry key="M2" value="40.59836207056483" />
-      <entry key="M5" value="47.31511225054475" />
-      <entry key="M10" value="80.9090781838299" />
-      <entry key="M15" value="120.84797036214411" />
-      <entry key="M30" value="213.65486870665686" />
-      <entry key="H1" value="305.4042934668868" />
-      <entry key="H2" value="372.3356371218381" />
-      <entry key="H4" value="415.4664453510687" />
-      <entry key="D1" value="616.8080777713318" />
-      <entry key="W1" value="849.461825590007" />
+      <entry key="MS100" value="1.0009752492164763" />
+      <entry key="MS500" value="1.3486032257315452" />
+      <entry key="S2" value="3.2836523705581455" />
+      <entry key="S5" value="5.563792963241311" />
+      <entry key="S10" value="6.981973784296931" />
+      <entry key="S30" value="8.617119293708916" />
+      <entry key="S60" value="12.559824560951816" />
+      <entry key="M2" value="21.68677239134736" />
+      <entry key="M5" value="38.81671567820141" />
+      <entry key="M10" value="73.27421189099715" />
+      <entry key="M15" value="112.67338472591483" />
+      <entry key="M30" value="206.9034241536009" />
+      <entry key="H1" value="302.93423653580976" />
+      <entry key="H2" value="374.2776379878485" />
+      <entry key="H4" value="420.5100225799023" />
+      <entry key="D1" value="624.8253474376316" />
+      <entry key="W1" value="858.2683647620363" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -93,23 +91,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.625389301311961" />
-      <entry key="MS500" value="3.8660506367221488" />
-      <entry key="S2" value="10.795394555377563" />
-      <entry key="S5" value="20.71352486021768" />
-      <entry key="S10" value="28.54519592657096" />
-      <entry key="S30" value="36.65000879308127" />
-      <entry key="S60" value="39.19679183023431" />
-      <entry key="M2" value="40.59336238355324" />
-      <entry key="M5" value="47.3129470936508" />
-      <entry key="M10" value="80.90768844636942" />
-      <entry key="M15" value="120.8467919363837" />
-      <entry key="M30" value="213.6539591579145" />
-      <entry key="H1" value="305.40366245606907" />
-      <entry key="H2" value="372.3352524074313" />
-      <entry key="H4" value="415.4662296484733" />
-      <entry key="D1" value="616.8080216509122" />
-      <entry key="W1" value="849.4618141011836" />
+      <entry key="MS100" value="0.9021417803255093" />
+      <entry key="MS500" value="1.322125546979363" />
+      <entry key="S2" value="3.2608975482640195" />
+      <entry key="S5" value="5.540145790365422" />
+      <entry key="S10" value="6.964547901706187" />
+      <entry key="S30" value="8.609313767142968" />
+      <entry key="S60" value="12.55477702154604" />
+      <entry key="M2" value="21.683066767248096" />
+      <entry key="M5" value="38.81448192907301" />
+      <entry key="M10" value="73.27267129210938" />
+      <entry key="M15" value="112.67208222724449" />
+      <entry key="M30" value="206.90243561643672" />
+      <entry key="H1" value="302.93355613058947" />
+      <entry key="H2" value="374.2772240014018" />
+      <entry key="H4" value="420.5097906445411" />
+      <entry key="D1" value="624.825288358186" />
+      <entry key="W1" value="858.2683528403226" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -360,15 +358,8 @@
       <workItem from="1790284177427" duration="62000" />
       <workItem from="1790284257767" duration="1487000" />
       <workItem from="1790317911720" duration="949000" />
-      <workItem from="1790362104801" duration="328000" />
-    </task>
-    <task id="LOCAL-00017" summary="Add parsePrice for FIX price fields (Step 2)&#10;&#10;Parse a byte-range FIX price to long cents, reusing parseLong for the&#10;integer and fractional parts. Scale the fraction by digit length, not&#10;value: one digit *10, two digits as-is.&#10;&#10;Reject (-1L sentinel, consistent with parseLong) on: empty range, empty&#10;integer part, more than two decimals, non-digit bytes, and non-positive&#10;result. The zero/negative price policy is applied here via the &gt; 0 check,&#10;since parseLong deliberately treats &quot;0&quot; as a valid parse.&#10;&#10;PRICE_SCALE and MAX_DECIMALS kept private to the parser (no second caller).&#10;No String/split/BigDecimal; pure byte[] in, off the hot path.&#10;&#10;Tested: integer-only, one/two decimals, leading zeros, zero-integer-part&#10;with positive fraction, and rejects for &gt;2 decimals, zero, negative, bare&#10;dot, empty integer part, trailing dot, trailing junk, and multiple dots.&#10;Tests embed each price in a wider buffer to verify offset/length bounds.">
-      <option name="closed" value="true" />
-      <created>1784829408569</created>
-      <option name="number" value="00017" />
-      <option name="presentableId" value="LOCAL-00017" />
-      <option name="project" value="LOCAL" />
-      <updated>1784829408570</updated>
+      <workItem from="1790362104801" duration="2293000" />
+      <workItem from="1790485781841" duration="1658000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />
@@ -754,14 +745,21 @@
       <option name="project" value="LOCAL" />
       <updated>1789100940576</updated>
     </task>
-    <option name="localTasksCounter" value="66" />
+    <task id="LOCAL-00066" summary="Begun work on Phase 10">
+      <option name="closed" value="true" />
+      <created>1790362497016</created>
+      <option name="number" value="00066" />
+      <option name="presentableId" value="LOCAL-00066" />
+      <option name="project" value="LOCAL" />
+      <updated>1790362497017</updated>
+    </task>
+    <option name="localTasksCounter" value="67" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Moved all backend code into backend folder" />
     <MESSAGE value="Phase 5 (P5-0): Vite/React/TS scaffold + cents↔dollars format primitives&#10;&#10;Author the empty frontend/ scaffold so the toolchain boots and land the&#10;price-formatting primitives with tests.&#10;&#10;- package.json: Vite 8 / React 19 / Vitest 4 / TS 5, ESM, dev/build/test scripts&#10;- tsconfig.json (strict, src+test) + standalone tsconfig.node.json for the&#10;  config file; no project references / no composite (avoids the tsc -b footgun)&#10;- vite.config.ts via vitest/config, environment: node (jsdom deferred to P5-2)&#10;- index.html, main.tsx (root guard + StrictMode), App.tsx static shell&#10;- .gitignore (keeps base .env tracked), .env with VITE_WS_URL&#10;- src/format.ts: centsToDollars / dollarsToCents — string-based integer math,&#10;  no float; mirrors backend parsePrice policy (&gt;0, &lt;=2 decimals, -1 -&gt; &quot;—&quot;)&#10;- test/format.test.ts: formatting, sentinel/non-finite, round-trip, all&#10;  reject branches&#10;&#10;Pure logic verified by hand; toolchain to be booted locally (no network in&#10;the authoring env). No later-step files created; backend untouched." />
     <MESSAGE value="feat(frontend): P5-1 protocol types, encoders, reducer, socket hook&#10;&#10;- protocol/messages.ts: BookFrame|ExecFrame and NewOrder|CancelOrder unions,&#10;  ExecType (full Java enum names), parseServerFrame as the single JSON-&gt;typed&#10;  narrowing point (rebuilds the object, so extra fields can't ride along)&#10;- protocol/encode.ts: NEW/CANCEL frame builders (integer cents, symbol ASML) and&#10;  a Date.now()-seeded monotonic clOrdId generator, factory-shaped for tests&#10;- state/reducer.ts: pure over {connection, book, tape, myOrders}. BOOK replaces&#10;  book state wholesale and EXEC never touches it; tape capped at 200 newest-first;&#10;  myOrders keyed by clOrdId, registered at send time (no EXEC carries a side)&#10;- state/useOrderBook.ts: socket lifecycle from VITE_WS_URL, capped backoff&#10;  reconnect (250ms-&gt;4s, reset on open), clears book on drop, StrictMode-safe&#10;- vite-env.d.ts for import.meta.env typing&#10;- tests: protocol.test.ts (narrowing + reject branches + encoders),&#10;  reducer.test.ts (BOOK-replaces-not-merges, tape cap, myOrders lifecycle,&#10;  the Q1 passive-fill gap, connection transitions)&#10;&#10;Q1/Q2 resolved against Phase-4 source: the engine fires one onFill per trade&#10;naming the aggressor and is silent on the passive side, and the handler maps&#10;aggressorOrderId straight into EXEC orderId. Resting orders therefore have no&#10;trackable per-order fill progress; encoded in the reducer as a documented gap." />
     <MESSAGE value="feat(frontend): add DepthLadder component (P5-2)&#10;&#10;Presentational depth ladder rendering the authoritative BOOK slice: asks&#10;above bids (both highest-price-first, best price nearest the mid divider),&#10;each row with a cumulative-depth bar. Bars use a shared max across both&#10;sides so bid/ask imbalance is visible.&#10;&#10;- buildLadder: pure, exported width helper (best-first cumulation, shared&#10;  max guarded against divide-by-zero), unit-tested separately from the&#10;  component per the guide.&#10;- spreadLabel: guards bestBid/bestAsk &gt; 0 before subtracting so a -1&#10;  sentinel can't render a bogus spread; exported and asserted directly.&#10;- Cents in, dollars only at the render edge via format.ts; no float math.&#10;- Presentational only (single `book: BookState` prop); no App wiring yet.&#10;&#10;Toolchain: add jsdom + @testing-library/react + @testing-library/dom (dev);&#10;switch vitest environment to jsdom and include .tsx tests. Existing pure&#10;suites unaffected.&#10;&#10;Structural class-name hooks only; terminal theme deferred to P5-5." />
@@ -786,6 +784,7 @@
     <MESSAGE value="feat(frontend): add CancelTicket and OrderEntry affordances (P7-7)&#10;&#10;Add a manual cancel-by-OrigClOrdID ticket (CancelTicket) that shares the&#10;same handleCancel callback path as per-row OpenOrders cancels, so the two&#10;cancel routes cannot diverge. Enhance OrderEntry with bid/mid/ask reference&#10;chips, one-cent tick nudges, round-lot quantity presets, a display-only&#10;clOrdId (Tag 11) preview field, and an imperative forwardRef setPrice seam&#10;for the upcoming P7-10 depth curve integration. App wires live book tops and&#10;nextClOrdId.peek() as display-only props; consumption still happens only at&#10;send. All new logic is covered by unit tests (cancelTicket, clOrdIdGenerator&#10;peek, orderTicket pure logic) and the OrderEntry test suite is extended for&#10;chips, nudges, presets, and the ref handle." />
     <MESSAGE value="feat(frontend): add CancelTicket and OrderEntry affordances (P7-7)&#10;&#10;Add a manual cancel-by-OrigClOrdID ticket (CancelTicket) that shares the&#10;same handleCancel callback path as per-row OpenOrders cancels, so the two&#10;cancel routes cannot diverge. Enhance OrderEntry with bid/mid/ask reference&#10;chips, one-cent tick nudges, round-lot quantity presets, a display-only&#10;clOrdId (Tag 11) preview field, and an imperative forwardRef setPrice seam&#10;for the upcoming P7-10 depth curve integration. App wires live book tops and&#10;nextClOrdId.peek() as display-only props; consumption still happens only at&#10;send. All new logic is covered by unit tests (cancelTicket, clOrdIdGenerator&#10;peek, orderTicket pure logic) and the OrderEntry test suite is extended for&#10;chips, nudges, sets, and the ref handle." />
     <MESSAGE value="feat(frontend): P7-8 order blotter with passive-fill decrement&#10;&#10;Extend OpenOrders into a full blotter (P7-8):&#10;&#10;- MyOrder gains sentAtNanos (client-assigned epoch-nanos send time,&#10;  captured at dispatch in useOrderBook, rendered via formatClockNanos).&#10;  Optional so all existing SENT fixtures compile unchanged.&#10;- SENT action gains sentAtNanos; applySent stores it on NEW rows only.&#10;- passiveFill(order, filledQty): MyOrder exported from reducer.ts:&#10;  decrements remainingQty locally and transitions to PARTIALLY_FILLED or&#10;  FILLED. Terminal guard mirrors nextOrder. Pure, exported, unit-tested.&#10;- applyExec gains the passive branch: on a fill EXEC whose passiveOrderId&#10;  matches an owned clOrdId (guarded &gt;0, != orderId, isFill), passiveFill&#10;  is applied. EXEC stays authoritative for the aggressor; the passive&#10;  decrement is a documented client-side derivation. Slice-identity&#10;  preserved on no-op paths.&#10;- OpenOrders rewritten as a blotter: ID, Sent (client-assigned), Side,&#10;  Price (limit from SENT), Filled (derived originalQty - remainingQty via&#10;  exported filledOf), Status, Cancel. Every P5-4 class, testid, and&#10;  isCancellable cancel gating preserved.&#10;- terminal.css open-orders section extended (col-time, time cell); every&#10;  other section verbatim.&#10;&#10;Tests: passiveFill pure (partial, full, clamp, terminal guard); reducer&#10;integration (passive decrement, -1 NA never matches, terminal not&#10;resurrected, aggressor-then-passive mixed case); openOrders.logic&#10;(filledOf: normal, zero, negative clamp); openOrders.test extended (send&#10;time renders HH:MM:SS.mmm, empty cell without one, filled/total column).&#10;Revised reducer.test passive block to assert the decrement (closes the&#10;gap). Revised openOrders.test row assertion from remaining to filled/total.&#10;&#10;237 tests green. App.tsx, messages.ts, format.ts, encode.ts, backend&#10;untouched. README derivation note deferred to P7-10." />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(frontend): P7-8 order blotter with passive-fill decrement&#10;&#10;Extend OpenOrders into a full blotter (P7-8):&#10;&#10;- MyOrder gains sentAtNanos (client-assigned epoch-nanos send time,&#10;  captured at dispatch in useOrderBook, rendered via formatClockNanos).&#10;  Optional so all existing SENT fixtures compile unchanged.&#10;- SENT action gains sentAtNanos; applySent stores it on NEW rows only.&#10;- passiveFill(order, filledQty): MyOrder exported from reducer.ts:&#10;  decrements remainingQty locally and transitions to PARTIALLY_FILLED or&#10;  FILLED. Terminal guard mirrors nextOrder. Pure, exported, unit-tested.&#10;- applyExec gains the passive branch: on a fill EXEC whose passiveOrderId&#10;  matches an owned clOrdId (guarded &gt;0, != orderId, isFill), passiveFill&#10;  is applied. EXEC stays authoritative for the aggressor; the passive&#10;  decrement is a documented client-side derivation. Slice-identity&#10;  preserved on no-op paths.&#10;- OpenOrders rewritten as a blotter: ID, Sent (client-assigned), Side,&#10;  Price (limit from SENT), Filled (derived originalQty - remainingQty via&#10;  exported filledOf), Status, Cancel. Every P5-4 class, testid, and&#10;  isCancellable cancel gating preserved.&#10;- terminal.css open-orders section extended (col-time, time cell); every&#10;  other section verbatim.&#10;&#10;Tests: passiveFill pure (partial, full, clamp, terminal guard); reducer&#10;integration (passive decrement, -1 NA never matches, terminal not&#10;resurrected, aggressor-then-passive mixed case); openOrders.logic&#10;(filledOf: normal, zero, negative clamp); openOrders.test extended (send&#10;time renders HH:MM:SS.mmm, empty cell without one, filled/total column).&#10;Revised reducer.test passive block to assert the decrement (closes the&#10;gap). Revised openOrders.test row assertion from remaining to filled/total.&#10;&#10;237 tests green. App.tsx, messages.ts, format.ts, encode.ts, backend&#10;untouched. README derivation note deferred to P7-10." />
+    <MESSAGE value="Begun work on Phase 10" />
+    <option name="LAST_COMMIT_MESSAGE" value="Begun work on Phase 10" />
   </component>
 </project>
