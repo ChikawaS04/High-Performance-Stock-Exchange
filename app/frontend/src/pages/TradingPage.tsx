@@ -93,7 +93,7 @@ export function TradingPage({
                     />
                     <h2 className="panel__title panel__title--spaced">Open orders</h2>
                     <OpenOrders orders={state.myOrders} onCancel={onCancelOrder} />
-                    <h2 className="panel__title panel__title--spaced">Cancel by ID</h2>
+                    <h2 className="panel__title panel__title--spaced panel__title--cancel">Cancel by ID</h2>
                     <CancelTicket onCancel={onCancelOrder} disabled={!connected} />
                 </section>
             </main>

@@ -66,9 +66,6 @@ export function CancelTicket({ onCancel, disabled = false }: CancelTicketProps) 
     return (
         <div className="cancel-ticket">
             <div className="cancel-ticket__field">
-                <div className="cancel-ticket__head">
-                    <span className="cancel-ticket__label">Order ID to cancel</span>
-                </div>
                 <input
                     className="cancel-ticket__input"
                     type="text"

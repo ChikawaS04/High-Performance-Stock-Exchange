@@ -149,6 +149,12 @@ export function TradeTape({ tape }: TradeTapeProps) {
                         const rowClass = entry.mine
                             ? "trade-tape__row trade-tape__row--mine"
                             : "trade-tape__row";
+                        const sideClass =
+                            entry.aggressorSide === "BUY"
+                                ? "trade-tape__side trade-tape__side--buy"
+                                : entry.aggressorSide === "SELL"
+                                ? "trade-tape__side trade-tape__side--sell"
+                                : "trade-tape__side";
                         return (
                             <div key={entry.tradeId} className={rowClass} data-testid="tape-row">
                 <span className="trade-tape__time">
@@ -158,7 +164,7 @@ export function TradeTape({ tape }: TradeTapeProps) {
                   {centsToDollars(entry.priceCents)}
                 </span>
                                 <span className="trade-tape__qty">{entry.quantity}</span>
-                                <span className="trade-tape__side" data-testid="tape-side">
+                                <span className={sideClass} data-testid="tape-side">
                   {entry.aggressorSide ?? ""}
                 </span>
                             </div>

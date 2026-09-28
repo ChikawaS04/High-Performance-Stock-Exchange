@@ -13,39 +13,60 @@
  * figures for every number, so prices align in columns and never reflow. Colour
  * is semantic only: green = bid/up, red = ask/down, amber = degraded link, a
  * cool blue reserved for keyboard focus so focus never reads as a side.
- */
+ *
+ * Slate retheme (2026-09): the Palette-A charcoal base is replaced by a cool
+ * slate blue-grey terminal palette (TradeStation / Freestoxx style) — sans-serif
+ * throughout, green/red for buy/sell, blue as the single interface accent, gently
+ * rounded controls, and bold filled BUY/SELL blocks. Token names are unchanged;
+ * see the :root note and the retheme override block at the foot of this file. */
 
 :root {
-    /* Palette A (neutral charcoal, IBKR-inspired) — value swap only; every token
-       NAME is stable so no component edit is forced (P8-2). */
-    --bg: #0E0E0F;
-    --surface: #17181A;
-    --surface-2: #1E2023;
-    --line: #26282B;
-    --line-strong: #33363B;
+    /* Slate retheme (2026-09) — cool slate blue-grey terminal (TradeStation /
+       Freestoxx style). Value swap only; every token NAME is stable so no
+       component edit is forced. Colour is semantic: green = bid/up/buy, red =
+       ask/down/sell, blue = the single interface accent (active tab, focus,
+       hovers), amber kept only for the degraded-link dot. */
+    --bg: #050506;
+    --surface: #161a21;
+    --surface-2: #1f242e;
+    --line: #272d38;
+    --line-strong: #353c49;
 
-    --text: #E6E7E9;
-    --text-dim: #8A8F98;
-    --text-faint: #5C6067;
+    --text: #c9ced8;
+    --text-dim: #838b99;
+    --text-faint: #59616e;
 
-    --bid: #2E9E5B;
-    --bid-bar: rgba(46, 158, 91, 0.14);
-    --ask: #D13438;
-    --ask-bar: rgba(209, 52, 56, 0.14);
+    --bid: #2bb673;
+    --bid-bar: rgba(43, 182, 115, 0.14);
+    --ask: #e05555;
+    --ask-bar: rgba(224, 85, 85, 0.14);
 
-    /* --live aliases --bid; kept as its own token so no component reference
-       churns. --warn stays amber (retuned to sit with the charcoal set) — the
-       one honest non-charcoal signal for the degraded-link state. */
-    --live: #2E9E5B;
-    --warn: #C99A3C;
-    --focus: #4C8DFF;
+    /* Faint per-side column tints, the reference's bid/ask cell wash. */
+    --bid-tint: rgba(43, 182, 115, 0.07);
+    --ask-tint: rgba(224, 85, 85, 0.07);
 
-    /* Modal scrim: near-black over the charcoal base, no blue tint. */
-    --scrim: rgba(6, 6, 7, 0.7);
+    /* Blue interface accent (== --focus): active tab, hovers, keyboard focus. */
+    --accent: #3d8bfd;
 
-    /* Themed-scrollbar tokens (defined here in P8-2, consumed by P8-3). */
-    --scroll-thumb: #3A3D42;
-    --scroll-thumb-hover: #4A4E54;
+    /* Selected nav tab fill: a dull, light steel-blue. */
+    --nav-active-bg: #8aa2bd;
+
+    /* Order-entry action button fill: a dull, light blue (replaces the loud
+       green so green/red stay reserved for market data). */
+    --action-blue: #5f81a9;
+
+    /* --live aliases --bid (up/good). --warn is the one amber signal, kept for
+       the degraded-link dot only so a reconnecting state still reads. */
+    --live: #2bb673;
+    --warn: #e0a13c;
+    --focus: #3d8bfd;
+
+    /* Modal scrim: near-opaque over the slate base. */
+    --scrim: rgba(6, 8, 12, 0.72);
+
+    /* Themed-scrollbar tokens. */
+    --scroll-thumb: #333a47;
+    --scroll-thumb-hover: #434c5c;
     --scroll-track: transparent;
 
     --mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", "SF Mono",
@@ -53,8 +74,12 @@
     --sans: "IBM Plex Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
-    --gap: 10px;
-    --radius: 2px;
+    /* Height consumed above the workspace panels (header strip + nav band +
+       workspace top padding); panels fill from here to the bottom of the screen. */
+    --chrome-h: 144px;
+
+    --gap: 8px;
+    --radius: 0;
 }
 
 * {
@@ -226,6 +251,13 @@ body {
 
 .panel__title--spaced {
     margin-top: 18px;
+}
+
+/* Cancel-by-ID heading is pushed to the bottom of the order-entry panel: in the
+   flex-column panel, margin-top:auto absorbs the free space above it so it and the
+   ticket below it sit at the foot of the panel. */
+.panel__title--cancel {
+    margin-top: auto;
 }
 
 /* ---- toolbar (P7-9: FIX inspector trigger) -------------------------------- */
@@ -635,7 +667,6 @@ body {
        max-height caps a busy tape so its rows scroll internally
        (.trade-tape__rows) rather than stretching the page. Both are tunable. */
     min-height: 240px;
-    max-height: 60vh;
     font-size: 13px;
 }
 
@@ -681,8 +712,8 @@ body {
 .trade-tape__head,
 .trade-tape__row {
     display: grid;
-    grid-template-columns: auto 1fr auto 42px;
-    column-gap: 12px;
+    grid-template-columns: auto 1fr 72px 64px;
+    column-gap: 24px;
     align-items: center;
 }
 
@@ -718,7 +749,7 @@ body {
 }
 
 .trade-tape__time {
-    color: var(--text-dim);
+    color: var(--text);
     font-variant-numeric: tabular-nums;
 }
 
@@ -743,7 +774,7 @@ body {
 
 .trade-tape__qty {
     text-align: right;
-    color: var(--text-dim);
+    color: var(--text);
 }
 
 /* Aggressor side, own trades only (no side is on the wire). Plain text, not a
@@ -1531,6 +1562,31 @@ body {
     font-size: 12px;
 }
 
+/* ---- price chart page: session price line (P12) --------------------------- */
+
+.price-chart {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.price-chart__svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 12 / 5;
+}
+
+/* Axis labels are prices and times: mono + tabular, like every other number. The
+   empty-state word (.price-chart__empty) is a status, not a value, so it stays sans. */
+.price-chart__y-label,
+.price-chart__x-label {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    fill: var(--text-dim);
+    font-size: 10px;
+}
+
 /* ---- responsive ----------------------------------------------------------- */
 
 @media (max-width: 900px) {
@@ -1550,5 +1606,212 @@ body {
         max-height: 180px;
         border-right: none;
         border-bottom: 1px solid var(--line);
+    }
+}
+
+
+/* ==========================================================================
+   Slate retheme overrides (2026-09) — TradeStation / Freestoxx style
+   Additive layer for the chrome-level touches the token swap alone cannot
+   express: sans-serif numerics, bold filled BUY/SELL blocks, faint bid/ask
+   chip tints, the blue active-tab and hover accents, and cool-palette row
+   striping. Green/red side semantics are unchanged.
+   ========================================================================== */
+
+/* The reference is sans-serif end to end. Redirect the numeric elements from
+   mono to sans while keeping tabular figures so columns still lock. */
+.header__value,
+.depth-ladder,
+.trade-tape,
+.order-entry__input,
+.cancel-ticket__input,
+.open-orders__table {
+    font-family: var(--sans);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+}
+
+/* Bold, filled BUY / SELL blocks echoing the reference's side blocks: the active
+   side is a solid colour fill with white text, the inactive side stays quiet. */
+.order-entry__side-btn {
+    padding: 12px 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.order-entry__side-btn[data-testid="side-buy"].order-entry__side-btn--active {
+    background: var(--action-blue);
+    border-color: var(--action-blue);
+    color: #ffffff;
+}
+.order-entry__side-btn[data-testid="side-sell"].order-entry__side-btn--active {
+    background: var(--ask);
+    border-color: var(--ask);
+    color: #ffffff;
+}
+
+/* Faint per-side wash on the bid/ask reference chips (the reference tints the
+   bid and ask columns). The chip value keeps its green/red. */
+.order-entry__chip--bid {
+    background: var(--bid-tint);
+}
+.order-entry__chip--ask {
+    background: var(--ask-tint);
+}
+
+/* Active tab marked with the blue interface accent. */
+.nav__link--active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+}
+
+/* Chrome hover / active accents in blue. */
+.toolbar__inspector-btn:hover,
+.order-entry__chip:hover:not(:disabled),
+.order-entry__nudge:hover:not(:disabled),
+.order-entry__preset:hover:not(:disabled),
+.order-entry__submit:hover,
+.trade-tape__filter-btn--active,
+.fix-inspector__filter-btn--active,
+.fix-inspector__copy:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+/* Subtle blotter striping + row hover in the cool palette. */
+.open-orders__table tbody tr:nth-of-type(even) > td {
+    background: rgba(255, 255, 255, 0.02);
+}
+.open-orders__table tbody tr:hover > td {
+    background: rgba(61, 139, 253, 0.08);
+}
+
+/* Trade-tape row hover for the live-grid feel (own-trade marker unaffected). */
+.trade-tape__row:hover {
+    background: rgba(61, 139, 253, 0.06);
+}
+
+
+/* ==========================================================================
+   Navbar: black parallelogram tab boxes (2026-09)
+   Each tab is a bordered box drawn by a skewed ::before, so the box is a
+   parallelogram while the label stays upright. Boxes sit on a black bar; the
+   selected tab fills with the dull light-blue --nav-active-bg. Sharp corners.
+   ========================================================================== */
+
+.nav {
+    position: relative;
+    z-index: 0;
+    align-items: center;
+    gap: 0;                    /* tabs touch, no space between them */
+    padding: 0 14px;
+    margin-top: 12px;          /* space separating the tabs from the header panel */
+    min-height: 46px;
+    background: var(--bg);     /* very-black band, shared with the FIX-inspector row */
+    border-bottom: 1px solid var(--line);
+}
+
+.nav__link {
+    position: relative;
+    z-index: 0;
+    padding: 8px 26px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+/* The box itself: a black, bordered parallelogram behind the upright label. */
+.nav__link::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: #000000;
+    border: 1px solid var(--line-strong);
+    transform: skewX(-14deg);
+}
+
+.nav__link:hover {
+    color: var(--text);
+}
+.nav__link:hover::before {
+    border-color: var(--accent);
+}
+
+/* Selected tab: dull light-blue fill, dark label for contrast. */
+.nav__link--active {
+    color: #0a0e14;
+    border-bottom-color: transparent;
+}
+.nav__link--active::before {
+    background: var(--nav-active-bg);
+    border-color: var(--nav-active-bg);
+}
+
+/* Keyboard focus ring follows the parallelogram box, not the text. */
+.nav__link:focus-visible {
+    outline: none;
+}
+.nav__link:focus-visible::before {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+}
+
+
+/* ==========================================================================
+   P?-extras (2026-09): tape side colours, toolbar-on-nav band
+   ========================================================================== */
+
+/* Trade-tape aggressor side coloured like the blotter: BUY green, SELL red. */
+.trade-tape__side--buy {
+    color: var(--bid);
+}
+.trade-tape__side--sell {
+    color: var(--ask);
+}
+
+/* The FIX-inspector toolbar rides up onto the nav band, so the tabs (left) and
+   the FIX inspector button (right) share one strip. The band is transparent and
+   click-through so the tabs underneath stay clickable; only the button captures
+   pointer events. */
+.toolbar {
+    margin-top: -46px;
+    height: 46px;
+    padding: 0 18px;
+    align-items: center;
+    background: transparent;
+    border-bottom: none;
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+}
+.toolbar > * {
+    pointer-events: auto;
+}
+
+
+/* ==========================================================================
+   Equal, full-height trading panels (2026-09)
+   On the 3-column layout each panel fills from the top of the workspace to the
+   bottom of the screen on startup (all three equal), then grows independently
+   with its own content (start-aligned, so a taller panel scrolls the page and
+   does not stretch the others). Gated above the single-column breakpoint;
+   stacked panels below 900px size to content as before.
+   ========================================================================== */
+@media (min-width: 901px) {
+    .workspace {
+        align-items: start;
+    }
+    .panel {
+        min-height: calc(100vh - var(--chrome-h));
+        min-height: calc(100dvh - var(--chrome-h));
+    }
+    /* Tape fills the panel down to the screen bottom; its rows scroll only
+       once they actually reach there, not at a fixed cap. */
+    .trade-tape {
+        flex: 1;
+        min-height: 0;
     }
 }
