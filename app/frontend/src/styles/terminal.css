@@ -31,6 +31,7 @@
     --surface-2: #1f242e;
     --line: #272d38;
     --line-strong: #353c49;
+    --row-line: rgba(255, 255, 255, 0.14);  /* thin light table-row separator */
 
     --text: #c9ced8;
     --text-dim: #838b99;
@@ -232,6 +233,14 @@ body {
     border: 1px solid var(--line);
     border-radius: var(--radius);
     padding: 12px;
+}
+
+/* Third workspace cell holds two stacked, independent panels (order entry + blotter). */
+.workspace__col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+    min-width: 0;
 }
 
 /* P8-8: .panel--ladder no longer clips. The old `overflow: hidden` was cutting
@@ -718,13 +727,15 @@ body {
 }
 
 .trade-tape__head {
-    padding: 0 8px 4px;
+    margin: 0 -12px;
+    padding: 5px 8px;
     font-family: var(--sans);
     font-size: 9px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--text-faint);
-    border-bottom: 1px solid var(--line);
+    color: var(--text-dim);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line-strong);
 }
 
 .trade-tape__head-price,
@@ -740,12 +751,14 @@ body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    background: var(--bg);
+    margin: 0 -12px -12px;
 }
 
 .trade-tape__row {
     height: 22px;
     padding: 0 8px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--row-line);
 }
 
 .trade-tape__time {
@@ -803,6 +816,11 @@ body {
     padding: 14px 8px;
     color: var(--text-faint);
     font-size: 12px;
+}
+
+.trade-tape__empty {
+    margin: 0 -12px -12px;
+    background: var(--bg);
 }
 
 /* ---- order entry (P7-7: chips, nudges, presets, clOrdId) ------------------ */
@@ -1143,6 +1161,8 @@ body {
     max-height: calc(var(--blotter-row-h) * 9.5);
     overflow: auto;
     scrollbar-gutter: stable;
+    background: var(--bg);
+    margin: 0 -12px;
 }
 
 /* Empty state reserves the same floor so the panel does not jump between "No
@@ -1151,6 +1171,8 @@ body {
     display: flex;
     align-items: center;
     min-height: calc(var(--blotter-row-h) * 5.5);
+    margin: 0 -12px;
+    background: var(--bg);
 }
 
 .open-orders__table {
@@ -1175,7 +1197,7 @@ body {
     font-weight: 600;
     font-size: 10px;
     color: var(--text-dim);
-    background: var(--surface);
+    background: var(--surface-2);
     box-shadow: inset 0 -1px 0 var(--line-strong);
 }
 
@@ -1189,7 +1211,7 @@ body {
     height: var(--blotter-row-h);
     padding: 5px 8px;
     text-align: right;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--row-line);
 }
 
 .open-orders__id,
@@ -1680,7 +1702,7 @@ body {
 
 /* Subtle blotter striping + row hover in the cool palette. */
 .open-orders__table tbody tr:nth-of-type(even) > td {
-    background: rgba(255, 255, 255, 0.02);
+    background: transparent;
 }
 .open-orders__table tbody tr:hover > td {
     background: rgba(61, 139, 253, 0.08);
@@ -1804,13 +1826,24 @@ body {
     .workspace {
         align-items: start;
     }
-    .panel {
+    /* Direct grid items (Depth, Trades, and the split third column) fill to the
+       bottom of the screen; nested panels inside the column are sized below. */
+    .workspace > .panel,
+    .workspace > .workspace__col {
         min-height: calc(100vh - var(--chrome-h));
         min-height: calc(100dvh - var(--chrome-h));
     }
-    /* Tape fills the panel down to the screen bottom; its rows scroll only
-       once they actually reach there, not at a fixed cap. */
+    /* Tape fills its panel; rows scroll only once they reach the bottom. */
     .trade-tape {
+        flex: 1;
+        min-height: 0;
+    }
+    /* In the third column: order entry sizes to content, the blotter fills the
+       remaining height down to the screen bottom. */
+    .panel--entry {
+        flex: 0 0 auto;
+    }
+    .panel--blotter {
         flex: 1;
         min-height: 0;
     }

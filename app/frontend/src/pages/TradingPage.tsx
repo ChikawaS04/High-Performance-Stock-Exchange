@@ -81,21 +81,26 @@ export function TradingPage({
                     <TradeTape tape={state.tape} />
                 </section>
 
-                <section className="panel panel--controls" aria-label="Trading">
-                    <h2 className="panel__title">Order entry</h2>
-                    <OrderEntry
-                        ref={entryRef}
-                        onSubmit={onSubmitOrder}
-                        disabled={!connected}
-                        bestBidCents={state.book.bestBid}
-                        bestAskCents={state.book.bestAsk}
-                        clOrdIdPreview={clOrdIdPreview}
-                    />
-                    <h2 className="panel__title panel__title--spaced">Open orders</h2>
-                    <OpenOrders orders={state.myOrders} onCancel={onCancelOrder} />
-                    <h2 className="panel__title panel__title--spaced panel__title--cancel">Cancel by ID</h2>
-                    <CancelTicket onCancel={onCancelOrder} disabled={!connected} />
-                </section>
+                <div className="workspace__col">
+                    <section className="panel panel--entry" aria-label="Order entry">
+                        <h2 className="panel__title">Order entry</h2>
+                        <OrderEntry
+                            ref={entryRef}
+                            onSubmit={onSubmitOrder}
+                            disabled={!connected}
+                            bestBidCents={state.book.bestBid}
+                            bestAskCents={state.book.bestAsk}
+                            clOrdIdPreview={clOrdIdPreview}
+                        />
+                    </section>
+
+                    <section className="panel panel--blotter" aria-label="Order blotter">
+                        <h2 className="panel__title">Open orders</h2>
+                        <OpenOrders orders={state.myOrders} onCancel={onCancelOrder} />
+                        <h2 className="panel__title panel__title--spaced panel__title--cancel">Cancel by ID</h2>
+                        <CancelTicket onCancel={onCancelOrder} disabled={!connected} />
+                    </section>
+                </div>
             </main>
 
             <FixInspector
