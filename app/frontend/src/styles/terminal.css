@@ -66,8 +66,8 @@
     --scrim: rgba(6, 8, 12, 0.72);
 
     /* Themed-scrollbar tokens. */
-    --scroll-thumb: #333a47;
-    --scroll-thumb-hover: #434c5c;
+    --scroll-thumb: transparent;
+    --scroll-thumb-hover: transparent;
     --scroll-track: transparent;
 
     --mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", "SF Mono",
@@ -267,6 +267,10 @@ body {
    ticket below it sit at the foot of the panel. */
 .panel__title--cancel {
     margin-top: auto;
+    margin-left: -12px;
+    margin-right: -12px;
+    padding: 10px 12px 0;
+    border-top: 1px solid var(--line-strong);
 }
 
 /* ---- toolbar (P7-9: FIX inspector trigger) -------------------------------- */
@@ -492,13 +496,15 @@ body {
     display: grid;
     grid-template-columns: 1fr auto auto;
     column-gap: 12px;
-    padding: 0 8px 4px;
+    margin: 0 -12px;
+    padding: 5px 8px;
     font-family: var(--sans);
     font-size: 9px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--text-faint);
-    border-bottom: 1px solid var(--line);
+    color: var(--text-dim);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line-strong);
 }
 
 .depth-ladder__head-qty,
@@ -526,6 +532,8 @@ body {
     max-height: calc(var(--depth-rows, 10) * var(--depth-row-h));
     overflow-y: auto;
     scrollbar-gutter: stable;
+    margin: 0 -12px;
+    background: var(--bg);
 }
 
 .depth-ladder__asks {
@@ -570,11 +578,11 @@ body {
 }
 
 .depth-ladder__row--ask .depth-ladder__bar {
-    background: var(--ask-bar);
+    background: rgba(255, 75, 75, 0.22);
 }
 
 .depth-ladder__row--bid .depth-ladder__bar {
-    background: var(--bid-bar);
+    background: rgba(46, 201, 113, 0.22);
 }
 
 .depth-ladder__price {
@@ -615,7 +623,7 @@ body {
     justify-content: space-between;
     gap: 12px;
     padding: 6px 8px;
-    margin: 2px 0;
+    margin: 0 -12px;
     border-top: 1px solid var(--line-strong);
     border-bottom: 1px solid var(--line-strong);
     background: var(--surface-2);
@@ -1847,4 +1855,82 @@ body {
         flex: 1;
         min-height: 0;
     }
+    /* The open-orders list fills the blotter all the way down to the
+       Cancel-by-ID divider, so it scrolls only once the rows actually reach
+       there rather than at a fixed row cap. */
+    .panel--blotter .open-orders {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+    }
+    .panel--blotter .open-orders__scroll {
+        flex: 1;
+        min-height: 0;
+        max-height: none;
+    }
+    .panel--blotter .open-orders__empty {
+        flex: 1;
+    }
+}
+
+
+/* ==========================================================================
+   Transparent, zero-footprint scrollbars (site-wide)
+   Scroll regions keep scrolling, but the bar itself is invisible and reserves
+   no layout width, so no section loses space to it. The earlier themed-bar
+   rules are class-level, so the specific selectors are repeated here to win.
+   ========================================================================== */
+
+* {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    background: transparent;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-button {
+    background: transparent;
+    border: none;
+}
+
+/* Drop the reserved gutter that was chopping width off these sections. */
+.depth-ladder__asks,
+.depth-ladder__bids,
+.trade-tape__rows,
+.fix-inspector__list,
+.fix-inspector__detail,
+.open-orders__scroll {
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: auto;
+}
+
+.depth-ladder__asks::-webkit-scrollbar,
+.depth-ladder__bids::-webkit-scrollbar,
+.trade-tape__rows::-webkit-scrollbar,
+.fix-inspector__list::-webkit-scrollbar,
+.fix-inspector__detail::-webkit-scrollbar,
+.open-orders__scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    background: transparent;
+}
+
+.depth-ladder__asks::-webkit-scrollbar-thumb,
+.depth-ladder__bids::-webkit-scrollbar-thumb,
+.trade-tape__rows::-webkit-scrollbar-thumb,
+.fix-inspector__list::-webkit-scrollbar-thumb,
+.fix-inspector__detail::-webkit-scrollbar-thumb,
+.open-orders__scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border: none;
 }
