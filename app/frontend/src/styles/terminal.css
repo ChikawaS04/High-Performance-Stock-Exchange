@@ -66,8 +66,8 @@
     --scrim: rgba(6, 8, 12, 0.72);
 
     /* Themed-scrollbar tokens. */
-    --scroll-thumb: transparent;
-    --scroll-thumb-hover: transparent;
+    --scroll-thumb: rgba(255, 255, 255, 0.22);
+    --scroll-thumb-hover: rgba(255, 255, 255, 0.38);
     --scroll-track: transparent;
 
     --mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", "SF Mono",
@@ -1874,43 +1874,54 @@ body {
     }
 }
 
-
 /* ==========================================================================
-   Transparent, zero-footprint scrollbars (site-wide)
-   Scroll regions keep scrolling, but the bar itself is invisible and reserves
-   no layout width, so no section loses space to it. The earlier themed-bar
-   rules are class-level, so the specific selectors are repeated here to win.
+   Translucent scrollbars (site-wide)
+   The bar is visible but see-through, and nothing is permanently reserved for
+   it (scrollbar-gutter: auto), so every section keeps its full width. The
+   earlier themed-bar rules are class-level, so those selectors are repeated
+   here to win on specificity.
    ========================================================================== */
 
 * {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 *::-webkit-scrollbar {
-    width: 0;
-    height: 0;
+    width: 8px;
+    height: 8px;
     background: transparent;
 }
 
 *::-webkit-scrollbar-track,
-*::-webkit-scrollbar-thumb,
-*::-webkit-scrollbar-thumb:hover,
-*::-webkit-scrollbar-corner,
-*::-webkit-scrollbar-button {
+*::-webkit-scrollbar-corner {
     background: transparent;
-    border: none;
 }
 
-/* Drop the reserved gutter that was chopping width off these sections. */
+*::-webkit-scrollbar-thumb {
+    background-color: var(--scroll-thumb);
+    border-radius: 0;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scroll-thumb-hover);
+}
+
+*::-webkit-scrollbar-button {
+    display: none;
+}
+
+/* No permanently reserved gutter: these sections keep their full width. */
 .depth-ladder__asks,
 .depth-ladder__bids,
 .trade-tape__rows,
 .fix-inspector__list,
 .fix-inspector__detail,
 .open-orders__scroll {
-    scrollbar-width: none;
-    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
     scrollbar-gutter: auto;
 }
 
@@ -1920,8 +1931,17 @@ body {
 .fix-inspector__list::-webkit-scrollbar,
 .fix-inspector__detail::-webkit-scrollbar,
 .open-orders__scroll::-webkit-scrollbar {
-    width: 0;
-    height: 0;
+    width: 8px;
+    height: 8px;
+    background: transparent;
+}
+
+.depth-ladder__asks::-webkit-scrollbar-track,
+.depth-ladder__bids::-webkit-scrollbar-track,
+.trade-tape__rows::-webkit-scrollbar-track,
+.fix-inspector__list::-webkit-scrollbar-track,
+.fix-inspector__detail::-webkit-scrollbar-track,
+.open-orders__scroll::-webkit-scrollbar-track {
     background: transparent;
 }
 
@@ -1931,6 +1951,17 @@ body {
 .fix-inspector__list::-webkit-scrollbar-thumb,
 .fix-inspector__detail::-webkit-scrollbar-thumb,
 .open-orders__scroll::-webkit-scrollbar-thumb {
-    background: transparent;
-    border: none;
+    background-color: var(--scroll-thumb);
+    border-radius: 0;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.depth-ladder__asks::-webkit-scrollbar-thumb:hover,
+.depth-ladder__bids::-webkit-scrollbar-thumb:hover,
+.trade-tape__rows::-webkit-scrollbar-thumb:hover,
+.fix-inspector__list::-webkit-scrollbar-thumb:hover,
+.fix-inspector__detail::-webkit-scrollbar-thumb:hover,
+.open-orders__scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scroll-thumb-hover);
 }
