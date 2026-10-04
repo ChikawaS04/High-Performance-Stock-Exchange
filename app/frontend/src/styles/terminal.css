@@ -1560,10 +1560,12 @@ body {
     outline-offset: -2px;
 }
 
-/* ---- price chart page (P10-4: empty two-region scaffold) ------------------- */
-/* Chart region (left) and side-panel region (right). Placeholders only this phase;
-   the chart fills in P12 and the side panel in P13. Follows the page-scroll model
-   (P8-8): regions size to content and the page scrolls, matching the workspace. */
+/* ---- price chart page (P10-4 scaffold, P12 chart, P13 side panel) --------- */
+/* Chart region (left) and side-panel region (right), both filled now: the session
+   price line in the chart region (P12), and the session stats block plus the
+   reused order-entry ticket in the panel region (P13). Follows the page-scroll
+   model (P8-8): regions size to content and the page scrolls, matching the
+   workspace. */
 
 .chart-page {
     display: grid;
@@ -1584,14 +1586,124 @@ body {
     padding: 12px;
 }
 
-.chart-page__placeholder {
+/* ---- price chart page: session stats panel (P13-5) ------------------------ */
+/* Label/value rows for the four session fields. The model is
+   .order-entry__clordid, not .header__metric: the header stacks its label above
+   its value because it is a horizontal strip aligned to flex-end, and copying
+   that into a narrow vertical panel would spend two lines of height per row for
+   nothing. Label left, value right on a shared baseline, which is how a real
+   terminal's instrument detail list reads.
+
+   Existing tokens only (P13 D8): no new colours and no new custom properties, so
+   this block does not fight the next theme pass. Values take their sans tabular
+   figures from the retheme selector list at the foot of this file (P13-0 decision
+   D), which is why no font-family is set here.
+
+   The .chart-page__placeholder rule this replaces also carried the panel's only
+   height floor (flex:1, min-height:220px). It is not restored: the panel's height
+   is now intrinsic to its content, and with the ticket below these rows it is the
+   taller of the two regions at common widths, not the shorter. */
+
+.session-stats {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 1;
-    min-height: 220px;
-    color: var(--text-faint);
+    flex-direction: column;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 6px;
+}
+
+.session-stats__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 0;
+    border-top: 1px solid var(--row-line);
+}
+
+/* The first row sits directly under the Session heading, which carries its own
+   spacing; a separator there would read as a double rule against the heading. */
+.session-stats__row:first-child {
+    border-top: none;
+}
+
+.session-stats__label {
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+.session-stats__value {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Last-trade size, nested inside the price value. Mirrors .header__value-sub so
+   the panel's secondary numbers read exactly like the strip's percent and bps. */
+.session-stats__value-sub {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-dim);
+}
+
+/* ---- price chart page: panel ticket density (P13-5) ---------------------- */
+/* The panel mounts the SAME <OrderEntry> the Trading page does, with no new prop
+   and no behavioural branch (P13 D3); compactness is expressed here instead.
+
+   Scoping under .chart-page__region--panel gives every rule below specificity
+   0,2,0 or higher, so they beat both the base order-entry layer above and the
+   slate retheme layer at the foot of this file regardless of source order. That
+   matters most for the side buttons, which the retheme deliberately enlarged to
+   12px padding and 13px bold type for the roomier Trading panel.
+
+   Why this is load-bearing rather than cosmetic: the chart's height is
+   width-driven (.price-chart__svg is aspect-ratio 12/5) while the ticket's is
+   intrinsic, so on the 3fr/1fr split an untrimmed ticket makes the panel overhang
+   the bottom of the chart, and the overhang grows as the window narrows. Nothing
+   is hidden or removed here: every chip, nudge, preset and field the Trading
+   ticket has is still present, only tighter. */
+
+.chart-page__region--panel .order-entry {
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.chart-page__region--panel .order-entry__side-btn {
+    padding: 6px 0;
     font-size: 12px;
+}
+
+.chart-page__region--panel .order-entry__chip {
+    padding: 4px 0;
+}
+
+.chart-page__region--panel .order-entry__chip-value {
+    font-size: 11px;
+}
+
+.chart-page__region--panel .order-entry__nudge {
+    width: 24px;
+    font-size: 14px;
+}
+
+.chart-page__region--panel .order-entry__input {
+    padding: 5px 7px;
+    font-size: 13px;
+}
+
+.chart-page__region--panel .order-entry__preset {
+    padding: 3px 0;
+}
+
+.chart-page__region--panel .order-entry__clordid {
+    padding: 5px 8px;
+}
+
+.chart-page__region--panel .order-entry__submit {
+    padding: 7px 0;
 }
 
 /* ---- price chart page: session price line (P12) --------------------------- */
@@ -1653,6 +1765,7 @@ body {
 /* The reference is sans-serif end to end. Redirect the numeric elements from
    mono to sans while keeping tabular figures so columns still lock. */
 .header__value,
+.session-stats__value,
 .depth-ladder,
 .trade-tape,
 .order-entry__input,
