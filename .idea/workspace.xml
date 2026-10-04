@@ -6,12 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/.env" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/.env" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/FrontendREADME.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/FrontendREADME.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/vite-env.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/vite-env.d.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/vite.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/vite.config.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -53,23 +48,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0009752492164763" />
-      <entry key="MS500" value="1.3486032257315452" />
-      <entry key="S2" value="3.2836523705581455" />
-      <entry key="S5" value="5.563792963241311" />
-      <entry key="S10" value="6.981973784296931" />
-      <entry key="S30" value="8.617119293708916" />
-      <entry key="S60" value="12.559824560951816" />
-      <entry key="M2" value="21.68677239134736" />
-      <entry key="M5" value="38.81671567820141" />
-      <entry key="M10" value="73.27421189099715" />
-      <entry key="M15" value="112.67338472591483" />
-      <entry key="M30" value="206.9034241536009" />
-      <entry key="H1" value="302.93423653580976" />
-      <entry key="H2" value="374.2776379878485" />
-      <entry key="H4" value="420.5100225799023" />
-      <entry key="D1" value="624.8253474376316" />
-      <entry key="W1" value="858.2683647620363" />
+      <entry key="MS100" value="1.4309919802082178" />
+      <entry key="MS500" value="4.225990329246919" />
+      <entry key="S2" value="12.394126367677353" />
+      <entry key="S5" value="25.598800951316814" />
+      <entry key="S10" value="39.4886736617927" />
+      <entry key="S30" value="63.7138251393346" />
+      <entry key="S60" value="82.35970547654601" />
+      <entry key="M2" value="99.94894689302144" />
+      <entry key="M5" value="120.26041991906632" />
+      <entry key="M10" value="143.03130837936573" />
+      <entry key="M15" value="158.93179798196513" />
+      <entry key="M30" value="184.03354151489611" />
+      <entry key="H1" value="216.33956325559842" />
+      <entry key="H2" value="316.8667401677227" />
+      <entry key="H4" value="497.1468830664858" />
+      <entry key="D1" value="994.5426329563709" />
+      <entry key="W1" value="1330.8943736742574" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -91,23 +86,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9021417803255093" />
-      <entry key="MS500" value="1.322125546979363" />
-      <entry key="S2" value="3.2608975482640195" />
-      <entry key="S5" value="5.540145790365422" />
-      <entry key="S10" value="6.964547901706187" />
-      <entry key="S30" value="8.609313767142968" />
-      <entry key="S60" value="12.55477702154604" />
-      <entry key="M2" value="21.683066767248096" />
-      <entry key="M5" value="38.81448192907301" />
-      <entry key="M10" value="73.27267129210938" />
-      <entry key="M15" value="112.67208222724449" />
-      <entry key="M30" value="206.90243561643672" />
-      <entry key="H1" value="302.93355613058947" />
-      <entry key="H2" value="374.2772240014018" />
-      <entry key="H4" value="420.5097906445411" />
-      <entry key="D1" value="624.825288358186" />
-      <entry key="W1" value="858.2683528403226" />
+      <entry key="MS100" value="1.3603289413333182" />
+      <entry key="MS500" value="4.179166972816203" />
+      <entry key="S2" value="12.359251445012491" />
+      <entry key="S5" value="25.569513584806167" />
+      <entry key="S10" value="39.465909659116406" />
+      <entry key="S30" value="63.70157672401682" />
+      <entry key="S60" value="82.3518036286456" />
+      <entry key="M2" value="99.94415607519919" />
+      <entry key="M5" value="120.2580480105365" />
+      <entry key="M10" value="143.02978073881255" />
+      <entry key="M15" value="158.93060799263435" />
+      <entry key="M30" value="184.032807069549" />
+      <entry key="H1" value="216.3391043091442" />
+      <entry key="H2" value="316.8663713633406" />
+      <entry key="H4" value="497.1465762232874" />
+      <entry key="D1" value="994.5425275418041" />
+      <entry key="W1" value="1330.89435349833" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -166,7 +161,7 @@
     &quot;project.structure.last.edited&quot;: &quot;Modules&quot;,
     &quot;project.structure.proportion&quot;: &quot;0.15&quot;,
     &quot;project.structure.side.proportion&quot;: &quot;0.2&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;vcs.Git&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.general&quot;,
     &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.1.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
@@ -184,7 +179,7 @@
       <recent name="" />
     </key>
   </component>
-  <component name="RunManager" selected="Application.DefaultConfig">
+  <component name="RunManager">
     <configuration name="DefaultConfig" type="Application" factoryName="Application">
       <option name="ALTERNATIVE_JRE_PATH" value="25" />
       <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
@@ -359,7 +354,27 @@
       <workItem from="1790284257767" duration="1487000" />
       <workItem from="1790317911720" duration="949000" />
       <workItem from="1790362104801" duration="2293000" />
-      <workItem from="1790485781841" duration="1658000" />
+      <workItem from="1790485781841" duration="4650000" />
+      <workItem from="1790492083791" duration="2215000" />
+      <workItem from="1790494752078" duration="1612000" />
+      <workItem from="1790496715196" duration="839000" />
+      <workItem from="1790497708111" duration="672000" />
+      <workItem from="1790498405942" duration="517000" />
+      <workItem from="1790617385713" duration="4626000" />
+      <workItem from="1790627317867" duration="2137000" />
+      <workItem from="1790630671092" duration="66000" />
+      <workItem from="1790630892813" duration="184000" />
+      <workItem from="1790631635241" duration="844000" />
+      <workItem from="1790632913263" duration="219000" />
+      <workItem from="1790633560559" duration="1502000" />
+      <workItem from="1790635355997" duration="2152000" />
+      <workItem from="1790711250966" duration="3163000" />
+      <workItem from="1790716499290" duration="917000" />
+      <workItem from="1790717521647" duration="424000" />
+      <workItem from="1790724693458" duration="4088000" />
+      <workItem from="1790788904007" duration="2184000" />
+      <workItem from="1791073347794" duration="3516000" />
+      <workItem from="1791078422784" duration="841000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />
