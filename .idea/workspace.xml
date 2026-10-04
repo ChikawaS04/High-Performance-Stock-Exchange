@@ -6,7 +6,9 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/cancelTicket.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/cancelTicket.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/session.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/session.test.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -48,23 +50,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.5648863787528193" />
-      <entry key="MS500" value="2.979529924809861" />
-      <entry key="S2" value="10.323896111223423" />
-      <entry key="S5" value="24.762247868202305" />
-      <entry key="S10" value="44.735897546018435" />
-      <entry key="S30" value="93.17522654778041" />
-      <entry key="S60" value="127.26035803026315" />
-      <entry key="M2" value="157.16357775065262" />
-      <entry key="M5" value="187.74145121874142" />
-      <entry key="M10" value="214.48421572459503" />
-      <entry key="M15" value="231.87954777469278" />
-      <entry key="M30" value="258.7307596024659" />
-      <entry key="H1" value="292.0132931363073" />
-      <entry key="H2" value="392.93482486933283" />
-      <entry key="H4" value="573.4402107683703" />
-      <entry key="D1" value="1071.3141774048293" />
-      <entry key="W1" value="1407.8510474660509" />
+      <entry key="MS100" value="1.422998831039852" />
+      <entry key="MS500" value="3.6147289828095968" />
+      <entry key="S2" value="9.682256890920758" />
+      <entry key="S5" value="17.37317256461082" />
+      <entry key="S10" value="22.72424558160244" />
+      <entry key="S30" value="27.819749282307342" />
+      <entry key="S60" value="29.36813043122261" />
+      <entry key="M2" value="32.05770640706287" />
+      <entry key="M5" value="62.75180018473646" />
+      <entry key="M10" value="119.50682265598142" />
+      <entry key="M15" value="159.57502458829543" />
+      <entry key="M30" value="223.68991100050707" />
+      <entry key="H1" value="283.01313616433373" />
+      <entry key="H2" value="396.03828078559906" />
+      <entry key="H4" value="583.7133715925575" />
+      <entry key="D1" value="1095.7621552180833" />
+      <entry key="W1" value="1437.6178316048404" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -86,23 +88,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.4765914985922575" />
-      <entry key="MS500" value="2.9447275910769095" />
-      <entry key="S2" value="10.288424997387576" />
-      <entry key="S5" value="24.716014135668278" />
-      <entry key="S10" value="44.68505487549849" />
-      <entry key="S30" value="93.13847846639622" />
-      <entry key="S60" value="127.23640482306551" />
-      <entry key="M2" value="157.149472391347" />
-      <entry key="M5" value="187.73497539699082" />
-      <entry key="M10" value="214.48056841638603" />
-      <entry key="M15" value="231.87692816297408" />
-      <entry key="M30" value="258.72930076228795" />
-      <entry key="H1" value="292.01246932549293" />
-      <entry key="H2" value="392.9342730905383" />
-      <entry key="H4" value="573.439812279649" />
-      <entry key="D1" value="1071.3140566606828" />
-      <entry key="W1" value="1407.8510250972163" />
+      <entry key="MS100" value="1.3515840770614433" />
+      <entry key="MS500" value="3.5732025508171765" />
+      <entry key="S2" value="9.653559869853469" />
+      <entry key="S5" value="17.352438730866226" />
+      <entry key="S10" value="22.710637903762944" />
+      <entry key="S30" value="27.81418047563013" />
+      <entry key="S60" value="29.365187135550816" />
+      <entry key="M2" value="32.05602496104822" />
+      <entry key="M5" value="62.75007862398255" />
+      <entry key="M10" value="119.50500566789819" />
+      <entry key="M15" value="159.57336434951617" />
+      <entry key="M30" value="223.6887208130151" />
+      <entry key="H1" value="283.0123733739813" />
+      <entry key="H2" value="396.03774227583443" />
+      <entry key="H4" value="583.7129745567917" />
+      <entry key="D1" value="1095.76203305428" />
+      <entry key="W1" value="1437.617808947305" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -375,7 +377,7 @@
       <workItem from="1790788904007" duration="2184000" />
       <workItem from="1791073347794" duration="3516000" />
       <workItem from="1791078422784" duration="922000" />
-      <workItem from="1791136804792" duration="1933000" />
+      <workItem from="1791136804792" duration="5441000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

@@ -33,6 +33,15 @@
  * one place both streams are visible together (applyExec runs for every EXEC
  * type, not just fills, and the FIX branch is the only other frame path), so
  * storage lives here rather than in a component ref. BOOK frames are not logged.
+ *
+ * P13-1 adds three more session accumulators for the Price Chart side panel:
+ * sessionHighCents, sessionLowCents and sessionTradeCount. They sit beside
+ * sessionVolume and sessionOpenCents in the same isFill guard, and they exist here
+ * for the same reason those two do: the tape is capped at TAPE_CAP, so a high or a
+ * low folded from it would silently mean "high of the last TAPE_CAP prints" and
+ * would drift as old prints age out. No notional accumulator and no VWAP this
+ * phase (P13 D1): VWAP's only input would be dead state until an indicator phase
+ * consumes it, and adding it then is one more line in this same block.
  */
 
 import { isFill } from "../protocol/messages";
@@ -47,8 +56,15 @@ export const TAPE_CAP = 200;
  */
 export const INSPECTOR_CAP = 500;
 
-/** Sentinel for "no session-open price yet": no trade has printed this session. */
-const SESSION_OPEN_UNSET = -1;
+/**
+ * Sentinel for "no traded price yet this session": no trade has printed, so there
+ * is no open, no high and no low. Exported since P13-1 so the three price-valued
+ * session accumulators and their tests name one constant rather than repeating a
+ * bare -1. Negative by design: centsToDollars renders any negative value as the
+ * EMPTY_PRICE dash, so an unset accumulator formats correctly with no call-site
+ * branch, and "<= 0" reads as "still unset" on every comparison below.
+ */
+export const SESSION_OPEN_UNSET = -1;
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -146,6 +162,21 @@ export interface AppState {
      */
     readonly sessionOpenCents: number;
     /**
+     * Highest and lowest traded price this session in cents, accumulated per fill.
+     * SESSION_OPEN_UNSET until the first fill, which seeds both to its own price.
+     * Held here, never folded from the capped tape, for the same reason
+     * sessionVolume is: the tape forgets.
+     */
+    readonly sessionHighCents: number;
+    readonly sessionLowCents: number;
+    /**
+     * Count of trade prints this session. One onFill per trade, aggressor-only
+     * (P7-0/Q7-2), so incrementing once per fill EXEC counts trades, not sides. A
+     * partial fill is a print like any other and counts once. Zero is a real value,
+     * never a missing one.
+     */
+    readonly sessionTradeCount: number;
+    /**
      * Client-assigned outbound message counter. Incremented once per SENT frame,
      * NEW and CANCEL alike. NOT the FIX 34= MsgSeqNum (the produced subset carries
      * no tag 34, P7-0/Q7-4) and NOT the P7-2 server per-channel echo seqNum. It is
@@ -183,6 +214,9 @@ export const initialState: AppState = {
     myOrders: [],
     sessionVolume: 0,
     sessionOpenCents: SESSION_OPEN_UNSET,
+    sessionHighCents: SESSION_OPEN_UNSET,
+    sessionLowCents: SESSION_OPEN_UNSET,
+    sessionTradeCount: 0,
     msgSeqNum: 0,
     lastFrameNanos: 0,
     inspectorLog: [],
@@ -272,6 +306,9 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     let tape = state.tape;
     let sessionVolume = state.sessionVolume;
     let sessionOpenCents = state.sessionOpenCents;
+    let sessionHighCents = state.sessionHighCents;
+    let sessionLowCents = state.sessionLowCents;
+    let sessionTradeCount = state.sessionTradeCount;
 
     if (isFill(frame)) {
         const entry: TapeEntry = {
@@ -297,6 +334,24 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         if (sessionOpenCents <= 0) {
             sessionOpenCents = frame.price;
         }
+
+        // Session high and low (P13-1), from the same frame.price. The first fill
+        // SEEDS both rather than being compared against them: an unset accumulator
+        // holds SESSION_OPEN_UNSET, and -1 would win every Math.min against a real
+        // positive cent price, pinning the low at the sentinel forever. Guarded on
+        // the same "<= 0 means unset" test the open uses, so the two stay in step.
+        if (sessionHighCents <= 0 || sessionLowCents <= 0) {
+            sessionHighCents = frame.price;
+            sessionLowCents = frame.price;
+        } else {
+            sessionHighCents = Math.max(sessionHighCents, frame.price);
+            sessionLowCents = Math.min(sessionLowCents, frame.price);
+        }
+
+        // One onFill per trade, aggressor-only (P7-0/Q7-2), so one increment per fill
+        // EXEC counts trades and not sides. Unconditional: a PARTIALLY_FILLED print
+        // is a trade exactly as a FILLED one is, and both reach this guard.
+        sessionTradeCount = sessionTradeCount + 1;
     }
 
     // Aggressor path: EXEC orderId names the aggressor on fills, and the
@@ -352,6 +407,9 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         myOrders,
         sessionVolume,
         sessionOpenCents,
+        sessionHighCents,
+        sessionLowCents,
+        sessionTradeCount,
         lastFrameNanos: frame.timestamp,
         inspectorLog,
     };

@@ -77,12 +77,25 @@ describe("<CancelTicket />", () => {
     });
 });
 
-describe("<CancelTicket /> FIX annotation cleanup (P8-6)", () => {
-    it("shows the plain Order ID to cancel label and drops the FIX tag chrome", () => {
+describe("<CancelTicket /> FIX annotation cleanup (P8-6, retheme)", () => {
+    /**
+     * P8-6 replaced this ticket's FIX tag chrome with plain wording. The slate
+     * retheme then removed the VISIBLE "Order ID to cancel" label as redundant: the
+     * panel heading directly above the ticket already reads "Cancel by ID", and that
+     * heading is rendered by TradingPage, not by this component, so it is out of
+     * reach of a CancelTicket-only render.
+     *
+     * The plain wording therefore survives as the input's accessible name rather
+     * than as on-screen text, which is what this asserts. The negative assertions
+     * are the actual P8-6 guarantee and are unchanged: no OrigClOrdID, no tag
+     * number, anywhere in the ticket. The tag-level view lives in the FIX inspector.
+     */
+    it("names the field in plain wording and drops the FIX tag chrome", () => {
         render(<CancelTicket onCancel={vi.fn()} />);
 
-        expect(screen.getByText("Order ID to cancel")).not.toBeNull();
+        expect(screen.getByLabelText("Order ID to cancel")).toBe(input());
         expect(screen.queryByText("OrigClOrdID")).toBeNull();
         expect(screen.queryByText(/Tag 41/)).toBeNull();
+        expect(screen.queryByText(/\bTag\b/)).toBeNull();
     });
 });
