@@ -77,7 +77,7 @@
 
     /* Height consumed above the workspace panels (header strip + nav band +
        workspace top padding); panels fill from here to the bottom of the screen. */
-    --chrome-h: 144px;
+    --chrome-h: 170px;
 
     --gap: 8px;
     --radius: 0;
@@ -203,7 +203,9 @@ body {
 .app {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    /* No definite height. `height: 100%` made this a definite-height flex
+       container, so whenever the content was taller than the viewport the items
+       were shrunk to fit. min-height lets the column grow and the page scroll. */
     min-height: 100vh;
 }
 
@@ -1784,23 +1786,40 @@ body {
     color: var(--ask);
 }
 
-/* The FIX-inspector toolbar rides up onto the nav band, so the tabs (left) and
-   the FIX inspector button (right) share one strip. The band is transparent and
-   click-through so the tabs underneath stay clickable; only the button captures
-   pointer events. */
+/* The FIX-inspector button sits in the navbar row, but the toolbar itself takes
+   NO layout space: zero height, no negative margin, and the button lifted into
+   the bar by absolute positioning. The previous version paired height:46px with
+   margin-top:-46px; those cancel only while the height is exactly 46px, so any
+   flex shrinking left the -46px margin intact and dragged the workspace up over
+   the navbar. With height:0 there is nothing to shrink and nothing to cancel. */
 .toolbar {
-    margin-top: -46px;
-    height: 46px;
-    padding: 0 var(--gap);
-    align-items: center;
-    background: transparent;
-    border-bottom: none;
     position: relative;
-    z-index: 1;
-    pointer-events: none;
+    z-index: 2;
+    flex: 0 0 auto;
+    height: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    overflow: visible;
 }
+
 .toolbar > * {
+    position: absolute;
+    right: var(--gap);
+    bottom: 9px;
     pointer-events: auto;
+}
+
+/* Belt and braces: no part of the column may be squeezed. The chrome keeps its
+   natural height and the page scrolls instead. */
+.topbar,
+.nav,
+.toolbar,
+.workspace,
+.chart-page {
+    flex-shrink: 0;
 }
 
 
@@ -1837,22 +1856,25 @@ body {
         flex: 1;
         min-height: 0;
     }
-    /* The open-orders list fills the blotter all the way down to the
-       Cancel-by-ID divider, so it scrolls only once the rows actually reach
-       there rather than at a fixed row cap. */
+    /* The open-orders list is a fixed viewport of the sticky header + 6 rows,
+       so the 7th order is what starts the scrollbar. Previously the list was
+       unbounded: the panel simply grew with the order count and the PAGE
+       scrolled, so the list's own scrollbar never engaged. The empty state
+       reserves the same height, so the panel never jumps on the first order. */
     .panel--blotter .open-orders {
         display: flex;
         flex-direction: column;
-        flex: 1;
+        flex: 0 0 auto;
         min-height: 0;
     }
     .panel--blotter .open-orders__scroll {
-        flex: 1;
-        min-height: 0;
-        max-height: none;
+        flex: 0 0 auto;
+        min-height: calc(var(--blotter-row-h) * 7);
+        max-height: calc(var(--blotter-row-h) * 7);
     }
     .panel--blotter .open-orders__empty {
-        flex: 1;
+        flex: 0 0 auto;
+        min-height: calc(var(--blotter-row-h) * 7);
     }
 }
 
@@ -1952,4 +1974,12 @@ body {
 .workspace,
 .chart-page {
     margin-top: 10px;
+}
+
+/* Blotter cells never wrap: a wrapped cell (e.g. "100 / 100" breaking in two)
+   makes that row taller than --blotter-row-h, which would throw off the row
+   count the scroll viewport is sized against. */
+.open-orders__table th,
+.open-orders__table td {
+    white-space: nowrap;
 }
