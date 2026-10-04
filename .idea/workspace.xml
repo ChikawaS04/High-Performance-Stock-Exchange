@@ -6,9 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/cancelTicket.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/cancelTicket.test.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/session.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/session.test.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,23 +47,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.422998831039852" />
-      <entry key="MS500" value="3.6147289828095968" />
-      <entry key="S2" value="9.682256890920758" />
-      <entry key="S5" value="17.37317256461082" />
-      <entry key="S10" value="22.72424558160244" />
-      <entry key="S30" value="27.819749282307342" />
-      <entry key="S60" value="29.36813043122261" />
-      <entry key="M2" value="32.05770640706287" />
-      <entry key="M5" value="62.75180018473646" />
-      <entry key="M10" value="119.50682265598142" />
-      <entry key="M15" value="159.57502458829543" />
-      <entry key="M30" value="223.68991100050707" />
-      <entry key="H1" value="283.01313616433373" />
-      <entry key="H2" value="396.03828078559906" />
-      <entry key="H4" value="583.7133715925575" />
-      <entry key="D1" value="1095.7621552180833" />
-      <entry key="W1" value="1437.6178316048404" />
+      <entry key="MS100" value="1.4666244660651846" />
+      <entry key="MS500" value="4.441557979491302" />
+      <entry key="S2" value="12.483003163331434" />
+      <entry key="S5" value="25.331780741638713" />
+      <entry key="S10" value="36.47864505936701" />
+      <entry key="S30" value="48.663548775231085" />
+      <entry key="S60" value="52.605429481909106" />
+      <entry key="M2" value="54.74263059190843" />
+      <entry key="M5" value="56.0821623104097" />
+      <entry key="M10" value="56.5710569237971" />
+      <entry key="M15" value="57.36164432692803" />
+      <entry key="M30" value="71.33830061928721" />
+      <entry key="H1" value="128.96009243523687" />
+      <entry key="H2" value="256.76929211299273" />
+      <entry key="H4" value="471.58843521281557" />
+      <entry key="D1" value="1092.0339049070535" />
+      <entry key="W1" value="1482.955968165446" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -88,23 +85,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.3515840770614433" />
-      <entry key="MS500" value="3.5732025508171765" />
-      <entry key="S2" value="9.653559869853469" />
-      <entry key="S5" value="17.352438730866226" />
-      <entry key="S10" value="22.710637903762944" />
-      <entry key="S30" value="27.81418047563013" />
-      <entry key="S60" value="29.365187135550816" />
-      <entry key="M2" value="32.05602496104822" />
-      <entry key="M5" value="62.75007862398255" />
-      <entry key="M10" value="119.50500566789819" />
-      <entry key="M15" value="159.57336434951617" />
-      <entry key="M30" value="223.6887208130151" />
-      <entry key="H1" value="283.0123733739813" />
-      <entry key="H2" value="396.03774227583443" />
-      <entry key="H4" value="583.7129745567917" />
-      <entry key="D1" value="1095.76203305428" />
-      <entry key="W1" value="1437.617808947305" />
+      <entry key="MS100" value="1.3881370621109728" />
+      <entry key="MS500" value="4.392077803012693" />
+      <entry key="S2" value="12.447696528659854" />
+      <entry key="S5" value="25.301532336701303" />
+      <entry key="S10" value="36.45612796613886" />
+      <entry key="S30" value="48.65327425687812" />
+      <entry key="S60" value="52.5998384392061" />
+      <entry key="M2" value="54.739711556152244" />
+      <entry key="M5" value="56.08096366333436" />
+      <entry key="M10" value="56.57045181384503" />
+      <entry key="M15" value="57.361233095509526" />
+      <entry key="M30" value="71.33802078202166" />
+      <entry key="H1" value="128.9597967646099" />
+      <entry key="H2" value="256.76896963238704" />
+      <entry key="H4" value="471.5881277948753" />
+      <entry key="D1" value="1092.0337852776915" />
+      <entry key="W1" value="1482.9559450865754" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -181,7 +178,7 @@
       <recent name="" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Application.DefaultConfig">
     <configuration name="DefaultConfig" type="Application" factoryName="Application">
       <option name="ALTERNATIVE_JRE_PATH" value="25" />
       <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
@@ -377,7 +374,7 @@
       <workItem from="1790788904007" duration="2184000" />
       <workItem from="1791073347794" duration="3516000" />
       <workItem from="1791078422784" duration="922000" />
-      <workItem from="1791136804792" duration="5441000" />
+      <workItem from="1791136804792" duration="6468000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

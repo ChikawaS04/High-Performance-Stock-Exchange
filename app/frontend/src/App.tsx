@@ -20,6 +20,12 @@
  * separate hook from useOrderBook and never touches the reducer or the hot path. Chg
  * is not affected: it stays anchored to the session's first trade (P11 D6).
  *
+ * P13-4: the /chart route now receives the same two order-entry props /trading
+ * already had, onSubmitOrder and clOrdIdPreview, because the Price Chart side panel
+ * mounts a ticket. Both routes therefore share one handleSubmit and one nextClOrdId
+ * call site, which is the point: the second ticket adds a second CONSUMER of the
+ * encoder seam, never a second owner of it. This is App's only P13 change.
+ *
  * The Header strip and Navbar render above <Routes> so both persist across pages;
  * the connection badge stays inside the Header, visible on every route.
  */
@@ -80,7 +86,17 @@ export default function App() {
                         />
                     }
                 />
-                <Route path="/chart" element={<PriceChartPage state={state} openCents={openCents} />} />
+                <Route
+                    path="/chart"
+                    element={
+                        <PriceChartPage
+                            state={state}
+                            openCents={openCents}
+                            onSubmitOrder={handleSubmit}
+                            clOrdIdPreview={nextClOrdId.peek()}
+                        />
+                    }
+                />
             </Routes>
         </div>
     );
