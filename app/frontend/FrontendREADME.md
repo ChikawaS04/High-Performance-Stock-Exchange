@@ -1,8 +1,9 @@
 # OMS Trading Terminal — Frontend
 
 A React + TypeScript trading terminal for a practice Order Management System. It renders a
-live depth ladder, a trade tape, and a manual order-entry / open-orders panel, driven
-entirely by a single WebSocket connection to the Java backend — no polling, no REST.
+live depth ladder, a trade tape, a session price chart, and manual order-entry /
+open-orders panels across two routed pages, driven entirely by a single WebSocket
+connection to the Java backend — no polling, no REST.
 
 This is the frontend edge of a full-stack portfolio project. The backend is a low-latency,
 lock-free matching engine (LMAX Disruptor ring buffers, a hand-rolled FIX tag-value gateway,
@@ -19,13 +20,42 @@ transcoded to FIX 4.2, framed onto the inbound Disruptor ring, matched by the si
 engine, and the results are published back onto the outbound and snapshot rings, reserialized
 to JSON, and pushed to every connected client. Inbound, the app narrows each raw frame in
 exactly one place (`protocol/messages.ts`), a pure reducer (`state/reducer.ts`) folds frames
-into book/tape/myOrders state plus session aggregates (`sessionVolume`, `sessionOpenCents`, a
-client-assigned `msgSeqNum`) and a capped FIX/EXEC inspector log (`inspectorLog`), and a
+into book/tape/myOrders state plus session aggregates (`sessionVolume`, `sessionOpenCents`, the
+session high / low / trade-count accumulators, a client-assigned `msgSeqNum`) and a capped FIX/EXEC inspector log (`inspectorLog`), and a
 single `useOrderBook` hook owns the socket lifecycle (connect, capped-backoff reconnect,
 dispatch). Every price is an integer number of cents internally and on the wire; dollars
 exist only at the render/parse edge, converted with string arithmetic so no floating-point
 error ever reaches a price. **`BOOK` frames are the sole authority on book state; `EXEC`
 frames are notifications only** — the two never cross-contaminate.
+
+---
+
+## Pages
+
+The terminal is two routed pages behind one socket. `main.tsx` mounts `BrowserRouter`;
+`App.tsx` owns the socket and renders the persistent header strip and navbar above
+`<Routes>`, so a route change swaps only the body beneath them. `/` redirects to `/trading`.
+
+**That placement is load-bearing.** The single `useOrderBook` instance, the reducer state,
+the book, the tape and every session aggregate live above the router, so moving between
+pages does not reconnect the socket, reset the book, or lose a single print.
+
+| Route | Page | Contents |
+|---|---|---|
+| `/trading` | Trading terminal | Depth ladder, depth curve, trade tape, order-entry ticket, open-orders blotter, cancel-by-ID, FIX inspector |
+| `/chart` | Price Chart | Session price line (left region), session stats and a second order-entry ticket (right region) |
+
+What does *not* survive navigation is page-local UI state, because leaving a route unmounts
+the page: the FIX inspector's open flag, and anything held inside a panel, including a
+half-typed ticket. That is a deliberate consequence of keeping the socket above the router
+rather than a defect, and it is the one thing to expect when switching pages mid-order.
+
+`App.tsx` stays the sole place a `clOrdId` is minted and the sole caller of the frame
+builders. Both pages receive state slices and bound handlers, never the encoders, so the two
+order-entry tickets are two consumers of one submit path, not two owners of it. An order
+placed on the Price Chart page is indistinguishable on the wire from one placed on the
+Trading page, lands in the same blotter, and its fill prints on the same tape, the same
+chart and the same session stats.
 
 ---
 
@@ -41,6 +71,10 @@ frames are notifications only** — the two never cross-contaminate.
   `![Open orders](docs/img/open-orders.png)`
 - **Short GIF: place → cross → cancel round-trip**
   `![Round-trip demo](docs/img/demo.gif)`
+- **Session price line with a reference line in domain** (Price Chart page)
+  `![Price chart](docs/img/chart.png)`
+- **Side panel: session stats above the panel ticket**
+  `![Side panel](docs/img/side-panel.png)`
 
 ---
 
@@ -223,6 +257,32 @@ These are real properties of the running system, documented rather than glossed:
   server-side with no message back to the client, so the UI validates price/quantity locally
   before sending (`> 0`, `≤ 2` decimal places, positive integer qty). `ORDER_REJECTED` can
   still arrive (e.g. cancelling an unknown order) and is handled if it does.
+- **The price chart is bounded to the last 200 prints, and a reference line never widens the
+  domain.** The chart plots `state.tape`, which the reducer caps at `TAPE_CAP` (200), so it
+  is a chart of the most recent 200 trades rather than of the whole session; past the cap the
+  left edge advances as old prints age out. Two dashed reference lines can appear: the
+  engine's first-trade anchor (the same value the header Chg uses) and the Alpaca market
+  open. Each draws only when its price falls inside the domain the prints themselves set, and
+  is silently omitted otherwise. That guard does real work rather than defending against a
+  rounding edge: the synthetic book trades near $100 while the instrument's real market open
+  sits near $1740, so the market-open line is usually out of domain and correctly absent. An
+  empty tape plots a quiet "No trades yet" frame and a single print plots its marker with no
+  line, so no degenerate case produces a NaN path.
+- **Side panel session stats are connect-anchored, and are not bounded by the tape cap the
+  chart is.** The Price Chart page's side panel shows session high, session low, trade count,
+  and the last print (price and size). High, low and the count are accumulated in the reducer
+  on each fill, never folded from the trade tape, precisely because the tape is capped at
+  200: a tape-derived high would silently mean "high of the last 200 prints" and would fall
+  as old prints aged out. They are connect-anchored, meaning they accumulate from the moment
+  this browser session connected rather than from the true venue session open, so connecting
+  mid-session undercounts all three. That is the same honest caveat already carried for
+  session volume and the first-trade anchor, and it has the same clean fix: the engine
+  publishing session stats, or a snapshot on connect, which is a server change. They survive
+  navigation, because the socket and reducer sit above the router, and they survive a
+  reconnect blip, because the connection branch clears only the book and keeps the
+  aggregates. A full page reload starts a fresh session and resets them. The ticket below the
+  stats is the same `OrderEntry` component and the same submit path as the Trading page; only
+  its density differs, and that is CSS.
 
 ---
 
@@ -284,9 +344,77 @@ If every step behaves as above, the round-trip is proven end to end and Phase 5 
   has no dev server and therefore no proxy, so a real deployment would need a small backend
   proxy holding the credentials. `VITE_IGNITION_SYMBOL` and the header's `SYMBOL` both
   default to `ASML` and should be kept in step.
+- **The chart is capped at the last 200 prints.** It plots the reducer tape, which is capped
+  at `TAPE_CAP`, so it is not a whole-session chart. The side panel's high, low and trade
+  count are *not* capped, being reducer accumulators, so on a long session the chart and the
+  panel can legitimately disagree about the session's extremes. Closing that gap needs a
+  dedicated price-history slice independent of the tape.
+- **Session stats are connect-anchored.** High, low, trade count, volume and the first-trade
+  anchor all accumulate from when this browser session connected, not from the venue's
+  session open, so a mid-session connect undercounts them. A reconnect blip preserves them; a
+  reload does not.
 - **Single instrument, no session management, no auth, no persistence** — all out of scope for
   this practice build.
 
 ---
 
 ## Project layout
+
+```
+app/frontend/
+├── index.html
+├── package.json
+├── tsconfig.json                 # app TS config
+├── tsconfig.node.json            # Vite / node-side TS config
+├── vite.config.ts                # dev server, Alpaca proxy, vitest config
+├── .env                          # VITE_-prefixed only; safe to commit
+├── .env.local                    # Alpaca credentials; never VITE_-prefixed, never committed
+├── src/
+│   ├── main.tsx                  # createRoot + BrowserRouter
+│   ├── App.tsx                   # composition root: socket, header strip, navbar, routes
+│   ├── format.ts                 # cents <-> dollars, qty, clock, midpoint (render/parse edge)
+│   ├── depth.ts                  # pure depth ladder + depth curve maths
+│   ├── priceSeries.ts            # pure price-series domain for the chart (P12)
+│   ├── sessionStats.ts           # pure session-stat display strings for the panel (P13)
+│   ├── pages/
+│   │   ├── TradingPage.tsx       # depth, tape, ticket, blotter, FIX inspector
+│   │   └── PriceChartPage.tsx    # chart region + side-panel region
+│   ├── components/
+│   │   ├── Header.tsx            # persistent instrument strip + deriveHeader
+│   │   ├── Navbar.tsx            # Trading / Price Chart NavLinks
+│   │   ├── ConnectionBadge.tsx
+│   │   ├── DepthLadder.tsx
+│   │   ├── DepthCurve.tsx
+│   │   ├── TradeTape.tsx
+│   │   ├── OrderEntry.tsx        # the ticket; mounted by both pages
+│   │   ├── OpenOrders.tsx
+│   │   ├── CancelTicket.tsx
+│   │   ├── FixInspector.tsx
+│   │   ├── PriceChart.tsx        # session price line (P12)
+│   │   └── SessionStats.tsx      # four-row session block (P13)
+│   ├── protocol/
+│   │   ├── messages.ts           # the one place raw frames are narrowed
+│   │   ├── encode.ts             # NEW / CANCEL builders + nextClOrdId
+│   │   └── fix.ts                # FIX tag-value helpers for the inspector
+│   ├── state/
+│   │   ├── reducer.ts            # pure reducer, AppState, session aggregates
+│   │   ├── useOrderBook.ts       # socket lifecycle, capped-backoff reconnect
+│   │   └── useIgnitionPrice.ts   # one-shot Alpaca market-open fetch (P11)
+│   ├── market/
+│   │   ├── alpacaClient.ts
+│   │   └── ignition.ts
+│   └── styles/
+│       └── terminal.css          # the whole theme: base layer + slate retheme layer
+└── test/                         # flat; see the naming convention below
+```
+
+Two conventions to know before adding to this tree:
+
+- **Pure logic sits beside the component that consumes it, not inside it.** `depth.ts`,
+  `priceSeries.ts` and `sessionStats.ts` are plain modules at the `src/` root, each unit
+  tested without a DOM, each paired with a component that owns only the markup and the
+  scales. New derivations follow that split.
+- **Tests are flat and named by kind.** `vite.config.ts` includes `test/**/*.test.{ts,tsx}`
+  on a jsdom environment. Pure-logic suites are `X.test.ts`; component renders are
+  `X.render.test.tsx` and wire `afterEach(cleanup)` explicitly, because the project
+  deliberately does not enable Vitest globals.

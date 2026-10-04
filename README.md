@@ -1,24 +1,33 @@
-# Low-Latency Matching Engine
+# High Performance Stock Exchange
 
-A low-latency limit order book and matching engine in Java, connected through an LMAX Disruptor
-event pipeline to a FIX protocol gateway and a live React trading terminal.
+A miniature stock exchange in Java and React: a FIX order gateway, a lock-free LMAX Disruptor event
+pipeline, a single-threaded price-time priority matching engine, a market data and execution
+dissemination layer, and a direct-access participant terminal.
 
 ![Java](https://img.shields.io/badge/Java-21%20LTS-orange)
 ![Build](https://img.shields.io/badge/build-Maven-blue)
-![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen)
+![Backend tests](https://img.shields.io/badge/backend%20tests-163%20passing-brightgreen)
+![Frontend tests](https://img.shields.io/badge/frontend%20tests-339%20passing-brightgreen)
 ![Disruptor](https://img.shields.io/badge/transport-LMAX%20Disruptor-lightgrey)
 ![Bench](https://img.shields.io/badge/benchmarks-JMH%201.37-informational)
+![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-61dafb)
 
-This system implements the matching core of an exchange venue: raw FIX bytes arrive at a gateway,
-cross a lock-free ring buffer into a single-threaded matching engine, match under price-time
-priority, and fan out as execution and market-data events to a React trading interface over
-WebSocket. It owns the book and produces the trades. It is the venue side, not a broker or an
-order-management system that routes orders out to somewhere else. The React terminal plays the role
-of a direct-access participant connected to that venue.
+This is the venue side of a market, not the broker side. Raw FIX bytes arrive at a gateway, cross a
+lock-free ring buffer into a single-threaded matching engine, match under price-time priority, and
+fan out as execution reports, depth snapshots and a trade tape to every subscriber, including a
+React terminal over WebSocket. The system owns the book and produces the trades. Nothing here routes
+an order out to somewhere else, because there is nowhere else: this is where the order rests and
+where the fill is born.
+
+It began as a matching engine and outgrew that name. The engine is still the core, but it is now one
+component among several that together make a working, if small, exchange: member connectivity over a
+FIX protocol subset, a matching core, market data dissemination, a trade reporting tape, and a
+participant-facing terminal with its own order entry, blotter, depth views, price chart and FIX
+stream inspector.
 
 It is a portfolio project, and every architectural decision is made to demonstrate the skills that
 matter in trading-systems engineering: mechanical sympathy, lock-free data structures, protocol-level
-networking, and disciplined scope.
+networking, honest measurement, and disciplined scope.
 
 The performance characteristics below are measured with JMH, not asserted. Each number is traceable
 to a recorded benchmark run, and each is reported with its methodology and its caveats.
@@ -27,7 +36,9 @@ to a recorded benchmark run, and each is reported with its methodology and its c
 
 ## Table of contents
 
+- [What this system is, and is not](#what-this-system-is-and-is-not)
 - [Architecture](#architecture)
+- [The participant terminal](#the-participant-terminal)
 - [Performance](#performance)
 - [Design principles](#design-principles)
 - [Technology stack](#technology-stack)
@@ -36,7 +47,30 @@ to a recorded benchmark run, and each is reported with its methodology and its c
 - [Benchmarking](#benchmarking)
 - [Testing](#testing)
 - [Scope](#scope)
+- [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
+
+---
+
+## What this system is, and is not
+
+The distinction drives almost every design decision in the repository, so it is stated up front.
+
+**It is an exchange venue.** It accepts member order flow, maintains the central limit order book,
+decides which orders trade and at what price, and publishes the resulting executions and market data.
+The book is authoritative here. There is no upstream venue to route to and no downstream broker to
+report to.
+
+**It is not an order management system, and not a brokerage.** An OMS manages a client's orders and
+routes them to venues. This system is the thing being routed to. The React terminal is not a broker
+front end: it is a direct-access participant connected to the venue, in the same position a member
+firm's trading screen would be.
+
+**What a real exchange has that this deliberately does not:** multi-symbol and multi-venue routing,
+member accounts, pre-trade risk and credit checks, authentication, persistence and crash recovery,
+auction and halt states, and a clearing path. These are listed in [Scope](#scope) rather than hidden,
+because the gap between this and a production venue is part of what the project is meant to show an
+interviewer is understood.
 
 ---
 
@@ -47,54 +81,109 @@ one producer, so write contention is eliminated by design rather than by synchro
 
 ```mermaid
 flowchart TD
-    NET["TCP / WebSocket client"] --> GW["Order Gateway<br/>FIX 4.2 parse and field validation"]
+    NET["WebSocket participant"] --> GW["Order Gateway<br/>FIX 4.2 parse and field validation"]
     GW -->|single producer| IN["Inbound Ring Buffer<br/>LMAX Disruptor · OrderEvent"]
     IN -->|single consumer| ME["Matching Engine<br/>single-threaded · price-time priority"]
     ME -->|single producer| OUT["Outbound Ring Buffer<br/>ExecutionEvent"]
-    ME -->|single producer| SNAP["Snapshot Ring Buffer<br/>BookSnapshotEvent"]
+    ME -->|single producer| SNAP["Snapshot Ring Buffer<br/>BookSnapshotEvent · top 20 per side"]
     OUT --> WSP["WebSocket Publisher"]
     OUT --> TL["Trade Logger"]
-    OUT --> MDS["Market Data Service"]
     SNAP --> WSP
-    WSP --> UI["React Frontend<br/>depth chart · trade tape · manual trading"]
+    SNAP --> MDS["Market Data Service<br/>best bid/ask · mid · spread"]
+    WSP --> UI["Participant terminal<br/>React · depth · tape · chart · FIX inspector"]
+    CLK["EpochNanoClock<br/>one shared epoch-nanos domain"] -.-> GW
+    CLK -.-> ME
+    CLK -.-> NET
 ```
 
 **Order Gateway.** The protocol boundary. It receives raw bytes, parses FIX tag-value messages,
-validates structure and required fields, and publishes `OrderEvent`s onto the inbound ring buffer.
-It is the sole producer on that ring. Structural validation happens here; domain validation is
-delegated to the `Order` constructor so the two concerns stay separated. Two message types are
-supported: `NewOrderSingle` (35=D) and `OrderCancelRequest` (35=F).
+validates structure and required fields, stamps receipt time, and publishes `OrderEvent`s onto the
+inbound ring buffer. It is the sole producer on that ring. Structural validation happens here; domain
+validation is delegated to the `Order` constructor so the two concerns stay separated. Two message
+types are supported: `NewOrderSingle` (35=D) and `OrderCancelRequest` (35=F).
 
-**Inbound ring buffer.** A lock-free Disruptor transport between the gateway and the engine.
-Carrier objects (`OrderEvent`) are pre-allocated and reused: the gateway copies fields into a slot,
-the engine reads them out, and the slot is recycled. Single producer, single consumer.
+**Inbound ring buffer.** A lock-free Disruptor transport between the gateway and the engine. Carrier
+objects (`OrderEvent`) are pre-allocated and reused: the gateway copies fields into a slot, the
+engine reads them out, and the slot is recycled. Single producer, single consumer.
 
 **Matching Engine.** The core. It maintains the limit order book and executes price-time priority
 matching on a single thread as the sole consumer of the inbound ring. No locks, no synchronization,
 no contention. The book is a `TreeMap<Long, Deque<Order>>` per side (natural ordering for asks,
 reverse ordering for bids), with an `ArrayDeque` at each price level for FIFO time priority and a
-`HashMap<Long, Order>` for O(1) cancel lookup. Fills use the passive price convention (the resting
-order's price). The engine has no knowledge of FIX, JSON, or WebSocket.
+`HashMap<Long, Order>` for O(1) cancel lookup. Fills use the passive price convention, meaning the
+resting order's price. The engine has no knowledge of FIX, JSON, or WebSocket.
 
 **Outbound and snapshot rings.** The engine is the single producer on two outbound Disruptor rings:
 one carrying `ExecutionEvent`s (accepted, filled, partially filled, cancelled, rejected) and one
-carrying `BookSnapshotEvent` depth snapshots. Each consumer holds its own sequence counter, so a new
-subscriber is added by registering a consumer with no engine change.
+carrying `BookSnapshotEvent` depth snapshots bounded at 20 levels per side. Each consumer holds its
+own sequence counter, so a new subscriber is added by registering a consumer with no engine change.
 
-**Publishers and frontend.** The WebSocket publisher serializes execution and snapshot events to
-JSON via Jackson and pushes them to all connected React clients over Netty. A trade logger and a
-market-data service subscribe independently on the same outbound ring. The React frontend renders a
-live depth chart and trade tape, and submits orders back through the gateway.
+**Market data and trade reporting.** `MarketDataService` consumes the snapshot ring and derives best
+bid, best ask, midpoint and spread. `TradeLogger` consumes the outbound ring as the server-side trade
+tape, logging fills and ignoring everything else. Neither blocks the other, and neither blocks the
+engine.
+
+**Publishers and terminal.** The WebSocket publisher serializes execution and snapshot events to JSON
+via Jackson and pushes them to all connected clients over Netty. The React terminal renders the live
+market and submits orders back through the gateway. Orders entered in the UI are encoded to real FIX
+bytes at the network edge (`JsonToFix`) and fed through the same `FixParser` an external member would
+hit, so there is no privileged back door into the engine.
+
+**Time.** A single `EpochNanoClock` instance is constructed at startup and shared by the gateway
+receipt stamp, the engine handler's execution and snapshot stamps, and the raw FIX echo at the
+WebSocket edge. It anchors `System.currentTimeMillis()` against `System.nanoTime()` once, then serves
+`anchor + elapsed`, which yields true epoch nanoseconds at nanosecond resolution. The transform is
+affine, so inter-event deltas remain exact and the end-to-end latency measurement is unaffected by
+the epoch conversion. One instance is load-bearing: two anchors would differ by the anchor skew and
+corrupt a receipt-to-publish delta.
+
+---
+
+## The participant terminal
+
+The frontend is a routed two-page terminal, not a demo page. It is styled as an institutional trading
+screen (IBM Plex Sans and Mono, tabular figures, flat charcoal surfaces) with no marketing chrome.
+The socket lives above the router, so navigation never drops the connection or resets session state.
+
+| Route | Contents |
+|---|---|
+| `/trading` | Depth ladder, cumulative depth curve, trade tape, order entry ticket, open orders blotter, cancel-by-ID ticket, FIX stream inspector |
+| `/chart` | Session price line with reference lines, plus a side panel holding session high, low, trade count, last print, and a second order ticket |
+
+A persistent header strip renders on both pages: last, change, bid, ask, mid, spread in cents and
+basis points, volume and session open.
+
+**Depth ladder and depth curve.** The ladder shows asks above and bids below with a pinned spread and
+mid bar, fed only by `BOOK` snapshot frames. The curve is a cumulative step function per side on one
+shared price axis, with a shared depth maximum across both sides so imbalance reads truthfully.
+Clicking the curve prefills the order ticket's price.
+
+**FIX stream inspector.** The honest one. Inbound entries show the real echoed SOH bytes the parser
+actually consumed, byte for byte, with no recomputed body length or checksum. Outbound entries show
+the actual execution JSON frames and are labelled as such, because the server builds no outbound
+tag-value message and the inspector does not fabricate a `35=8` that does not exist on the wire.
+
+**Session statistics.** High, low, trade count, volume and session open are accumulated in the
+reducer per fill rather than folded from the trade tape, because the tape is capped at 200 prints and
+would silently forget the extremes. They survive reconnects and navigation. See
+[Known limitations](#known-limitations) for what "session" means here.
+
+**Reference market open.** The chart and header can display the official market open for the real
+instrument, fetched once per app open from the Alpaca market data API. This is a reference line only.
+It never touches the engine, the book, or any price the venue produces, and the venue remains
+entirely self-contained without it.
+
+Frontend specifics, including the wire contract, the pure-helper conventions and the test layout,
+live in [`app/frontend/FrontendREADME.md`](app/frontend/FrontendREADME.md).
 
 ---
 
 ## Performance
 
 All figures come from JMH 1.37 on JDK 21.0.8 LTS. See [Benchmarking](#benchmarking) to reproduce.
-Read the conditions column: these are single-fork measurements on an unpinned developer laptop, so
-they are point estimates on one machine rather than certified benchmark results. Where a number
-carries wide variance it is reported as a range with its confidence interval, never as a bare point
-estimate.
+Read the conditions column: these are single-fork measurements on an unpinned developer machine, so
+they are point estimates on one box rather than certified benchmark results. Where a number carries
+wide variance it is reported as a range with its confidence interval, never as a bare point estimate.
 
 | Measurement | Result | Conditions |
 |---|---|---|
@@ -117,9 +206,9 @@ noise, and it is the honest counterpoint to the flat insert curve.
 
 **End-to-end latency is transport-bound, not matching-bound.** The approximately 4.8 µs median for a
 full gateway-to-execution round trip is dominated by the Disruptor consumer wakeup, the gateway
-parse, and the inbound publish. The actual match plus trade construction plus publish is on the
-order of 100 to 250 ns of that figure. The lever for this latency is the Disruptor wait strategy
-(a busy-spin or yielding strategy would keep the consumer hot and collapse the median toward the
+parse, and the inbound publish. The actual match plus trade construction plus publish is on the order
+of 100 to 250 ns of that figure. The lever for this latency is the Disruptor wait strategy (a
+busy-spin or yielding strategy would keep the consumer hot and collapse the median toward the
 engine's sub-microsecond floor, at the cost of a burned core), not the engine itself. This is
 measured as closed-loop service time with one order in flight, so it is not a saturation-latency SLA.
 
@@ -152,15 +241,23 @@ These are the invariants the implementation holds to, drawn from the system requ
    matching. The scope of the claim is stated precisely above.
 2. **Single-writer principle.** Each ring buffer has exactly one producer (the gateway inbound, the
    engine outbound), which removes write contention without locks.
-3. **Mechanical sympathy.** Ring buffer slots are laid out for cache-line-friendly sequential
-   access, Disruptor pads its sequence counters to prevent false sharing, and the engine reads
-   events in order to maximize L1 and L2 cache hits.
+3. **Mechanical sympathy.** Ring buffer slots are laid out for cache-line-friendly sequential access,
+   Disruptor pads its sequence counters to prevent false sharing, and the engine reads events in
+   order to maximize L1 and L2 cache hits.
 4. **Logging off the hot path.** SLF4J logging occurs only at the boundaries (the gateway on receipt
    and the publisher on dispatch). The matching engine's inner loop contains no logging calls.
-5. **Protocol boundary separation.** FIX parsing and JSON serialization happen only at the edges.
-   The core pipeline operates on Java primitives and pre-allocated objects, and the engine has no
-   knowledge of any wire format.
-6. **Scope discipline.** A feature is included only if it serves the core goals of low-latency
+5. **Protocol boundary separation.** FIX parsing and JSON serialization happen only at the edges. The
+   core pipeline operates on Java primitives and pre-allocated objects, and the engine has no
+   knowledge of any wire format. `FixParser` never imports a Netty or Disruptor type: its boundary is
+   a raw `byte[]`.
+6. **Integer money, integer time.** Prices are `long` cents and timestamps are `long` epoch
+   nanoseconds everywhere, backend and frontend. Floating point appears only at the render edge, when
+   a scale maps a domain value to a pixel. No `BigDecimal`, no `double` arithmetic on a price.
+7. **Pure core, thin edge.** On both sides of the wire, the maths lives in a pure module with no I/O
+   and no framework types, and the component or handler around it owns only the edge concern. This is
+   what makes the engine testable with no ring buffer in the loop, and the depth curve, price series
+   and session statistics testable with no DOM in the loop.
+8. **Scope discipline.** A feature is included only if it serves the core goals of low-latency
    architecture, event-driven design, financial domain knowledge, or full-stack integration.
    Over-engineering is actively resisted.
 
@@ -172,13 +269,20 @@ These are the invariants the implementation holds to, drawn from the system requ
 |---|---|
 | Language | Java 21 LTS (bytecode target; developed on JDK 25) |
 | Build | Maven |
-| Concurrency transport | LMAX Disruptor ring buffers |
+| Concurrency transport | LMAX Disruptor 4.0 ring buffers |
 | Networking | Netty 4.2 (WebSocket server, `netty-codec-http`) |
 | Serialization | Jackson 2.18 (JSON at the boundary) |
-| Protocol | FIX 4.2 subset (`NewOrderSingle`, `OrderCancelRequest`) |
-| Testing | JUnit 5 |
-| Benchmarking | JMH 1.37 |
-| Frontend | React (depth chart, trade tape, manual trading) |
+| Protocol | FIX 4.2 subset (`NewOrderSingle`, `OrderCancelRequest`), hand-rolled parser |
+| Logging | SLF4J 2.0 |
+| Backend testing | JUnit 5 |
+| Benchmarking | JMH 1.37 via `pw.krejci:jmh-maven-plugin` |
+| Frontend | React 19, TypeScript 5.9, Vite 8, React Router 7 |
+| Frontend testing | Vitest 4, Testing Library, jsdom |
+| Reference market data | Alpaca market data API (development proxy only) |
+
+Explicitly not used: Spring Boot or any dependency-injection framework, QuickFIX/J, `BigDecimal`,
+`LocalDateTime`, and any blocking queue on the hot path. Each omission is a deliberate choice, not an
+oversight.
 
 A note on the JDK split: the code is developed on JDK 25 and compiled to Java 21 bytecode
 (`maven.compiler.release=21`), and all published performance numbers are measured on JDK 21 LTS.
@@ -190,25 +294,26 @@ release a trading firm would actually pin, so 21 is the measurement target.
 ## Project structure
 
 ```
-low-latency-matching-engine/
+high-performance-stock-exchange/
 ├── app/
 │   ├── backend/                                # Maven module: engine, gateway, pipeline, publishers
 │   │   ├── pom.xml                             # Dependencies, Java 21 release target, JMH plugin
 │   │   └── src/                                # main/java (below) and test/java (below)
-│   └── frontend/                               # Vite + React trading terminal (independent build)
+│   └── frontend/                               # Vite + React participant terminal (independent build)
 │       ├── package.json                        # Scripts and dependencies (npm)
-│       ├── vite.config.ts                      # Dev server and build config
+│       ├── vite.config.ts                      # Dev server, Alpaca dev proxy, Vitest config
 │       ├── index.html                          # Vite entry document
+│       ├── FrontendREADME.md                   # Terminal architecture, wire contract, caveats
 │       ├── src/                                # Application sources (below)
-│       └── test/                               # Vitest component and unit tests
+│       └── test/                               # Vitest unit and render tests
 └── README.md
 ```
 
-### Backend — main sources
+### Backend, main sources
 
 ```
 app/backend/src/main/java/
-├── Main.java                                   # Entry point: assembles the full pipeline and runs the demo server
+├── Main.java                                   # Entry point: assembles the full venue and runs the server
 ├── model/
 │   ├── Order.java                              # Mutable order; domain validation in the constructor
 │   ├── Side.java                               # BUY / SELL
@@ -231,7 +336,7 @@ app/backend/src/main/java/
 │   ├── ExecutionEvent.java                     # Mutable outbound carrier (engine → subscribers)
 │   ├── ExecutionEventFactory.java              # Pre-allocates the outbound ring slots
 │   ├── ExecutionEventType.java                 # Accepted, filled, partially filled, cancelled, rejected
-│   ├── BookSnapshotEvent.java                  # Mutable bounded top-N depth carrier
+│   ├── BookSnapshotEvent.java                  # Mutable bounded depth carrier (20 levels per side)
 │   ├── BookSnapshotEventFactory.java           # Pre-allocates the snapshot ring slots
 │   ├── InboundPipeline.java                    # Inbound Disruptor wiring: ring size and wait strategy
 │   ├── OutboundPipeline.java                   # Outbound Disruptor wiring: independent consumers, own sequences
@@ -247,10 +352,11 @@ app/backend/src/main/java/
 ├── market/
 │   └── MarketDataService.java                  # Snapshot consumer: best bid/ask, midpoint, spread
 └── util/
+    ├── EpochNanoClock.java                     # One shared epoch-nanos time domain, affine over nanoTime
     └── IDGenerator.java                        # Monotonic order / participant / trade ids
 ```
 
-### Backend — tests and benchmarks
+### Backend, tests and benchmarks
 
 ```
 app/backend/src/test/java/
@@ -281,6 +387,8 @@ app/backend/src/test/java/
 │   └── TradeLoggerTest.java                    # Fills only reach the tape
 ├── market/
 │   └── MarketDataServiceTest.java              # Midpoint and spread derivation
+├── util/
+│   └── EpochNanoClockTest.java                 # Epoch anchoring and exact delta preservation
 ├── integration/
 │   └── EndToEndPipelineTest.java               # FIX at the gateway through to an execution at a subscriber
 └── benchmark/
@@ -296,37 +404,55 @@ app/backend/src/test/java/
 
 ```
 app/frontend/src/
-├── main.tsx                                    # React entry point
-├── App.tsx                                     # Single screen: one useOrderBook instance, the only frame sender
-├── format.ts                                   # Cents ↔ dollars as string integer math, never floating point
+├── main.tsx                                    # React entry point, mounts BrowserRouter
+├── App.tsx                                     # Socket owner and sole frame sender; routes to the two pages
+├── format.ts                                   # Cents ↔ dollars and clock formatting as integer string math
+├── depth.ts                                    # Pure cumulative depth and depth-curve model
+├── priceSeries.ts                              # Pure session price series for the chart
+├── sessionStats.ts                             # Pure session high / low / count / last-print model
+├── pages/
+│   ├── TradingPage.tsx                         # Depth, tape, ticket, blotter, cancel ticket, inspector
+│   └── PriceChartPage.tsx                      # Session price chart plus the session detail panel
 ├── components/
-│   ├── Header.tsx                              # Instrument and top-of-book metrics, derived purely from BOOK
+│   ├── Navbar.tsx                              # Route tab strip, active state owned by the router
+│   ├── Header.tsx                              # Persistent top-of-book strip, derived purely from BOOK
 │   ├── DepthLadder.tsx                         # Depth ladder: asks above, bids below, BOOK only
-│   ├── TradeTape.tsx                           # Newest-first fill tape, capped
+│   ├── DepthCurve.tsx                          # Cumulative depth step curve, click-to-prefill price
+│   ├── TradeTape.tsx                           # Newest-first fill tape, capped at 200 prints
+│   ├── PriceChart.tsx                          # Session trade-print line with reference lines
+│   ├── SessionStats.tsx                        # High, low, trade count, last print
 │   ├── OrderEntry.tsx                          # Manual order entry: transient form state, emits cents
-│   ├── OpenOrders.tsx                          # Working orders and the cancel intent
+│   ├── OpenOrders.tsx                          # Working orders and the per-row cancel intent
+│   ├── CancelTicket.tsx                        # Cancel by typed OrigClOrdID, including untracked orders
+│   ├── FixInspector.tsx                        # Raw inbound FIX bytes and outbound EXEC frames
 │   └── ConnectionBadge.tsx                     # connecting / open / reconnecting pill
 ├── protocol/
 │   ├── messages.ts                             # The wire contract: the only place raw JSON becomes typed
-│   └── encode.ts                               # Outbound frame construction and ClOrdID generation
+│   ├── encode.ts                               # Outbound frame construction and ClOrdID generation
+│   └── fix.ts                                  # Pure FIX tag-value parsing for the inspector
 ├── state/
 │   ├── reducer.ts                              # Pure state: BOOK replaces the book, EXEC never touches it
-│   └── useOrderBook.ts                         # Socket lifecycle: capped-backoff reconnect, dispatches to the reducer
+│   ├── useOrderBook.ts                         # Socket lifecycle: capped-backoff reconnect, dispatches to the reducer
+│   └── useIgnitionPrice.ts                     # One-shot reference market-open fetch, isolated from the socket
+├── market/
+│   ├── ignition.ts                             # Pure Alpaca snapshot → integer cents
+│   └── alpacaClient.ts                         # The one impure edge: same-origin fetch through the dev proxy
 └── styles/
-    └── terminal.css                            # Terminal styling
+    └── terminal.css                            # Terminal theme: IBM Plex, flat charcoal, tabular figures
 ```
 
 Maven runs from `app/backend/`, and npm runs from `app/frontend/`. The two build independently.
 
 The matching engine is framework-free: the `event` carriers stay free of Disruptor types, and only
 their `*Factory` classes touch `com.lmax`. This keeps the core testable in isolation with no ring
-buffer or network in the loop.
+buffer or network in the loop. The same split holds on the frontend, where `depth.ts`,
+`priceSeries.ts`, `sessionStats.ts` and `protocol/fix.ts` are pure modules tested without a DOM.
 
 ---
 
 ## Building and running
 
-**Prerequisites:** a JDK (21 or later), Maven, and Node.js for the frontend.
+**Prerequisites:** a JDK (21 or later), Maven, and Node.js 20.19 or later for the frontend.
 
 Backend:
 
@@ -336,8 +462,10 @@ mvn clean install
 mvn exec:java -Dexec.mainClass=Main
 ```
 
-The backend stands up the Netty WebSocket server and the full pipeline. Connect a WebSocket client,
-submit an order, and observe execution and book-snapshot frames pushed to subscribers.
+The backend stands up the Netty WebSocket server on port 8080 (override with the first CLI argument)
+and the full pipeline. It seeds no orders by design: seeding would mean publishing from the main
+thread and breaking the single-writer discipline, so the first client order is the first thing in the
+book.
 
 Frontend:
 
@@ -347,16 +475,30 @@ npm install
 npm run dev
 ```
 
-The React client connects to the backend over WebSocket and renders the live depth chart and trade
-tape.
+The terminal connects to the backend over WebSocket at `ws://localhost:8080/ws` and renders the live
+market.
+
+**Optional reference market data.** The market-open reference line is off unless Alpaca credentials
+are present. Create `app/frontend/.env.local` with the following, then restart the dev server:
+
+```
+ALPACA_KEY_ID=your_key_id
+ALPACA_SECRET_KEY=your_secret_key
+```
+
+These are deliberately not `VITE_`-prefixed, so they are loaded into the Vite node process only and
+never reach the client bundle. The dev server proxies a same-origin `/alpaca/...` path and injects
+the headers server-side, which also means browser CORS never arises. Without the file, the reference
+line is simply absent and everything else works unchanged. See
+[Known limitations](#known-limitations) for why this is a development-only arrangement.
 
 ---
 
 ## Benchmarking
 
-Benchmarks live under `app/backend/src/test/java/benchmark/` and run through the JMH Maven plugin. They
-never run as part of `mvn test`; invocation is explicit. Run them from `app/backend/` in a shell with
-JDK 21 active:
+Benchmarks live under `app/backend/src/test/java/benchmark/` and run through the JMH Maven plugin.
+They never run as part of `mvn test`; invocation is explicit. Run them from `app/backend/` in a shell
+with JDK 21 active:
 
 ```bash
 export JAVA_HOME="/path/to/jdk-21"
@@ -399,43 +541,100 @@ publication span into a pre-allocated array and sorts for exact percentiles. Run
 
 ## Testing
 
-The suite is 152 JUnit 5 tests covering the matching engine (placement, price-time priority, partial
-and full fills, cancel, empty book), the FIX parser (valid messages, missing tags, malformed input,
-SOH handling), the event carriers (correct field copying and reset across ring-buffer slot reuse),
-and the full pipeline end to end (a FIX message at the gateway through to an execution event at a
-subscriber).
+**Backend: 163 JUnit 5 tests across 20 classes.** They cover the matching engine (placement,
+price-time priority, partial and full fills, cancel, empty book, depth snapshots), the FIX parser
+(valid messages, missing tags, malformed input, decimal-to-cents conversion, checksum, framing across
+partial and back-to-back messages), the event carriers (correct field copying and reset across
+ring-buffer slot reuse), the WebSocket edge, the publishers and market data service, the shared
+epoch clock, and the full pipeline end to end from a FIX message at the gateway to an execution event
+at a subscriber.
 
 ```bash
 cd app/backend
 mvn test
 ```
 
+**Frontend: 339 Vitest tests across 32 files.** Pure logic and render tests are kept in separate
+files by convention (`X.test.ts` for logic, `X.render.test.tsx` for components), Vitest globals are
+deliberately off, and render tests use an explicit `afterEach(cleanup)` rather than a global.
+
+```bash
+cd app/frontend
+npm test
+```
+
+Typecheck separately with `npx tsc --noEmit`.
+
+Beyond the automated suites, each delivered phase closes with a scripted manual acceptance run
+against a live backend and dev server, with the scenarios and their results recorded in that phase's
+build guide.
+
 ---
 
 ## Scope
 
 **In scope:** limit order matching with price-time priority, order submission and cancellation, a FIX
-tag-value protocol subset, a Disruptor-based event pipeline, WebSocket push to a React frontend, and
-JMH latency benchmarking.
+tag-value protocol subset, a Disruptor-based event pipeline, bounded depth snapshots and derived
+market data, a server-side trade tape, WebSocket dissemination, a routed React participant terminal
+with depth, tape, charting, order entry, a blotter and a FIX stream inspector, and JMH latency and
+allocation benchmarking.
 
-**Out of scope, deliberately:** Spring Boot or any dependency-injection framework, AI trading agents,
-persistence and crash recovery, multi-symbol and multi-venue routing, member accounts and pre-trade
-risk, and authentication. These are omitted to keep the project focused on the systems and domain
-concepts it exists to demonstrate. They are also the features that separate this matching core from a
-production exchange, and are called out here rather than hidden.
+**Out of scope, deliberately:** Spring Boot or any dependency-injection framework, AI or LLM trading
+agents, persistence and crash recovery, multi-symbol and multi-venue routing, member accounts and
+pre-trade risk, auction and halt states, clearing and settlement, and authentication. These are
+omitted to keep the project focused on the systems and domain concepts it exists to demonstrate.
+They are also the features that separate this venue from a production exchange, and are called out
+here rather than hidden.
+
+---
+
+## Known limitations
+
+Stated plainly, because each one is a thing an interviewer would find anyway.
+
+- **Single instrument.** The engine holds one book. Multi-symbol support is a routing and
+  partitioning problem that would change the threading model, which is why it is a non-goal rather
+  than a missing feature.
+- **No persistence.** The book lives in memory. A restart is a clean market open.
+- **Session statistics are connect-anchored.** High, low, trade count, volume and session open
+  accumulate from the moment the browser session connected, not from the true venue session open, so
+  connecting mid-session undercounts them. They survive a reconnect blip and navigation. The clean
+  fix is the engine publishing session statistics or a connect snapshot, which is backend scope and
+  is parked.
+- **The price chart is bounded to the last 200 prints** (the tape cap), while the side panel's high,
+  low and trade count are not. On a long session the two can legitimately disagree about the
+  session's extremes. The fix is a dedicated price-history slice, not a change to the panel.
+- **The reference market-open feed is development-only.** It relies on the Vite dev server proxy to
+  hold the Alpaca credentials server-side. A static `vite build` bundle has no proxy, so a real
+  deployment needs a backend proxy endpoint holding those credentials. The value is also fetched once
+  per app open and does not roll across a trading-day boundary without a reload.
+- **The reference instrument and the synthetic book trade at different levels.** The real market open
+  sits far from where the demo book trades, so the market-open reference line is frequently outside
+  the plotted domain and correctly absent. This is expected, not a bug.
+- **Performance figures are single-fork, single-machine.** They are point estimates on an unpinned
+  developer box, not certified results. See [Performance](#performance) for the per-measurement
+  conditions.
 
 ---
 
 ## Roadmap
 
-The core system, pipeline, gateway, WebSocket server, frontend, and benchmark suite are complete. The
-remaining work is documentation and portfolio polish: the results write-up and resume artifacts.
+The venue core, pipeline, gateway, WebSocket dissemination, participant terminal and benchmark suite
+are complete. Remaining work is portfolio polish: terminal screenshots captured on a running stack,
+and the results write-up.
 
 Documented future direction, understood but out of scope at this stage:
 
 - Primitive-keyed order book maps to remove the `Long` boxing measured on the insert and fill paths.
-- A busy-spin or yielding Disruptor wait strategy to trade a core for lower median end-to-end
-  latency under load.
+- A busy-spin or yielding Disruptor wait strategy to trade a core for lower median end-to-end latency
+  under load.
 - Multi-fork benchmark runs on a pinned, quiet machine to tighten the timing confidence intervals.
+- Engine-published session statistics, which would retire the connect-anchoring caveat above.
+- Derived indicators in the terminal (VWAP first), which the reducer accumulator pattern already
+  accommodates.
+- Algorithmic participant bots trading against the book from outside the venue, each running a simple
+  strategy. They would connect through the gateway like any other member. They are deliberately
+  algorithmic rather than LLM-driven: a model in the loop is incompatible with the latency
+  philosophy of the system they would be trading on.
 
 ---
