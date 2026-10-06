@@ -12,6 +12,8 @@ import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import util.BookFrameCache;
+
 /**
  * WebSocket fan-out publisher (SRS §3.5 / §3.6). Serves the two outbound streams to every
  * connected React client as typed JSON text frames:
@@ -56,18 +58,36 @@ public final class WebSocketPublisher {
     private final ChannelGroup channelGroup;
     private final ObjectMapper mapper;
 
+    /** Shared latest-BOOK cache for snapshot-on-connect; null when unwired (test seam). */
+    private final BookFrameCache bookCache;
+
     /** Allocated once here — not per message. Handed to the pipelines in P4-7. */
     private final EventHandler<ExecutionEvent> executionHandler = this::onExecution;
     private final EventHandler<BookSnapshotEvent> snapshotHandler = this::onSnapshot;
 
-    /** Production entry point: the publisher owns its own {@link ObjectMapper}. */
+    /** Production entry point with no book cache: the publisher owns its own {@link ObjectMapper}. */
     public WebSocketPublisher(ChannelGroup channelGroup) {
-        this(channelGroup, new ObjectMapper());
+        this(channelGroup, null, new ObjectMapper());
     }
 
-    /** Test / reuse seam: inject a shared, pre-configured {@link ObjectMapper}. */
+    /**
+     * Production entry point with the shared {@link BookFrameCache}: every BOOK frame this publisher
+     * emits is also stashed in the cache so a newly connected client can be sent the current depth
+     * on connect (see {@code net.WebSocketFrameHandler}).
+     */
+    public WebSocketPublisher(ChannelGroup channelGroup, BookFrameCache bookCache) {
+        this(channelGroup, bookCache, new ObjectMapper());
+    }
+
+    /** Test / reuse seam: inject a shared, pre-configured {@link ObjectMapper}; no book cache. */
     WebSocketPublisher(ChannelGroup channelGroup, ObjectMapper mapper) {
+        this(channelGroup, null, mapper);
+    }
+
+    /** Full seam: both the book cache and the mapper are injected. */
+    WebSocketPublisher(ChannelGroup channelGroup, BookFrameCache bookCache, ObjectMapper mapper) {
         this.channelGroup = channelGroup;
+        this.bookCache = bookCache;
         this.mapper = mapper;
     }
 
@@ -99,7 +119,10 @@ public final class WebSocketPublisher {
     }
 
     private void onSnapshot(BookSnapshotEvent event, long sequence, boolean endOfBatch) {
-        if (channelGroup.isEmpty()) {
+        // With no cache wired (test seam / pre-snapshot-on-connect), keep the original
+        // optimization: skip serialization entirely when no client is listening. With a cache,
+        // serialize even for zero clients so the cache stays current for snapshot-on-connect.
+        if (channelGroup.isEmpty() && bookCache == null) {
             return;
         }
         final String json;
@@ -108,6 +131,16 @@ public final class WebSocketPublisher {
         } catch (RuntimeException ex) {
             log.warn("BOOK serialization failed; dropping frame", ex);
             return;
+        }
+        // Cache the latest book for snapshot-on-connect, independent of the current client count: a
+        // client that connects later must be handed the TRUE current book, not whatever was last
+        // broadcast. Order flow in this venue originates from clients, so a snapshot serialized with
+        // zero clients attached (the only extra work this adds) is rare.
+        if (bookCache != null) {
+            bookCache.set(json);
+        }
+        if (channelGroup.isEmpty()) {
+            return; // no clients to broadcast to; the cache above is already current
         }
         channelGroup.writeAndFlush(new TextWebSocketFrame(json));
         log.debug("dispatched BOOK frame to {} client(s)", channelGroup.size());

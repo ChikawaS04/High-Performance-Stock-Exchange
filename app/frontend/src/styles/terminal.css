@@ -687,6 +687,11 @@ body {
        (.trade-tape__rows) rather than stretching the page. Both are tunable. */
     min-height: 240px;
     font-size: 13px;
+    /* Single source for the tape's row height and the number of rows the scroll body
+       shows before it scrolls: the 21st print is what engages the shared P8-3 scrollbar,
+       mirroring the depth panes (--depth-row-h) and the blotter (--blotter-row-h). */
+    --tape-row-h: 22px;
+    --tape-rows: 20;
 }
 
 /* Controls: block-size filter + precision toggle. Quiet, above the tape. */
@@ -760,13 +765,18 @@ body {
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    /* Cap the scroll body at --tape-rows (20) rows. The tape was unbounded, so a busy
+       session stretched the page instead of scrolling internally; overflow-y + the
+       shared P8-3 scrollbar (wired for .trade-tape__rows above) now engage on the 21st
+       print. A shorter tape still sizes to its own rows. */
+    max-height: calc(var(--tape-rows, 20) * var(--tape-row-h));
     overflow-y: auto;
     background: var(--bg);
     margin: 0 -12px -12px;
 }
 
 .trade-tape__row {
-    height: 22px;
+    height: var(--tape-row-h);
     padding: 0 8px;
     border-bottom: 1px solid var(--row-line);
 }
@@ -2095,4 +2105,13 @@ body {
 .open-orders__table th,
 .open-orders__table td {
     white-space: nowrap;
+}
+
+/* Disconnected cue: the book is a live projection of the socket stream, so while the
+   link is down the depth panel (ladder + curve) shows last-known, not live, data. Dim it
+   so a frozen book never reads as current; the authoritative status stays in the
+   ConnectionBadge. Interaction stays enabled (depth selector, click-to-price). */
+.panel--stale {
+    opacity: 0.45;
+    transition: opacity 120ms ease-in;
 }

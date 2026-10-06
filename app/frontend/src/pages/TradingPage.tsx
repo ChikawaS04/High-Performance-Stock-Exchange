@@ -63,7 +63,10 @@ export function TradingPage({
             </div>
 
             <main className="workspace">
-                <section className="panel panel--ladder" aria-label="Order book depth">
+                <section
+                    className={`panel panel--ladder${connected ? "" : " panel--stale"}`}
+                    aria-label="Order book depth"
+                >
                     <h2 className="panel__title">Depth</h2>
                     <DepthLadder
                         book={state.book}

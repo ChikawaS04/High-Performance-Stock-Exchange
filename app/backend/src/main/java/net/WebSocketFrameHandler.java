@@ -18,6 +18,8 @@ import org.slf4j.LoggerFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.function.LongSupplier;
 
+import util.BookFrameCache;
+
 /**
  * Per-connection tail handler for the WebSocket pipeline. On a completed handshake it registers
  * the channel in the shared {@link ChannelGroup} (P4-4); on a text frame it translates a manual
@@ -67,6 +69,12 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
      */
     private final LongSupplier clock;
 
+    /**
+     * Shared cache of the latest published BOOK frame. Read on HandshakeComplete to send a
+     * connecting client the current depth immediately; null when the server wired no cache (tests).
+     */
+    private final BookFrameCache bookCache;
+
     /** Per-channel echo counter; single-thread-confined to this channel's event loop. */
     private long fixSeqNum;
 
@@ -74,10 +82,19 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                                  OrderGateway gateway,
                                  ObjectMapper objectMapper,
                                  LongSupplier clock) {
+        this(channelGroup, gateway, objectMapper, clock, null);
+    }
+
+    public WebSocketFrameHandler(ChannelGroup channelGroup,
+                                 OrderGateway gateway,
+                                 ObjectMapper objectMapper,
+                                 LongSupplier clock,
+                                 BookFrameCache bookCache) {
         this.channelGroup = channelGroup;
         this.gateway = gateway;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.bookCache = bookCache;
     }
 
     @Override
@@ -86,8 +103,31 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
             channelGroup.add(ctx.channel());
             log.info("WS client connected: {} ({} total)",
                     ctx.channel().remoteAddress(), channelGroup.size());
+            sendBookSnapshot(ctx.channel());
         }
         super.userEventTriggered(ctx, evt);
+    }
+
+    /**
+     * Hand a just-connected client the current book. The book is a pure projection of the stream
+     * and snapshots are published only per inbound event, so without this a fresh or reconnecting
+     * client would render an empty ladder until the next order flowed anywhere on the book. The
+     * latest BOOK frame text comes from the shared {@link BookFrameCache}, which the publisher fills
+     * on its own consumer thread; that field is volatile, so this worker-thread read sees a safely
+     * published value with no lock and with no cross-thread read of the live book (which the
+     * single-writer design forbids). A null cache or a null value means nothing has been published
+     * yet (empty venue) — the client waits for the first live snapshot, exactly as before. BOOK is
+     * wholesale-replace, so if a live broadcast races in right after this send, whichever the client
+     * applies last wins and the next event reconciles anyway.
+     */
+    private void sendBookSnapshot(Channel channel) {
+        if (bookCache == null) {
+            return;
+        }
+        String json = bookCache.get();
+        if (json != null) {
+            channel.writeAndFlush(new TextWebSocketFrame(json));
+        }
     }
 
     @Override

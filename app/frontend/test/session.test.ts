@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_BOOK, initialState, reducer, SESSION_OPEN_UNSET, TAPE_CAP } from "../src/state/reducer";
+import { initialState, reducer, SESSION_OPEN_UNSET, TAPE_CAP } from "../src/state/reducer";
 import type { Action, AppState } from "../src/state/reducer";
 import { cancelOrderFrame, newOrderFrame } from "../src/protocol/encode";
 import type { ExecFrame } from "../src/protocol/messages";
@@ -260,7 +260,7 @@ describe("last frame received", () => {
 });
 
 describe("session state across a disconnect", () => {
-    it("clears the book but preserves the aggregates, counter, and last-frame marker", () => {
+    it("retains the book (stale) and preserves the aggregates, counter, and last-frame marker", () => {
         const live = run(
             initialState,
             { type: "SENT", frame: newOrderFrame(1, "BUY", 15000, 10) },
@@ -269,7 +269,9 @@ describe("session state across a disconnect", () => {
         );
 
         const dropped = reducer(live, { type: "CONNECTION", status: "reconnecting" });
-        expect(dropped.book).toBe(EMPTY_BOOK);
+        // The book now survives a drop (rendered stale while disconnected), replaced only by
+        // the next BOOK frame; same reference, untouched.
+        expect(dropped.book).toBe(live.book);
         expect(dropped.sessionVolume).toBe(live.sessionVolume);
         expect(dropped.sessionOpenCents).toBe(live.sessionOpenCents);
         expect(dropped.msgSeqNum).toBe(live.msgSeqNum);

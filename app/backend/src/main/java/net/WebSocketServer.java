@@ -23,6 +23,8 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.util.function.LongSupplier;
 
+import util.BookFrameCache;
+
 /**
  * Netty WebSocket server (SRS §3.6). Exposes {@code /ws}, registers handshaken clients in a
  * shared {@link ChannelGroup}, and feeds inbound manual orders to the FIX gateway (P4-5).
@@ -45,6 +47,7 @@ public final class WebSocketServer {
 
     private static final String WEBSOCKET_PATH = "/ws";
     private static final int MAX_HTTP_CONTENT_LENGTH = 64 * 1024;
+    private static final long HEARTBEAT_INTERVAL_SECONDS = 30;
 
     private final int port;
     private final OrderGateway gateway;
@@ -52,6 +55,7 @@ public final class WebSocketServer {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ChannelGroup channelGroup =
             new DefaultChannelGroup("ws-clients", GlobalEventExecutor.INSTANCE);
+    private final BookFrameCache bookFrameCache = new BookFrameCache();
 
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
@@ -66,6 +70,15 @@ public final class WebSocketServer {
     /** Shared connected-client registry; P4-6's publisher writes execution/book frames to this. */
     public ChannelGroup getChannelGroup() {
         return channelGroup;
+    }
+
+    /**
+     * Shared latest-BOOK-frame cache: the publisher fills it on each snapshot, and the per-channel
+     * handler reads it to send a connecting client the current depth. Wired through here so the
+     * publisher receives the same instance, mirroring {@link #getChannelGroup()}.
+     */
+    public BookFrameCache getBookFrameCache() {
+        return bookFrameCache;
     }
 
     /** The actually-bound port. Useful when constructed with port 0 (ephemeral) in tests. */
@@ -87,7 +100,8 @@ public final class WebSocketServer {
                         p.addLast(new HttpServerCodec());
                         p.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH));
                         p.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH));
-                        p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock));
+                        p.addLast(new WebSocketHeartbeatHandler(HEARTBEAT_INTERVAL_SECONDS));
+                        p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock, bookFrameCache));
                     }
                 });
 

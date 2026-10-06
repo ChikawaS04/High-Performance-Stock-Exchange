@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { newOrderFrame, cancelOrderFrame } from "../src/protocol/encode";
 import type { BookFrame, ExecFrame, ExecType, ServerFrame } from "../src/protocol/messages";
 import {
-    EMPTY_BOOK,
     initialState,
     isCancellable,
     reducer,
@@ -328,7 +327,7 @@ describe("passive fills decrement the resting row locally (P7-8)", () => {
 // --- connection -------------------------------------------------------------
 
 describe("connection transitions", () => {
-    it("clears the book on drop but retains tape and myOrders", () => {
+    it("retains the book on drop (stale, not blank) along with tape and myOrders", () => {
         const live = run(
             initialState,
             open,
@@ -340,7 +339,10 @@ describe("connection transitions", () => {
         expect(live.book.bids).toHaveLength(1);
 
         const dropped = reducer(live, { type: "CONNECTION", status: "reconnecting" });
-        expect(dropped.book).toBe(EMPTY_BOOK);
+        // The last-known book is kept (same reference, untouched) and marked stale by the
+        // connection status; it is not replaced until the next BOOK frame. tape and myOrders
+        // likewise survive the blip.
+        expect(dropped.book).toBe(live.book);
         expect(dropped.connection).toBe("reconnecting");
         expect(dropped.tape).toBe(live.tape);
         expect(dropped.myOrders).toBe(live.myOrders);
@@ -351,16 +353,21 @@ describe("connection transitions", () => {
         expect(reducer(live, open)).toBe(live);
     });
 
-    it("keeps the book empty until the next BOOK frame after reconnect", () => {
-        const state = run(
+    it("keeps the last-known book across reconnect until the next BOOK frame replaces it", () => {
+        const withBook = run(
             initialState,
             open,
             frame(book(15000, -1, [[15000, 6]], [])),
-            { type: "CONNECTION", status: "reconnecting" },
-            open,
         );
-        // Known limitation: the server pushes BOOK only per inbound event.
-        expect(state.book).toBe(EMPTY_BOOK);
+        const state = run(withBook, { type: "CONNECTION", status: "reconnecting" }, open);
+        // The book now survives a drop (rendered stale while disconnected) and is replaced
+        // wholesale only by the next BOOK frame — the snapshot a client is sent on connect, or
+        // the next order flow.
+        expect(state.book).toBe(withBook.book);
         expect(state.connection).toBe("open");
+
+        const refreshed = run(state, frame(book(14900, 14950, [[14900, 2]], [[14950, 3]])));
+        expect(refreshed.book.bids).toEqual([[14900, 2]]);
+        expect(refreshed.book.bestAsk).toBe(14950);
     });
 });

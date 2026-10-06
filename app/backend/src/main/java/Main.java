@@ -97,7 +97,7 @@ public final class Main {
         // Constructed before the publisher: the server owns the ChannelGroup, which exists
         // at construction time (pre-start) and is the single source of truth for clients.
         WebSocketServer server = new WebSocketServer(port, gateway, clock);
-        WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup());
+        WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
 
         // --- 7. Register outbound subscribers (must precede start) ----------------------
         // Independent consumers, each with its own sequence counter (§3.4) — none blocks

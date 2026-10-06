@@ -449,14 +449,15 @@ export function reducer(state: AppState, action: Action): AppState {
     switch (action.type) {
         case "CONNECTION": {
             if (action.status === state.connection) return state;
-            // A stale ladder is worse than an empty one: any non-open state clears the
-            // book. Everything else survives: myOrders and tape (those orders may still
-            // be resting server-side), the session aggregates and liveness marker, and
-            // the P7-9 inspector log, all of which belong to the browser session rather
-            // than the socket. A blip must not reset any of them out from under a
-            // surviving tape.
-            const book = action.status === "open" ? state.book : EMPTY_BOOK;
-            return { ...state, connection: action.status, book };
+            // The book SURVIVES a drop rather than being cleared. A frozen ladder marked
+            // stale (TradingPage dims the depth panel while connection !== "open", and the
+            // ConnectionBadge shows the state) is more useful than a blank one: those levels
+            // were last-known real state, and the orders behind them may still be resting
+            // server-side. It is replaced wholesale by the next BOOK frame — the snapshot a
+            // reconnecting client is sent on connect, or the next order flow. Everything else
+            // survives too: myOrders and tape, the session aggregates and liveness marker, and
+            // the P7-9 inspector log all belong to the browser session, not the socket.
+            return { ...state, connection: action.status };
         }
         case "FRAME": {
             const frame = action.frame;
