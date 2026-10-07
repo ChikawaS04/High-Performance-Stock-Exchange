@@ -72,7 +72,7 @@ export function TradingPage({
                         book={state.book}
                         lastCents={state.tape.length > 0 ? state.tape[0].priceCents : -1}
                     />
-                    <h2 className="panel__title panel__title--spaced">Depth curve</h2>
+                    <h2 className="panel__title panel__title--chart">Depth chart</h2>
                     <DepthCurve
                         book={state.book}
                         onPriceSelect={(priceCents) => entryRef.current?.setPrice(priceCents)}

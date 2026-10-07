@@ -90,8 +90,9 @@ export function DepthCurve({ book, onPriceSelect, depth }: DepthCurveProps) {
                     className="depth-curve__svg"
                     viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
                     width="100%"
+                    preserveAspectRatio="xMidYMax meet"
                     role="img"
-                    aria-label="Cumulative depth curve (no depth)"
+                    aria-label="Cumulative depth chart (no depth)"
                     data-testid="depth-curve"
                 >
                     <text
@@ -157,8 +158,9 @@ export function DepthCurve({ book, onPriceSelect, depth }: DepthCurveProps) {
                 className="depth-curve__svg"
                 viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
                 width="100%"
+                preserveAspectRatio="xMidYMax meet"
                 role="img"
-                aria-label="Cumulative depth curve"
+                aria-label="Cumulative depth chart"
                 data-testid="depth-curve"
             >
                 {bidAnchors.length > 0 ? (

@@ -264,6 +264,17 @@ body {
     margin-top: 18px;
 }
 
+/* Depth-chart header: a band like the ladder head, bled to the panel edges and ruled
+   top and bottom, so the "Depth chart" title reads as a header clearly demarked from
+   the black chart body beneath it. Font/colour inherit from .panel__title. */
+.panel__title--chart {
+    margin: 18px -12px 0;
+    padding: 6px 12px;
+    background: var(--surface-2);
+    border-top: 1px solid var(--line-strong);
+    border-bottom: 1px solid var(--line-strong);
+}
+
 /* Cancel-by-ID heading is pushed to the bottom of the order-entry panel: in the
    flex-column panel, margin-top:auto absorbs the free space above it so it and the
    ticket below it sit at the foot of the panel. */
@@ -654,6 +665,11 @@ body {
 
 .depth-curve {
     flex-shrink: 0;
+    /* Full width: bleed to the panel's inner edges (same trick as the ladder panes) so
+       the chart uses the whole section width. Black plot ground, sitting flush under the
+       header band's bottom rule for a clean header/chart demarcation. */
+    margin: 0 -12px -12px;
+    background: #000;
 }
 
 .depth-curve__svg {
@@ -819,16 +835,13 @@ body {
     font-size: 11px;
 }
 
-/* Own trades: a left marker in the focus blue, neither bid nor ask, so it reads
-   as "mine" rather than a side. Mine wins over the tick colour on the price
-   (specificity 0,2,0 vs the 0,1,0 tick rules above). */
+/* Own trades: a left marker in the focus blue, neither bid nor ask, so "mine" reads
+   as a selection cue, not a side. The price keeps its green/red/neutral tick colour
+   (the focus blue is deliberately OFF the number now): blue stays a structural accent,
+   never a data colour. */
 .trade-tape__row--mine {
     border-left: 2px solid var(--focus);
     padding-left: 6px;
-}
-
-.trade-tape__row--mine .trade-tape__price {
-    color: var(--focus);
 }
 
 .trade-tape__empty,
@@ -1998,6 +2011,29 @@ body {
     .panel--blotter .open-orders__empty {
         flex: 0 0 auto;
         min-height: calc(var(--blotter-row-h) * 7);
+    }
+
+    /* On an idle start the Depth and Trades panels are stretched to full screen
+       height, but their content is short, so the panel's grey surface used to show
+       below. Let the dark content fill that space instead: the depth chart grows and
+       its black ground fills (the curve is bottom-anchored via preserveAspectRatio),
+       and the tape body fills with its own near-black ground. Scroll caps stay in the
+       page-scroll model; here the tape simply scrolls once rows exceed the panel. */
+    .panel--ladder .depth-curve {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+    .panel--ladder .depth-curve__svg {
+        height: 100%;
+        aspect-ratio: auto;
+    }
+    .trade-tape__rows {
+        max-height: none;
+    }
+    .trade-tape__empty {
+        flex: 1;
+        background: var(--bg);
+        margin: 0 -12px -12px;
     }
 }
 
