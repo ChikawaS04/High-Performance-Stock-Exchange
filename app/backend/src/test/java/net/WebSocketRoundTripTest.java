@@ -61,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *       frames — each stage asserts on both an EXEC and a BOOK, so a BOOK seen while waiting
  *       for its EXEC must survive for the next await. Matched frames are removed so no frame
  *       is matched twice; the expected book <i>shape</i> is folded into the predicate so a
- *       stale {@code [[15000,10]]} never satisfies a {@code [[15000,6]]} await. P7-2 adds a
+ *       stale {@code [[1500000,10]]} never satisfies a {@code [[1500000,6]]} await. P7-2 adds a
  *       third frame type (FIX) into the same stream; the non-discarding matcher absorbs it
  *       with no change to the existing awaits.</li>
  *   <li><b>Four-plus daemon-thread hops</b> (client loop → server worker → inbound ring →
@@ -78,7 +78,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class WebSocketRoundTripTest {
 
     private static final String ASML = "ASML";
-    private static final long PX = 15000L;                 // $150.00 in cents
+    private static final long PX = 1_500_000L;             // $150.00 in units of $0.0001
     private static final long[][] NONE = new long[0][];    // empty side
 
     private MatchingEngine engine;
@@ -158,7 +158,7 @@ class WebSocketRoundTripTest {
         assertEquals(-1, accepted.path("tradeId").asLong(), "ACCEPTED carries the -1 NA sentinel");
 
         JsonNode restBook = client.awaitFrame(book(PX, level(PX, 10), NONE), 2000);
-        assertNotNull(restBook, "resting BUY should push a BOOK with bids [[15000,10]]");
+        assertNotNull(restBook, "resting BUY should push a BOOK with bids [[1500000,10]]");
         assertEquals(-1, restBook.path("bestAsk").asLong(), "no ask side yet");
 
         // 2) Crossing SELL 4 @ 150.00 -> ORDER_FILLED at the passive price + BOOK reduced to 6.
@@ -250,9 +250,9 @@ class WebSocketRoundTripTest {
 
     // ------------------------------------------------------------ JSON builders
 
-    private static String newOrder(long clOrdId, String side, long priceCents, long qty) {
+    private static String newOrder(long clOrdId, String side, long priceUnits, long qty) {
         return "{\"type\":\"NEW\",\"clOrdId\":" + clOrdId + ",\"side\":\"" + side + "\",\"price\":"
-                + priceCents + ",\"qty\":" + qty + ",\"symbol\":\"" + ASML + "\"}";
+                + priceUnits + ",\"qty\":" + qty + ",\"symbol\":\"" + ASML + "\"}";
     }
 
     private static String cancelOrder(long clOrdId, long origClOrdId) {

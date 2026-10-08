@@ -22,51 +22,56 @@ class MarketDataServiceTest {
         assertEquals(-1L, svc.getBestAsk());
         assertEquals(-1L, svc.getSpread());
         assertEquals(-1L, svc.getMidpoint());
-        assertEquals(-1L, svc.getMidpointHalfCents());
     }
 
     @Test
     void twoSidedEvenMidpoint() {
         MarketDataService svc = new MarketDataService();
-        svc.onEvent(snap(15000L, 15010L, 111L), 0L, true);
+        svc.onEvent(snap(1_500_000L, 1_501_000L, 111L), 0L, true);
 
-        assertEquals(15000L, svc.getBestBid());
-        assertEquals(15010L, svc.getBestAsk());
-        assertEquals(10L, svc.getSpread());
-        assertEquals(30010L, svc.getMidpointHalfCents()); // exact
-        assertEquals(15005L, svc.getMidpoint());          // whole cents
+        assertEquals(1_500_000L, svc.getBestBid());
+        assertEquals(1_501_000L, svc.getBestAsk());
+        assertEquals(1_000L, svc.getSpread());
+        assertEquals(1_500_500L, svc.getMidpoint());      // exact
         assertEquals(111L, svc.getQuote().timestamp());
     }
 
     @Test
-    void twoSidedHalfCentMidpointTruncatesButHalfCentsExact() {
+    void twoSidedSubPennyMidpointIsExact() {
         MarketDataService svc = new MarketDataService();
-        svc.onEvent(snap(15000L, 15005L, 1L), 0L, true);
+        svc.onEvent(snap(1_500_000L, 1_500_500L, 1L), 0L, true);   // $150.00 / $150.05
 
-        assertEquals(5L, svc.getSpread());
-        assertEquals(30005L, svc.getMidpointHalfCents()); // exact half-cent
-        assertEquals(15002L, svc.getMidpoint());          // 30005 / 2 truncated
+        assertEquals(500L, svc.getSpread());
+        assertEquals(1_500_250L, svc.getMidpoint());      // $150.025, exact in units
+    }
+
+    @Test
+    void oneCentWideSpreadMidpointIsExact() {
+        MarketDataService svc = new MarketDataService();
+        svc.onEvent(snap(1_000_000L, 1_000_100L, 1L), 0L, true);   // $100.00 / $100.01
+
+        assertEquals(100L, svc.getSpread());
+        assertEquals(1_000_050L, svc.getMidpoint());      // $100.005, exact in units
     }
 
     @Test
     void bidOnly() {
         MarketDataService svc = new MarketDataService();
-        svc.onEvent(snap(15000L, -1L, 5L), 0L, true);
+        svc.onEvent(snap(1_500_000L, -1L, 5L), 0L, true);
 
-        assertEquals(15000L, svc.getBestBid());
+        assertEquals(1_500_000L, svc.getBestBid());
         assertEquals(-1L, svc.getBestAsk());
         assertEquals(-1L, svc.getSpread());
         assertEquals(-1L, svc.getMidpoint());
-        assertEquals(-1L, svc.getMidpointHalfCents());
     }
 
     @Test
     void askOnly() {
         MarketDataService svc = new MarketDataService();
-        svc.onEvent(snap(-1L, 15010L, 5L), 0L, true);
+        svc.onEvent(snap(-1L, 1_501_000L, 5L), 0L, true);
 
         assertEquals(-1L, svc.getBestBid());
-        assertEquals(15010L, svc.getBestAsk());
+        assertEquals(1_501_000L, svc.getBestAsk());
         assertEquals(-1L, svc.getSpread());
         assertEquals(-1L, svc.getMidpoint());
     }
@@ -75,13 +80,13 @@ class MarketDataServiceTest {
     void latestSnapshotWinsAndEmptyingResetsMetrics() {
         MarketDataService svc = new MarketDataService();
 
-        svc.onEvent(snap(15000L, 15010L, 1L), 0L, true);
-        assertEquals(10L, svc.getSpread());
+        svc.onEvent(snap(1_500_000L, 1_501_000L, 1L), 0L, true);
+        assertEquals(1_000L, svc.getSpread());
 
-        svc.onEvent(snap(15020L, 15030L, 2L), 1L, true);
-        assertEquals(15020L, svc.getBestBid());
-        assertEquals(15030L, svc.getBestAsk());
-        assertEquals(10L, svc.getSpread());
+        svc.onEvent(snap(1_502_000L, 1_503_000L, 2L), 1L, true);
+        assertEquals(1_502_000L, svc.getBestBid());
+        assertEquals(1_503_000L, svc.getBestAsk());
+        assertEquals(1_000L, svc.getSpread());
         assertEquals(2L, svc.getQuote().timestamp());
 
         // book drains to empty -> metrics must reset, not linger
@@ -90,19 +95,18 @@ class MarketDataServiceTest {
         assertEquals(-1L, svc.getBestAsk());
         assertEquals(-1L, svc.getSpread());
         assertEquals(-1L, svc.getMidpoint());
-        assertEquals(-1L, svc.getMidpointHalfCents());
     }
 
     @Test
     void quoteTupleIsSelfConsistent() {
         MarketDataService svc = new MarketDataService();
-        svc.onEvent(snap(15000L, 15010L, 42L), 0L, true);
+        svc.onEvent(snap(1_500_000L, 1_501_000L, 42L), 0L, true);
 
         MarketDataService.Quote q = svc.getQuote();
-        assertEquals(15000L, q.bestBid());
-        assertEquals(15010L, q.bestAsk());
-        assertEquals(10L, q.spread());
-        assertEquals(30010L, q.midpointHalfCents());
+        assertEquals(1_500_000L, q.bestBid());
+        assertEquals(1_501_000L, q.bestAsk());
+        assertEquals(1_000L, q.spread());
+        assertEquals(1_500_500L, q.midpoint());
         assertEquals(42L, q.timestamp());
     }
 }

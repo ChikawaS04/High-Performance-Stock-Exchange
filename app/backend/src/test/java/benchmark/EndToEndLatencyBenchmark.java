@@ -100,7 +100,7 @@ final class EndToEndLatencyBenchmark {
     private static final long REST_ID = 1L;
     private static final long CROSS_ID = 2L;
 
-    private static final long PRICE_CENTS = 100_000L;   // $1000.00
+    private static final long PRICE_UNITS = 10_000_000L;   // $1000.00
     private static final long QTY = 100L;
 
     @Test
@@ -113,8 +113,8 @@ final class EndToEndLatencyBenchmark {
         final String symbol = FixConstants.SYMBOL_DISPLAY;   // must match the gateway's configured symbol
 
         // Two frames, built once, reused every round (off-span; zero per-round allocation).
-        final byte[] restFrame = JsonToFix.newOrderSingle(REST_ID, Side.BUY, PRICE_CENTS, QTY, symbol);
-        final byte[] crossFrame = JsonToFix.newOrderSingle(CROSS_ID, Side.SELL, PRICE_CENTS, QTY, symbol);
+        final byte[] restFrame = JsonToFix.newOrderSingle(REST_ID, Side.BUY, PRICE_UNITS, QTY, symbol);
+        final byte[] crossFrame = JsonToFix.newOrderSingle(CROSS_ID, Side.SELL, PRICE_UNITS, QTY, symbol);
 
         // --- pipeline core: Main's (P4-7) wiring order, Netty stripped ---
         final MatchingEngine engine = new MatchingEngine();

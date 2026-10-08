@@ -2,6 +2,7 @@ package gateway;
 
 import event.OrderEvent;
 import event.OrderEventType;
+import model.Prices;
 import model.Side;
 
 /**
@@ -41,21 +42,23 @@ final class FixParser {
         return val;
     }
 
-    // Local to parsePrice — the only caller that knows about cents-scaling.
+    // Local to parsePrice — the only caller that knows about price scaling.
     private static final int MAX_DECIMALS = 2;
-    private static final long PRICE_SCALE = 100;  // 2 decimal places -> cents
     private static final byte DOT = '.';
 
     /**
-     * Parses a FIX price field (bytes [start, end)) to long cents.
-     * "150" -> 15000, "150.2" -> 15020, "150.25" -> 15025.
+     * Parses a FIX price field (bytes [start, end)) to long units of $0.0001 (SRS §4).
+     * "150" -> 1_500_000, "150.2" -> 1_502_000, "150.25" -> 1_502_500.
+     *
+     * At most two decimal places are accepted (tag 44 is on the one-cent tick), so every
+     * parsed price is a multiple of 100 units.
      *
      * Returns -1L on any reject: empty, non-digit, empty integer part,
      * more than two decimals, or a non-positive result. Zero/negative
      * price policy is applied here (the > 0 check) because parseLong
      * deliberately treats "0" as a valid parse.
      *
-     * @return long cents, or -1L on reject
+     * @return long units of $0.0001, or -1L on reject
      */
     static long parsePrice(byte[] buf, int start, int end) {
         if (start >= end) { return -1L; }
@@ -91,18 +94,18 @@ final class FixParser {
             long frac = parseLong(buf, fracStart, end);
             if (frac == -1L) { return -1L; }  // non-digit in fraction, e.g. "150.2x"
 
-            // Scale by length, not value: one digit -> *10, two digits -> *1.
-            fracScaled = (fracLen == 1) ? frac * 10 : frac;
+            // Scale by length to units of $0.0001: one digit -> *1000, two digits -> *100.
+            fracScaled = (fracLen == 1) ? frac * 1000 : frac * 100;
         }
 
-        // intPart * PRICE_SCALE has enormous headroom in long cents; ASML's
+        // intPart * Prices.SCALE has enormous headroom in long units; ASML's
         // four-figure price is nowhere near overflow. Left un-guarded to keep
         // the happy path clean.
-        long cents = intPart * PRICE_SCALE + fracScaled;
+        long units = intPart * Prices.SCALE + fracScaled;
 
         // Price policy: zero or negative rejects. parseLong lets "0" through
         // as a valid 0, so the field-level check lives here, not in parseLong.
-        return cents > 0 ? cents : -1L;
+        return units > 0 ? units : -1L;
     }
 
     /**

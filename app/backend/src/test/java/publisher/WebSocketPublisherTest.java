@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * P4-6. Two concerns:
- *   (1) pure JSON serialization — integer cents, execType name, NA = -1, and BOOK emitting
+ *   (1) pure JSON serialization — integer units, execType name, NA = -1, and BOOK emitting
  *       ONLY the valid [0, levelCount) prefix even when array tails are poisoned;
  *   (2) the ChannelGroup write path — a real TextWebSocketFrame lands on each embedded
  *       channel, and fan-out reaches every member.
@@ -96,12 +96,12 @@ class WebSocketPublisherTest {
     // --- (1) EXEC serialization ---------------------------------------------------------
 
     @Test
-    void execFillSerializesAllFieldsAsIntegerCents() throws Exception {
+    void execFillSerializesAllFieldsAsIntegerUnits() throws Exception {
         WebSocketPublisher pub = new WebSocketPublisher(
                 new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
 
         ExecutionEvent e = exec(ExecutionEventType.ORDER_FILLED,
-                5L, 1L, 15025L, 10L, 0L, 5L, 3L, 42L);
+                5L, 1L, 1_502_500L, 10L, 0L, 5L, 3L, 42L);
 
         JsonNode n = parse(pub.serializeExecution(e));
 
@@ -109,7 +109,7 @@ class WebSocketPublisherTest {
         assertEquals("ORDER_FILLED", n.get("execType").asText());
         assertEquals(5L, n.get("orderId").asLong());
         assertEquals(1L, n.get("tradeId").asLong());
-        assertEquals(15025L, n.get("price").asLong());   // integer cents, not 150.25
+        assertEquals(1_502_500L, n.get("price").asLong());   // integer units, not 150.25
         assertFalse(n.get("price").isFloatingPointNumber());
         assertEquals(10L, n.get("filledQuantity").asLong());
         assertEquals(0L, n.get("remainingQuantity").asLong());
@@ -125,7 +125,7 @@ class WebSocketPublisherTest {
 
         // Accept: tradeId / filledQuantity / aggressor / passive are NA (-1) per the carrier.
         ExecutionEvent e = exec(ExecutionEventType.ORDER_ACCEPTED,
-                7L, -1L, 15000L, -1L, 25L, -1L, -1L, 99L);
+                7L, -1L, 1_500_000L, -1L, 25L, -1L, -1L, 99L);
 
         JsonNode n = parse(pub.serializeExecution(e));
 
@@ -140,37 +140,37 @@ class WebSocketPublisherTest {
     // --- (1) BOOK serialization ---------------------------------------------------------
 
     @Test
-    void bookTwoSidedSerializesOnlyValidPrefixAsCentQtyPairs() throws Exception {
+    void bookTwoSidedSerializesOnlyValidPrefixAsUnitQtyPairs() throws Exception {
         WebSocketPublisher pub = new WebSocketPublisher(
                 new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
 
         BookSnapshotEvent s = snapshot();
-        s.bidPrices[0] = 15020L; s.bidQtys[0] = 50L;
-        s.bidPrices[1] = 15010L; s.bidQtys[1] = 30L;
+        s.bidPrices[0] = 1_502_000L; s.bidQtys[0] = 50L;
+        s.bidPrices[1] = 1_501_000L; s.bidQtys[1] = 30L;
         s.bidLevelCount = 2;
-        s.askPrices[0] = 15030L; s.askQtys[0] = 40L;
+        s.askPrices[0] = 1_503_000L; s.askQtys[0] = 40L;
         s.askLevelCount = 1;
-        s.bestBid = 15020L;
-        s.bestAsk = 15030L;
+        s.bestBid = 1_502_000L;
+        s.bestAsk = 1_503_000L;
         s.timestamp = 7L;
 
         JsonNode n = parse(pub.serializeSnapshot(s));
 
         assertEquals("BOOK", n.get("type").asText());
-        assertEquals(15020L, n.get("bestBid").asLong());
-        assertEquals(15030L, n.get("bestAsk").asLong());
+        assertEquals(1_502_000L, n.get("bestBid").asLong());
+        assertEquals(1_503_000L, n.get("bestAsk").asLong());
         assertEquals(7L, n.get("timestamp").asLong());
 
         JsonNode bids = n.get("bids");
         assertEquals(2, bids.size());                       // NOT 20 — only the valid prefix
-        assertEquals(15020L, bids.get(0).get(0).asLong());
+        assertEquals(1_502_000L, bids.get(0).get(0).asLong());
         assertEquals(50L, bids.get(0).get(1).asLong());
-        assertEquals(15010L, bids.get(1).get(0).asLong());
+        assertEquals(1_501_000L, bids.get(1).get(0).asLong());
         assertEquals(30L, bids.get(1).get(1).asLong());
 
         JsonNode asks = n.get("asks");
         assertEquals(1, asks.size());
-        assertEquals(15030L, asks.get(0).get(0).asLong());
+        assertEquals(1_503_000L, asks.get(0).get(0).asLong());
         assertEquals(40L, asks.get(0).get(1).asLong());
 
         // Poisoned tail sentinel must never appear anywhere on the wire.
@@ -203,16 +203,16 @@ class WebSocketPublisherTest {
                 new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
 
         BookSnapshotEvent s = snapshot();
-        s.bidPrices[0] = 14990L; s.bidQtys[0] = 12L;
+        s.bidPrices[0] = 1_499_000L; s.bidQtys[0] = 12L;
         s.bidLevelCount = 1;
         s.askLevelCount = 0;
-        s.bestBid = 14990L;
+        s.bestBid = 1_499_000L;
         s.bestAsk = -1L;
 
         JsonNode n = parse(pub.serializeSnapshot(s));
 
         assertEquals(1, n.get("bids").size());
-        assertEquals(14990L, n.get("bids").get(0).get(0).asLong());
+        assertEquals(1_499_000L, n.get("bids").get(0).get(0).asLong());
         assertEquals(0, n.get("asks").size());
         assertEquals(-1L, n.get("bestAsk").asLong());
     }
@@ -227,7 +227,7 @@ class WebSocketPublisherTest {
 
         WebSocketPublisher pub = new WebSocketPublisher(group, mapper);
         ExecutionEvent e = exec(ExecutionEventType.ORDER_FILLED,
-                5L, 1L, 15025L, 10L, 0L, 5L, 3L, 42L);
+                5L, 1L, 1_502_500L, 10L, 0L, 5L, 3L, 42L);
 
         pub.executionHandler().onEvent(e, 0L, true);
 
@@ -235,7 +235,7 @@ class WebSocketPublisherTest {
         assertNotNull(text, "expected an EXEC frame");
         JsonNode n = parse(text);
         assertEquals("EXEC", n.get("type").asText());
-        assertEquals(15025L, n.get("price").asLong());
+        assertEquals(1_502_500L, n.get("price").asLong());
 
         ch.finishAndReleaseAll();
     }
@@ -248,8 +248,8 @@ class WebSocketPublisherTest {
 
         WebSocketPublisher pub = new WebSocketPublisher(group, mapper);
         BookSnapshotEvent s = snapshot();
-        s.bidPrices[0] = 15020L; s.bidQtys[0] = 50L; s.bidLevelCount = 1;
-        s.bestBid = 15020L; s.bestAsk = -1L;
+        s.bidPrices[0] = 1_502_000L; s.bidQtys[0] = 50L; s.bidLevelCount = 1;
+        s.bestBid = 1_502_000L; s.bestAsk = -1L;
 
         pub.snapshotHandler().onEvent(s, 0L, true);
 
@@ -275,7 +275,7 @@ class WebSocketPublisherTest {
 
         WebSocketPublisher pub = new WebSocketPublisher(group, mapper);
         ExecutionEvent e = exec(ExecutionEventType.ORDER_PARTIALLY_FILLED,
-                9L, 2L, 14980L, 4L, 6L, 9L, 1L, 11L);
+                9L, 2L, 1_498_000L, 4L, 6L, 9L, 1L, 11L);
 
         pub.executionHandler().onEvent(e, 0L, true);
 
@@ -285,7 +285,7 @@ class WebSocketPublisherTest {
         assertNotNull(textB, "every group member should receive the frame (B)");
         assertEquals("ORDER_PARTIALLY_FILLED", parse(textA).get("execType").asText());
         assertEquals("ORDER_PARTIALLY_FILLED", parse(textB).get("execType").asText());
-        assertEquals(14980L, parse(textB).get("price").asLong());
+        assertEquals(1_498_000L, parse(textB).get("price").asLong());
 
         a.finishAndReleaseAll();
         b.finishAndReleaseAll();
@@ -299,7 +299,7 @@ class WebSocketPublisherTest {
 
         WebSocketPublisher pub = new WebSocketPublisher(group, mapper);
         ExecutionEvent e = exec(ExecutionEventType.ORDER_ACCEPTED,
-                1L, -1L, 15000L, -1L, 10L, -1L, -1L, 1L);
+                1L, -1L, 1_500_000L, -1L, 10L, -1L, -1L, 1L);
 
         pub.executionHandler().onEvent(e, 0L, true);
 
@@ -319,7 +319,7 @@ class WebSocketPublisherTest {
 
         WebSocketPublisher pub = new WebSocketPublisher(group, mapper);
         ExecutionEvent e = exec(ExecutionEventType.ORDER_FILLED,
-                5L, 1L, 15025L, 10L, 0L, 5L, 3L, 42L);
+                5L, 1L, 1_502_500L, 10L, 0L, 5L, 3L, 42L);
 
         pub.executionHandler().onEvent(e, 0L, true);
 
@@ -330,7 +330,7 @@ class WebSocketPublisherTest {
         String text = readFrameText(ch);
         assertNotNull(text);
         JsonNode n = parse(text);
-        assertEquals(15025L, n.get("price").asLong());
+        assertEquals(1_502_500L, n.get("price").asLong());
         assertEquals(5L, n.get("orderId").asLong());
 
         ch.finishAndReleaseAll();

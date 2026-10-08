@@ -69,8 +69,8 @@ public class MatchingEngineDepthBenchmark {
     /** Resting orders stacked at each distinct price level. */
     private static final int ORDERS_PER_LEVEL = 4;
 
-    /** Highest resting bid, in cents ($150.00). Levels descend from here. */
-    private static final long TOP_BID_CENTS = 15_000L;
+    /** Highest resting bid, in units of $0.0001 ($150.00). Levels descend from here. */
+    private static final long TOP_BID_UNITS = 1_500_000L;
 
     /** Quantity on every order; matching cost is independent of it on the non-crossing path. */
     private static final int QTY = 10;
@@ -91,7 +91,7 @@ public class MatchingEngineDepthBenchmark {
      * Price for the measured insert: strictly below every resting bid, so it never crosses.
      * Computed once in setup rather than per invocation.
      */
-    private long insertPriceCents;
+    private long insertPriceUnits;
 
     /**
      * Rebuild the book once per iteration. Per-iteration (not per-invocation) is the point:
@@ -107,13 +107,13 @@ public class MatchingEngineDepthBenchmark {
         int levels = Math.max(1, restingOrders / ORDERS_PER_LEVEL);
 
         for (int i = 0; i < restingOrders; i++) {
-            long priceCents = TOP_BID_CENTS - (i % levels);   // descending distinct levels
-            engine.addOrder(newBid(priceCents));
+            long priceUnits = TOP_BID_UNITS - (i % levels) * 100L;   // descending distinct one-cent levels
+            engine.addOrder(newBid(priceUnits));
         }
 
         // Strictly below the lowest resting bid, so the measured order cannot cross and
         // instead rests on a fresh level of its own.
-        insertPriceCents = TOP_BID_CENTS - levels - 1L;
+        insertPriceUnits = TOP_BID_UNITS - levels * 100L - 100L;
     }
 
     /**
@@ -125,19 +125,19 @@ public class MatchingEngineDepthBenchmark {
      */
     @Benchmark
     public Order insertRestingOrder() {
-        Order order = newBid(insertPriceCents);
+        Order order = newBid(insertPriceUnits);
         engine.addOrder(order);
         return order;
     }
 
     /** Order(orderID, timeStamp, side, quantity, price, participantID) — quantity before price. */
-    private Order newBid(long priceCents) {
+    private Order newBid(long priceUnits) {
         return new Order(
                 nextOrderId++,
                 nextOrderId,          // timestamp: monotonic filler; unused on this path
                 Side.BUY,
                 QTY,
-                priceCents,
+                priceUnits,
                 PARTICIPANT_ID
         );
     }

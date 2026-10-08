@@ -66,8 +66,8 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Benchmark)
 public class MatchingEngineFillWalkBenchmark {
 
-    /** Lowest resting ask price, in integer cents ($1000.00). Levels stack upward from here. */
-    private static final long BASE_PRICE = 100_000L;
+    /** Lowest resting ask price, in units of $0.0001 ($1000.00). Levels stack upward from here. */
+    private static final long BASE_PRICE = 10_000_000L;
 
     /** One order per level; aggressor qty == level count, so each level is fully cleared. */
     private static final int RESTING_QTY = 1;
@@ -94,7 +94,7 @@ public class MatchingEngineFillWalkBenchmark {
         MatchingEngine engine = new MatchingEngine();
         long id = 1L;
         for (int i = 0; i < levels; i++) {
-            long price = BASE_PRICE + i;
+            long price = BASE_PRICE + i * 100L;
             // Order(orderID, timeStamp, side, quantity, price, participantID) — quantity before price.
             // timeStamp = id (a positive long) avoids a System.nanoTime() syscall inside the timed loop.
             engine.addOrder(new Order(id, id, Side.SELL, RESTING_QTY, price, PARTICIPANT_ID));
@@ -120,7 +120,7 @@ public class MatchingEngineFillWalkBenchmark {
     @Benchmark
     public MatchingEngine fillWalkAcrossLevels() {
         MatchingEngine engine = buildBook(restingLevels);
-        long aggressorPrice = BASE_PRICE + restingLevels - 1;   // == top ask: askPrice <= buyPrice everywhere
+        long aggressorPrice = BASE_PRICE + (restingLevels - 1) * 100L;   // == top ask: askPrice <= buyPrice everywhere
         engine.addOrder(new Order(
                 AGGRESSOR_ID, AGGRESSOR_ID, Side.BUY, restingLevels, aggressorPrice, PARTICIPANT_ID));
         return engine;

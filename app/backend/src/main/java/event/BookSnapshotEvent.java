@@ -12,7 +12,7 @@ package event;
  * contents — are authoritative. This is what keeps the carrier zero-allocation across reuse:
  * snapshotInto never has to clear the array tails.
  *
- * <p>Prices are long cents (SRS §4). Empty sides carry the {@code -1L} sentinel in
+ * <p>Prices are long units of $0.0001 (SRS §4). Empty sides carry the {@code -1L} sentinel in
  * {@code bestBid}/{@code bestAsk} and a level count of 0.
  */
 public final class BookSnapshotEvent {
@@ -43,7 +43,7 @@ public final class BookSnapshotEvent {
     public int bidLevelCount;
     public int askLevelCount;
 
-    /** Top of book in long cents; -1L when the side is empty. Mirror level [0] when present. */
+    /** Top of book in long units of $0.0001; -1L when the side is empty. Mirror level [0] when present. */
     public long bestBid;
     public long bestAsk;
 

@@ -33,45 +33,51 @@ class FixParserPriceTest {
     class Valid {
 
         @Test
-        @DisplayName("integer only -> scaled to cents")
+        @DisplayName("integer only -> scaled to units")
         void integerOnly() {
-            assertEquals(15000L, parse("150"));
+            assertEquals(1_500_000L, parse("150"));
         }
 
         @Test
-        @DisplayName("one decimal digit -> *10")
+        @DisplayName("one decimal digit -> *1000")
         void oneDecimal() {
-            assertEquals(15020L, parse("150.2"));
+            assertEquals(1_502_000L, parse("150.2"));
         }
 
         @Test
-        @DisplayName("two decimal digits -> as-is")
+        @DisplayName("two decimal digits -> *100")
         void twoDecimals() {
-            assertEquals(15025L, parse("150.25"));
+            assertEquals(1_502_500L, parse("150.25"));
+        }
+
+        @Test
+        @DisplayName("one-cent price scales to a single tick")
+        void oneCent() {
+            assertEquals(100L, parse("0.01"));
         }
 
         @Test
         @DisplayName("trailing-zero fraction is a valid one-digit case")
         void oneDecimalZero() {
-            assertEquals(1500L, parse("15.0"));   // scaling-path proof
+            assertEquals(150_000L, parse("15.0"));   // scaling-path proof
         }
 
         @Test
         @DisplayName("zero integer part with positive fraction accepts")
         void zeroIntegerPositiveFraction() {
-            assertEquals(50L, parse("0.50"));     // > 0 check must not over-reject
+            assertEquals(5_000L, parse("0.50"));     // > 0 check must not over-reject
         }
 
         @Test
         @DisplayName("leading zeros in integer part tolerated")
         void leadingZeros() {
-            assertEquals(750L, parse("007.50"));
+            assertEquals(75_000L, parse("007.50"));
         }
 
         @Test
         @DisplayName("high-value price (ASML territory) parses cleanly")
         void highValue() {
-            assertEquals(90000L, parse("900"));
+            assertEquals(9_000_000L, parse("900"));
         }
     }
 

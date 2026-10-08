@@ -22,17 +22,17 @@ class JsonToFixParseTest {
 
     @Test
     void newOrderRoundTrips() {
-        OrderEvent ev = parseOk(JsonToFix.newOrderSingle(7L, Side.BUY, 15025L, 100L, "ASML"));
+        OrderEvent ev = parseOk(JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, 100L, "ASML"));
         assertEquals(OrderEventType.NEW_ORDER, ev.eventType);
         assertEquals(7L, ev.orderId);
         assertEquals(Side.BUY, ev.side);
-        assertEquals(15025L, ev.price);
+        assertEquals(1_502_500L, ev.price);
         assertEquals(100L, ev.quantity);
     }
 
     @Test
     void sellSideEncodesAsTwo() {
-        assertEquals(Side.SELL, parseOk(JsonToFix.newOrderSingle(1L, Side.SELL, 10000L, 5L, "ASML")).side);
+        assertEquals(Side.SELL, parseOk(JsonToFix.newOrderSingle(1L, Side.SELL, 1_000_000L, 5L, "ASML")).side);
     }
 
     @Test
@@ -45,27 +45,36 @@ class JsonToFixParseTest {
 
     @Test
     void priceWholeDollars() {
-        assertEquals(15000L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 15000L, 1L, "ASML")).price);
+        assertEquals(1_500_000L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML")).price);
     }
 
     @Test
-    void priceWithCents() {
-        assertEquals(15025L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 15025L, 1L, "ASML")).price);
+    void priceWithFraction() {
+        assertEquals(1_502_500L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_502_500L, 1L, "ASML")).price);
     }
 
     @Test
     void priceSubDollar() {
-        assertEquals(5L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 5L, 1L, "ASML")).price); // 0.05
+        assertEquals(500L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 500L, 1L, "ASML")).price); // 0.05
     }
 
     @Test
     void priceExactlyOneDollar() {
-        assertEquals(100L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 100L, 1L, "ASML")).price); // 1.00
+        assertEquals(10_000L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 10_000L, 1L, "ASML")).price); // 1.00
+    }
+
+    @Test
+    void offTickPriceRejectedByParser() {
+        // 1_502_550 is $150.255, off the one-cent tick: formatPrice emits "150.2550" (four
+        // decimals), which parsePrice rejects as more than two places.
+        byte[] fix = JsonToFix.newOrderSingle(1L, Side.BUY, 1_502_550L, 1L, "ASML");
+        assertFalse(new FixParser().parse(fix, 0, fix.length, new OrderEvent()),
+                "parser rejects an off-tick price serialized with four decimals");
     }
 
     @Test
     void wrongSymbolRejectedByParser() {
-        byte[] fix = JsonToFix.newOrderSingle(1L, Side.BUY, 15000L, 1L, "MSFT");
+        byte[] fix = JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "MSFT");
         assertFalse(new FixParser().parse(fix, 0, fix.length, new OrderEvent()),
                 "parser rejects a symbol that isn't the configured instrument");
     }

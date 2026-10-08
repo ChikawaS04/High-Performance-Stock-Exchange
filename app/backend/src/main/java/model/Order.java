@@ -17,6 +17,7 @@ public class Order {
         if (participantID <= 0) { throw new IllegalArgumentException("Participant ID must be positive"); }
         if (quantity <= 0) { throw new IllegalArgumentException("Quantity must be positive"); }
         if (price <= 0) { throw new IllegalArgumentException("Price must be positive"); }
+        if (!Prices.isOnTick(price)) { throw new IllegalArgumentException("Price must be on the one-cent tick"); }
         if (side == null) { throw new IllegalArgumentException("model.Side cannot be null"); }
 
         this.orderID = orderID;

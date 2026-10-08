@@ -1,6 +1,7 @@
 package net;
 
 import gateway.FixConstants;
+import model.Prices;
 import model.Side;
 
 import java.nio.charset.StandardCharsets;
@@ -10,8 +11,8 @@ import java.nio.charset.StandardCharsets;
  * FixParser accepts. Promotes the Phase-3 test {@code msg(...)} builder to production so the
  * WebSocket inbound path reuses the real FIX gateway rather than a parallel path (decision 1).
  *
- * <p>Framework-free: no io.netty, no com.lmax, no Jackson. Prices arrive as long cents (§4) and
- * are formatted to FIX decimal dollars (tag 44) here — the single cents&lt;-&gt;FIX bridge. The
+ * <p>Framework-free: no io.netty, no com.lmax, no Jackson. Prices arrive as long units of $0.0001
+ * (§4) and are formatted to FIX decimal dollars (tag 44) here — the single units&lt;-&gt;FIX bridge. The
  * {@code 9=} BodyLength and {@code 10=} CheckSum are computed exactly as the parser's checksum
  * validation expects; a round-trip test asserts {@code parse()} accepts the output.
  */
@@ -24,14 +25,14 @@ public final class JsonToFix {
     private JsonToFix() { }
 
     /** NewOrderSingle (35=D): tags 11, 55, 54, 38, 44 — the set parseNewOrder requires. */
-    public static byte[] newOrderSingle(long clOrdId, Side side, long priceCents, long qty, String symbol) {
+    public static byte[] newOrderSingle(long clOrdId, Side side, long priceUnits, long qty, String symbol) {
         return assemble(
                 "35=D",
                 "11=" + clOrdId,
                 "55=" + symbol,
                 "54=" + sideCode(side),
                 "38=" + qty,
-                "44=" + formatPrice(priceCents));
+                "44=" + formatPrice(priceUnits));
     }
 
     /** OrderCancelRequest (35=F): tags 11, 41 — the set parseCancel requires. */
@@ -47,11 +48,20 @@ public final class JsonToFix {
         return side == Side.BUY ? '1' : '2';
     }
 
-    /** long cents -> FIX decimal dollars, always two places: 15025 -> "150.25", 5 -> "0.05". */
-    static String formatPrice(long cents) {
-        long dollars = cents / 100;
-        long rem = cents % 100;
-        return dollars + "." + (rem < 10 ? "0" + rem : Long.toString(rem));
+    /**
+     * long units of $0.0001 -> FIX decimal dollars. An on-tick price emits exactly two places
+     * (1_502_500 -> "150.25", 500 -> "0.05"); an off-tick price emits four places
+     * (1_502_550 -> "150.2550"), which parsePrice then rejects (more than two decimals), so an
+     * off-tick limit price is dropped at the FIX authority rather than silently rounded.
+     */
+    static String formatPrice(long px) {
+        long dollars = px / Prices.SCALE;
+        long frac = px % Prices.SCALE;                  // 0..9999 ten-thousandths of a dollar
+        if (frac % 100 == 0) {                          // on the one-cent tick -> two places
+            long centPart = frac / 100;
+            return dollars + "." + (centPart < 10 ? "0" + centPart : Long.toString(centPart));
+        }
+        return dollars + "." + String.format("%04d", frac);   // off tick -> four places
     }
 
     /** Prepend 8=/9=&lt;bodylen&gt;, append 10=&lt;checksum&gt; — identical framing to the Phase-3 msg() builder. */

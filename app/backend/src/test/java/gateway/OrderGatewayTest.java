@@ -89,7 +89,7 @@ class OrderGatewayTest {
         assertEquals(OrderEventType.NEW_ORDER, o.eventType());
         assertEquals(12345L, o.orderId());
         assertEquals(Side.BUY, o.side());          // 54=1
-        assertEquals(15025L, o.price());           // 150.25 -> cents
+        assertEquals(1_502_500L, o.price());       // 150.25 -> units
         assertEquals(100L, o.quantity());
         assertEquals(-1L, o.originalOrderId());    // cleared for new orders
         assertEquals(FIXED_TS, o.timestamp());     // stamped by the gateway
@@ -146,7 +146,7 @@ class OrderGatewayTest {
         assertNotNull(first);
         assertEquals(OrderEventType.NEW_ORDER, first.eventType());
         assertEquals(Side.SELL, first.side());     // 54=2
-        assertEquals(9950L, first.price());
+        assertEquals(995_000L, first.price());
 
         Observed second = handler.poll(1, TimeUnit.SECONDS);
         assertNotNull(second);

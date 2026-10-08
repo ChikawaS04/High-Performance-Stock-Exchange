@@ -116,7 +116,7 @@ public final class Main {
 
         log.info("OMS up. WebSocket endpoint: ws://localhost:{}/ws", server.boundPort());
         log.info("Submit an order:  {}", "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\","
-                + "\"price\":15000,\"qty\":10,\"symbol\":\"ASML\"}");
+                + "\"price\":1500000,\"qty\":10,\"symbol\":\"ASML\"}");
         log.info("Cancel an order:  {}", "{\"type\":\"CANCEL\",\"clOrdId\":2,\"origClOrdId\":1}");
         log.info("Ctrl+C to stop.");
 

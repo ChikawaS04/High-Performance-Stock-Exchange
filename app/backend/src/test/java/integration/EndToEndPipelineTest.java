@@ -112,7 +112,7 @@ class EndToEndPipelineTest {
         Observed a = obs.get(0);
         assertEquals(ExecutionEventType.ORDER_ACCEPTED, a.eventType());
         assertEquals(100, a.orderId());
-        assertEquals(15000, a.price());
+        assertEquals(1_500_000, a.price());
         assertEquals(100, a.remainingQuantity());
     }
 
@@ -132,7 +132,7 @@ class EndToEndPipelineTest {
         assertEquals(201, fill.orderId());          // aggressor
         assertEquals(201, fill.aggressorOrderId());
         assertEquals(200, fill.passiveOrderId());   // resting sell
-        assertEquals(15000, fill.price());          // passive (resting) price
+        assertEquals(1_500_000, fill.price());          // passive (resting) price
         assertEquals(100, fill.filledQuantity());
         assertEquals(0, fill.remainingQuantity());
         assertTrue(fill.tradeId() > 0);
@@ -154,7 +154,7 @@ class EndToEndPipelineTest {
         assertEquals(301, partial.orderId());
         assertEquals(301, partial.aggressorOrderId());
         assertEquals(300, partial.passiveOrderId());
-        assertEquals(15000, partial.price());
+        assertEquals(1_500_000, partial.price());
         assertEquals(50, partial.filledQuantity());
         assertEquals(30, partial.remainingQuantity());
         assertTrue(partial.tradeId() > 0);

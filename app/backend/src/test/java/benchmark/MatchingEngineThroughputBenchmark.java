@@ -53,7 +53,7 @@ import java.util.concurrent.TimeUnit;
  * corroborates the P6-1 allocation finding: §5.1's zero-allocation guarantee covers the
  * ring-buffer transport, not the engine's book/trade structures.
  *
- * <p><b>Cross mechanics.</b> A resting BUY at {@code PRICE_CENTS} for {@code QTY} lands in an
+ * <p><b>Cross mechanics.</b> A resting BUY at {@code PRICE_UNITS} for {@code QTY} lands in an
  * empty book (no asks). The following SELL at the same price and quantity satisfies
  * {@code matchSell}'s crossing condition (best bid &ge; sell price), fills exactly {@code QTY}
  * against {@code QTY} at the passive resting price, evicts the resting BUY from its queue,
@@ -81,8 +81,8 @@ import java.util.concurrent.TimeUnit;
 @Measurement(iterations = 10, time = 1)
 public class MatchingEngineThroughputBenchmark {
 
-    /** Single price both sides trade at, in cents ($150.00). The passive resting price on a fill. */
-    private static final long PRICE_CENTS = 15_000L;
+    /** Single price both sides trade at, in units of $0.0001 ($150.00). The passive resting price on a fill. */
+    private static final long PRICE_UNITS = 1_500_000L;
 
     /** Quantity on every order; the exact-cross pair uses equal sizes so both fully fill. */
     private static final int QTY = 10;
@@ -135,7 +135,7 @@ public class MatchingEngineThroughputBenchmark {
                 nextOrderId,          // timestamp: monotonic filler; unused on this path
                 side,
                 QTY,
-                PRICE_CENTS,
+                PRICE_UNITS,
                 PARTICIPANT_ID
         );
     }

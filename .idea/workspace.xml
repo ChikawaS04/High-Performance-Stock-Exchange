@@ -6,9 +6,16 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/Main.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/Main.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngine.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngine.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/BookSnapshotEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/BookSnapshotEvent.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/ExecutionEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/ExecutionEvent.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/OrderEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/OrderEvent.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixParser.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixParser.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/market/MarketDataService.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/market/MarketDataService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/model/Order.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/model/Order.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/publisher/WebSocketPublisher.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/publisher/WebSocketPublisher.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -16,7 +23,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="70" />
+    <option name="cachedIndexableFilesCount" value="74" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
@@ -382,7 +389,10 @@
       <workItem from="1791233177099" duration="5000" />
       <workItem from="1791240606293" duration="840000" />
       <workItem from="1791243126527" duration="648000" />
-      <workItem from="1791313577822" duration="13208000" />
+      <workItem from="1791313577822" duration="13223000" />
+      <workItem from="1791403609404" duration="786000" />
+      <workItem from="1791434284994" duration="1000" />
+      <workItem from="1791441070057" duration="2294000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

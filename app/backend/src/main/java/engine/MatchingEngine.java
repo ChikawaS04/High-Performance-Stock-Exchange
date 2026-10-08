@@ -2,6 +2,7 @@ package engine;
 
 import event.BookSnapshotEvent;
 import model.Order;
+import model.Prices;
 import model.Side;
 import model.Trade;
 import util.IDGenerator;
@@ -188,8 +189,13 @@ public class MatchingEngine implements BookView {
         System.out.println("==========================================");
     }
 
-    private String formatPrice(long priceInCents) {
-        return String.format("$%d.%02d", priceInCents / 100, priceInCents % 100);
+    private String formatPrice(long priceUnits) {
+        long dollars = priceUnits / Prices.SCALE;
+        long frac = priceUnits % Prices.SCALE;       // 0..9999 ten-thousandths of a dollar
+        String f = String.format("%04d", frac);
+        int len = 4;
+        while (len > 2 && f.charAt(len - 1) == '0') { len--; }   // trim to no fewer than two places
+        return "$" + dollars + "." + f.substring(0, len);
     }
 
     @Override

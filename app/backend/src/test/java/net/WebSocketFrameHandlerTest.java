@@ -36,7 +36,7 @@ class WebSocketFrameHandlerTest {
     private static final LongSupplier CLOCK = () -> TS;
 
     private static final String NEW_JSON =
-            "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"BUY\",\"price\":15025,\"qty\":100,\"symbol\":\"ASML\"}";
+            "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"BUY\",\"price\":1502500,\"qty\":100,\"symbol\":\"ASML\"}";
 
     private ChannelGroup group;
     private CapturingOrderHandler captured;
@@ -90,18 +90,18 @@ class WebSocketFrameHandlerTest {
         assertEquals(OrderEventType.NEW_ORDER, obs.eventType());
         assertEquals(7L, obs.orderId());
         assertEquals(Side.BUY, obs.side());
-        assertEquals(15025L, obs.price());
+        assertEquals(1_502_500L, obs.price());
         assertEquals(100L, obs.quantity());
     }
 
     @Test
     void sellOrderMapsToSellSide() throws Exception {
         channel.writeInbound(new TextWebSocketFrame(
-                "{\"type\":\"NEW\",\"clOrdId\":8,\"side\":\"SELL\",\"price\":15000,\"qty\":50,\"symbol\":\"ASML\"}"));
+                "{\"type\":\"NEW\",\"clOrdId\":8,\"side\":\"SELL\",\"price\":1500000,\"qty\":50,\"symbol\":\"ASML\"}"));
         CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
         assertNotNull(obs);
         assertEquals(Side.SELL, obs.side());
-        assertEquals(15000L, obs.price());
+        assertEquals(1_500_000L, obs.price());
     }
 
     @Test
@@ -158,12 +158,12 @@ class WebSocketFrameHandlerTest {
         // Byte identity: the echo must carry exactly what JsonToFix produced and the
         // gateway handed to FixParser, not a re-encoding of the JSON.
         String expected = new String(
-                JsonToFix.newOrderSingle(7L, Side.BUY, 15025L, 100L, "ASML"), StandardCharsets.ISO_8859_1);
+                JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, 100L, "ASML"), StandardCharsets.ISO_8859_1);
         assertEquals(expected, echo.path("raw").asText());
 
         // Latin-1 round-trip is exact, so the string maps back to the original bytes.
         assertArrayEquals(
-                JsonToFix.newOrderSingle(7L, Side.BUY, 15025L, 100L, "ASML"),
+                JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, 100L, "ASML"),
                 echo.path("raw").asText().getBytes(StandardCharsets.ISO_8859_1));
     }
 

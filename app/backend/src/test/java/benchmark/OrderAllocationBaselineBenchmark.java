@@ -51,7 +51,7 @@ import java.util.concurrent.TimeUnit;
 public class OrderAllocationBaselineBenchmark {
 
     /** Same constants as the depth/throughput benchmarks, so the constructed Order is identical. */
-    private static final long PRICE_CENTS = 15_000L;
+    private static final long PRICE_UNITS = 1_500_000L;
     private static final int QTY = 10;
     private static final long PARTICIPANT_ID = 1L;
 
@@ -76,7 +76,7 @@ public class OrderAllocationBaselineBenchmark {
                 nextOrderId,          // timestamp: monotonic filler
                 Side.BUY,
                 QTY,
-                PRICE_CENTS,
+                PRICE_UNITS,
                 PARTICIPANT_ID
         );
     }

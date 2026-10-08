@@ -40,7 +40,7 @@ import util.BookFrameCache;
  * Fan-out via the group is safe from the consumer thread — Netty marshals each write onto that
  * channel's own event loop.
  *
- * <p><b>Wire format (guide decision 4).</b> Integer cents only; price formatting is React's job
+ * <p><b>Wire format (guide decision 4).</b> Integer units of $0.0001 only; price formatting is React's job
  * at the UI boundary (§4). {@code execType} is the {@link event.ExecutionEventType} name.
  * BOOK frames serialize <i>only</i> the valid {@code [0, levelCount)} prefix of each side, per
  * the {@link BookSnapshotEvent} count-authoritative reuse contract — array tails past the count

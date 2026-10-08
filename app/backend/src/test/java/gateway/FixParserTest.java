@@ -59,7 +59,7 @@ class FixParserTest {
         assertEquals(OrderEventType.NEW_ORDER, event.eventType);
         assertEquals(123L, event.orderId);
         assertEquals(Side.BUY, event.side);
-        assertEquals(15025L, event.price);
+        assertEquals(1_502_500L, event.price);
         assertEquals(100L, event.quantity);
         assertEquals(-1L, event.originalOrderId); // unused by D, cleared
     }
@@ -71,7 +71,7 @@ class FixParserTest {
 
         assertTrue(parser.parse(m, 0, m.length, event));
         assertEquals(Side.SELL, event.side);
-        assertEquals(9990L, event.price);
+        assertEquals(999_000L, event.price);
     }
 
     @Test

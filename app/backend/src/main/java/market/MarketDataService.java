@@ -18,19 +18,20 @@ import event.BookSnapshotEvent;
  * mixed with spread from the next). {@link #getQuote()} is the coherent multi-field read;
  * the individual getters are convenience views over the same volatile load.
  *
- * <p><b>Units.</b> Prices are long cents (SRS §4). Midpoint is stored exactly in half-cents
- * (1 cent = 2 half-cents) because the average of two cent-prices can be a half-cent; whole-cent
- * and exact accessors are both provided. Empty sides carry the {@code -1L} sentinel.
+ * <p><b>Units.</b> Prices are long units of $0.0001 (SRS §4). Because every lit price is on the
+ * one-cent tick (a multiple of 100 units), the sum of best bid and best ask is a multiple of 100,
+ * so the midpoint is always an exact multiple of 50 units and is stored exactly. Empty sides carry
+ * the {@code -1L} sentinel.
  */
 public final class MarketDataService implements EventHandler<BookSnapshotEvent> {
 
     /** Consistent snapshot of the derived metrics. All fields carry -1L when unavailable. */
     public record Quote(
-            long bestBid,           // cents; -1L if bid side empty
-            long bestAsk,           // cents; -1L if ask side empty
-            long spread,            // cents (bestAsk - bestBid); -1L if either side empty
-            long midpointHalfCents, // exact 2x midpoint (bestBid + bestAsk); -1L if either side empty
-            long timestamp          // epoch nanos of the snapshot this quote was derived from
+            long bestBid,     // units of $0.0001; -1L if bid side empty
+            long bestAsk,     // units of $0.0001; -1L if ask side empty
+            long spread,      // units (bestAsk - bestBid); -1L if either side empty
+            long midpoint,    // exact midpoint (bestBid + bestAsk) / 2; -1L if either side empty
+            long timestamp    // epoch nanos of the snapshot this quote was derived from
     ) {
         static final Quote EMPTY = new Quote(-1L, -1L, -1L, -1L, -1L);
     }
@@ -43,17 +44,17 @@ public final class MarketDataService implements EventHandler<BookSnapshotEvent> 
         long bestAsk = event.bestAsk;
 
         long spread;
-        long midHalfCents;
+        long midpoint;
         if (bestBid == -1L || bestAsk == -1L) {
             spread = -1L;
-            midHalfCents = -1L;
+            midpoint = -1L;
         } else {
-            spread = bestAsk - bestBid;          // resting book is non-crossed => >= 0
-            midHalfCents = bestBid + bestAsk;    // exact 2x midpoint, i.e. midpoint in half-cents
+            spread = bestAsk - bestBid;             // resting book is non-crossed => >= 0
+            midpoint = (bestBid + bestAsk) / 2;     // exact: the sum is a multiple of 100 units
         }
 
         // One volatile publish of a coherent tuple. Nothing beyond this line touches the slot.
-        quote = new Quote(bestBid, bestAsk, spread, midHalfCents, event.timestamp);
+        quote = new Quote(bestBid, bestAsk, spread, midpoint, event.timestamp);
     }
 
     // ---- reads: any thread; one volatile load per call ----
@@ -71,25 +72,17 @@ public final class MarketDataService implements EventHandler<BookSnapshotEvent> 
         return quote.bestAsk();
     }
 
-    /** Spread in cents, or -1L if either side is empty. */
+    /** Spread in units of $0.0001, or -1L if either side is empty. */
     public long getSpread() {
         return quote.spread();
     }
 
     /**
-     * Midpoint truncated to whole cents (preserves the Phase 1 contract), or -1L if either
-     * side is empty. Use {@link #getMidpointHalfCents()} for the exact value.
+     * Exact midpoint in units of $0.0001, or -1L if either side is empty. Because both lit
+     * prices are on the one-cent tick, the midpoint is always an exact multiple of 50 units
+     * and is never rounded.
      */
     public long getMidpoint() {
-        long half = quote.midpointHalfCents();
-        return half == -1L ? -1L : half / 2;
-    }
-
-    /**
-     * Exact midpoint in half-cent units (1 cent = 2 half-cents), or -1L if either side is
-     * empty. Divide by 2.0 at the display boundary for the true cents value.
-     */
-    public long getMidpointHalfCents() {
-        return quote.midpointHalfCents();
+        return quote.midpoint();
     }
 }

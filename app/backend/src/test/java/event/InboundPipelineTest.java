@@ -44,7 +44,7 @@ class InboundPipelineTest {
         pipeline.start();
         try {
             publish(pipeline.getRingBuffer(),
-                    OrderEventType.NEW_ORDER, 7L, Side.BUY, 15025L, 100L, 111L, -1L);
+                    OrderEventType.NEW_ORDER, 7L, Side.BUY, 1_502_500L, 100L, 111L, -1L);
 
             CapturingOrderHandler.Observed obs = handler.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
@@ -52,7 +52,7 @@ class InboundPipelineTest {
             assertEquals(OrderEventType.NEW_ORDER, obs.eventType());
             assertEquals(7L, obs.orderId());
             assertEquals(Side.BUY, obs.side());
-            assertEquals(15025L, obs.price());
+            assertEquals(1_502_500L, obs.price());
             assertEquals(100L, obs.quantity());
             assertEquals(111L, obs.timestamp());
             assertEquals(-1L, obs.originalOrderId());
@@ -74,7 +74,7 @@ class InboundPipelineTest {
             RingBuffer<OrderEvent> rb = pipeline.getRingBuffer();
 
             // First: a NEW_ORDER populating side/price/quantity.
-            publish(rb, OrderEventType.NEW_ORDER, 7L, Side.BUY, 15025L, 100L, 111L, -1L);
+            publish(rb, OrderEventType.NEW_ORDER, 7L, Side.BUY, 1_502_500L, 100L, 111L, -1L);
 
             // Second (same physical slot): a CANCEL that clears those fields.
             publish(rb, OrderEventType.CANCEL_ORDER, 8L, null, -1L, -1L, 222L, 7L);
@@ -90,7 +90,7 @@ class InboundPipelineTest {
             // First seen intact.
             assertEquals(OrderEventType.NEW_ORDER, first.eventType());
             assertEquals(Side.BUY, first.side());
-            assertEquals(15025L, first.price());
+            assertEquals(1_502_500L, first.price());
             assertEquals(100L, first.quantity());
 
             // Second: no bleed from the NEW that occupied this slot.

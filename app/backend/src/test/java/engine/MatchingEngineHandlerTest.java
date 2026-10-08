@@ -74,22 +74,22 @@ class MatchingEngineHandlerTest {
 
     @Test
     void nonCrossingOrder_restsAndEmitsAccepted() {
-        submit(newOrder(1, Side.BUY, 10000, 50), 0);
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);
 
         List<Observed> obs = captured.awaitAtLeast(1, 1000);
         assertEquals(1, obs.size());
         Observed o = obs.get(0);
         assertEquals(ExecutionEventType.ORDER_ACCEPTED, o.eventType());
         assertEquals(1, o.orderId());
-        assertEquals(10000, o.price());
+        assertEquals(1_000_000, o.price());
         assertEquals(50, o.remainingQuantity());
         assertEquals(TS, o.timestamp());
     }
 
     @Test
     void exactCross_emitsFilledForAggressor() {
-        submit(newOrder(1, Side.SELL, 10000, 50), 0);   // rests -> ACCEPTED
-        submit(newOrder(2, Side.BUY, 10000, 50), 1);    // fully fills -> FILLED
+        submit(newOrder(1, Side.SELL, 1_000_000, 50), 0);   // rests -> ACCEPTED
+        submit(newOrder(2, Side.BUY, 1_000_000, 50), 1);    // fully fills -> FILLED
 
         List<Observed> obs = captured.awaitAtLeast(2, 1000);
         assertEquals(2, obs.size());
@@ -99,7 +99,7 @@ class MatchingEngineHandlerTest {
         assertEquals(2, fill.orderId());            // aggressor
         assertEquals(2, fill.aggressorOrderId());
         assertEquals(1, fill.passiveOrderId());     // resting ask
-        assertEquals(10000, fill.price());          // passive (resting) price
+        assertEquals(1_000_000, fill.price());          // passive (resting) price
         assertEquals(50, fill.filledQuantity());
         assertEquals(0, fill.remainingQuantity());
         assertTrue(fill.tradeId() > 0);
@@ -107,8 +107,8 @@ class MatchingEngineHandlerTest {
 
     @Test
     void partialCross_emitsPartialThenAcceptedForRemainder() {
-        submit(newOrder(1, Side.SELL, 10000, 50), 0);   // rests -> ACCEPTED
-        submit(newOrder(2, Side.BUY, 10000, 80), 1);    // fills 50, rests 30
+        submit(newOrder(1, Side.SELL, 1_000_000, 50), 0);   // rests -> ACCEPTED
+        submit(newOrder(2, Side.BUY, 1_000_000, 80), 1);    // fills 50, rests 30
 
         List<Observed> obs = captured.awaitAtLeast(3, 1000);
         assertEquals(3, obs.size());
@@ -127,7 +127,7 @@ class MatchingEngineHandlerTest {
 
     @Test
     void cancelRestingOrder_emitsCancelled() {
-        submit(newOrder(1, Side.BUY, 10000, 50), 0);    // rests -> ACCEPTED
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);    // rests -> ACCEPTED
         submit(cancel(2, 1), 1);                         // cancel order 1
 
         List<Observed> obs = captured.awaitAtLeast(2, 1000);

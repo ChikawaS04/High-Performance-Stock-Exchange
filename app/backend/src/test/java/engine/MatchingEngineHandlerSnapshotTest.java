@@ -89,15 +89,15 @@ class MatchingEngineHandlerSnapshotTest {
 
     @Test
     void restingOrder_snapshotShowsBidLevel() {
-        submit(newOrder(1, Side.BUY, 10000, 50), 0);
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);
 
         List<Observed> obs = snaps.awaitAtLeast(1, 1000);
         assertEquals(1, obs.size());
         Observed s = obs.get(0);
         assertEquals(1, s.bidLevelCount());
-        assertEquals(10000L, s.bidPrices()[0]);
+        assertEquals(1_000_000L, s.bidPrices()[0]);
         assertEquals(50L, s.bidQtys()[0]);
-        assertEquals(10000L, s.bestBid());
+        assertEquals(1_000_000L, s.bestBid());
         assertEquals(0, s.askLevelCount());
         assertEquals(-1L, s.bestAsk());
         assertEquals(TS, s.timestamp());     // handler clock, not System.nanoTime
@@ -105,8 +105,8 @@ class MatchingEngineHandlerSnapshotTest {
 
     @Test
     void oneSnapshotPerInboundEvent() {
-        submit(newOrder(1, Side.BUY, 10000, 50), 0);
-        submit(newOrder(2, Side.SELL, 10100, 50), 1);
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);
+        submit(newOrder(2, Side.SELL, 1_010_000, 50), 1);
         submit(cancel(3, 1), 2);
 
         List<Observed> obs = snaps.awaitAtLeast(3, 1000);
@@ -115,15 +115,15 @@ class MatchingEngineHandlerSnapshotTest {
 
     @Test
     void exactCross_finalSnapshotShowsEmptyBook() {
-        submit(newOrder(1, Side.SELL, 10000, 50), 0);   // rests
-        submit(newOrder(2, Side.BUY, 10000, 50), 1);    // fully fills it
+        submit(newOrder(1, Side.SELL, 1_000_000, 50), 0);   // rests
+        submit(newOrder(2, Side.BUY, 1_000_000, 50), 1);    // fully fills it
 
         List<Observed> obs = snaps.awaitAtLeast(2, 1000);
         assertEquals(2, obs.size());
 
         Observed afterRest = obs.get(0);
         assertEquals(1, afterRest.askLevelCount());
-        assertEquals(10000L, afterRest.bestAsk());
+        assertEquals(1_000_000L, afterRest.bestAsk());
 
         Observed afterFill = obs.get(1);
         assertEquals(0, afterFill.bidLevelCount());
@@ -134,8 +134,8 @@ class MatchingEngineHandlerSnapshotTest {
 
     @Test
     void partialCross_snapshotShowsRestedRemainder() {
-        submit(newOrder(1, Side.SELL, 10000, 50), 0);   // rests 50 @ 10000
-        submit(newOrder(2, Side.BUY, 10000, 80), 1);    // fills 50, rests 30 on the bid
+        submit(newOrder(1, Side.SELL, 1_000_000, 50), 0);   // rests 50 @ 1_000_000
+        submit(newOrder(2, Side.BUY, 1_000_000, 80), 1);    // fills 50, rests 30 on the bid
 
         List<Observed> obs = snaps.awaitAtLeast(2, 1000);
         Observed s = obs.get(1);
@@ -143,14 +143,14 @@ class MatchingEngineHandlerSnapshotTest {
         assertEquals(0, s.askLevelCount());             // ask consumed
         assertEquals(-1L, s.bestAsk());
         assertEquals(1, s.bidLevelCount());
-        assertEquals(10000L, s.bidPrices()[0]);
+        assertEquals(1_000_000L, s.bidPrices()[0]);
         assertEquals(30L, s.bidQtys()[0]);              // remainder rested
-        assertEquals(10000L, s.bestBid());
+        assertEquals(1_000_000L, s.bestBid());
     }
 
     @Test
     void cancel_snapshotShowsLevelRemoved() {
-        submit(newOrder(1, Side.BUY, 10000, 50), 0);
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);
         submit(cancel(2, 1), 1);
 
         List<Observed> obs = snaps.awaitAtLeast(2, 1000);
@@ -162,7 +162,7 @@ class MatchingEngineHandlerSnapshotTest {
 
     @Test
     void rejectStillPublishesSnapshot_bookUnchanged() {
-        submit(newOrder(1, Side.BUY, 10000, 50), 0);
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);
         submit(newOrder(2, Side.BUY, -5, 50), 1);       // domain-invalid -> rejected
         submit(cancel(3, 999), 2);                      // unknown cancel -> rejected
 
@@ -171,15 +171,15 @@ class MatchingEngineHandlerSnapshotTest {
 
         for (Observed s : obs) {                        // book never changed after the first
             assertEquals(1, s.bidLevelCount());
-            assertEquals(10000L, s.bidPrices()[0]);
+            assertEquals(1_000_000L, s.bidPrices()[0]);
             assertEquals(50L, s.bidQtys()[0]);
         }
     }
 
     @Test
     void aggregatesMultipleOrdersAtOneLevel() {
-        submit(newOrder(1, Side.BUY, 10000, 30), 0);
-        submit(newOrder(2, Side.BUY, 10000, 20), 1);
+        submit(newOrder(1, Side.BUY, 1_000_000, 30), 0);
+        submit(newOrder(2, Side.BUY, 1_000_000, 20), 1);
 
         List<Observed> obs = snaps.awaitAtLeast(2, 1000);
         Observed s = obs.get(1);
@@ -194,15 +194,15 @@ class MatchingEngineHandlerSnapshotTest {
         // top MAX_DEPTH_LEVELS and leave the top of book unaffected.
         final int levels = BookSnapshotEvent.MAX_DEPTH_LEVELS + 2;
         for (int i = 0; i < levels; i++) {
-            submit(newOrder(i + 1, Side.BUY, 10000 + i, 5), i);
+            submit(newOrder(i + 1, Side.BUY, 1_000_000 + i * 100, 5), i);
         }
 
         List<Observed> obs = snaps.awaitAtLeast(levels, 1000);
         Observed s = obs.get(levels - 1);
 
         assertEquals(BookSnapshotEvent.MAX_DEPTH_LEVELS, s.bidLevelCount());
-        assertEquals(10000L + levels - 1, s.bidPrices()[0]);   // best kept (highest price)
-        assertEquals(10000L + levels - 1, s.bestBid());        // top of book unaffected by truncation
+        assertEquals(1_000_000L + (levels - 1) * 100L, s.bidPrices()[0]);   // best kept (highest price)
+        assertEquals(1_000_000L + (levels - 1) * 100L, s.bestBid());        // top of book unaffected by truncation
     }
 
     @Test
@@ -212,8 +212,8 @@ class MatchingEngineHandlerSnapshotTest {
                 new MatchingEngineHandler(e2, outbound.getRingBuffer(), () -> TS);
         e2.setExecutionListener(noDepth);
 
-        noDepth.onEvent(newOrder(1, Side.BUY, 10000, 50), 0, true);   // must not NPE
+        noDepth.onEvent(newOrder(1, Side.BUY, 1_000_000, 50), 0, true);   // must not NPE
 
-        assertEquals(10000L, e2.getBestBid());
+        assertEquals(1_000_000L, e2.getBestBid());
     }
 }

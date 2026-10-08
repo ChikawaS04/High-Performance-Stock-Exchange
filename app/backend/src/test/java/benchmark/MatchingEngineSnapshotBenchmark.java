@@ -87,12 +87,13 @@ public class MatchingEngineSnapshotBenchmark {
     private static final long ORDER_TS = 1L;
 
     /**
-     * Non-crossing price bases: every bid price stays strictly below every ask price for the whole
-     * sweep. At {@code bookLevels = 10000} the top bid is {@code BID_BASE + 9999 = 109_999}, well
-     * below {@code ASK_BASE = 200_000}, so no order ever crosses and no trade or id is minted.
+     * Non-crossing price bases (units of $0.0001, one-cent level spacing): every bid price stays
+     * strictly below every ask price for the whole sweep. At {@code bookLevels = 10000} the top bid
+     * is {@code BID_BASE + 9999 * 100 = 10_999_900}, well below {@code ASK_BASE = 20_000_000}, so no
+     * order ever crosses and no trade or id is minted.
      */
-    private static final long BID_BASE = 100_000L;
-    private static final long ASK_BASE = 200_000L;
+    private static final long BID_BASE = 10_000_000L;
+    private static final long ASK_BASE = 20_000_000L;
 
     /** Resting quantity per order (int, per the {@code Order} contract). Value is immaterial here. */
     private static final int ORDER_QTY = 10;
@@ -111,7 +112,7 @@ public class MatchingEngineSnapshotBenchmark {
         // BUY side: bookLevels distinct price levels, each a deque of ORDERS_PER_LEVEL orders.
         // All bid prices are strictly below every ask price, so these rest without crossing.
         for (int level = 0; level < bookLevels; level++) {
-            long price = BID_BASE + level;
+            long price = BID_BASE + level * 100L;
             for (int k = 0; k < ORDERS_PER_LEVEL; k++) {
                 engine.addOrder(new Order(nextId++, ORDER_TS, Side.BUY, ORDER_QTY, price, PARTICIPANT_ID));
             }
@@ -120,7 +121,7 @@ public class MatchingEngineSnapshotBenchmark {
         // SELL side: added after the bids; each sell price (>= ASK_BASE) is above the best bid,
         // so nothing crosses and the book holds bookLevels levels on each side.
         for (int level = 0; level < bookLevels; level++) {
-            long price = ASK_BASE + level;
+            long price = ASK_BASE + level * 100L;
             for (int k = 0; k < ORDERS_PER_LEVEL; k++) {
                 engine.addOrder(new Order(nextId++, ORDER_TS, Side.SELL, ORDER_QTY, price, PARTICIPANT_ID));
             }
