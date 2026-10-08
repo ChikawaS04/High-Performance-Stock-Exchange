@@ -1,7 +1,7 @@
 /**
  * Manual order entry ticket (SRS §3.7), refined in P7-7. Presentational and
  * callback-driven: it owns only transient form state (side, the raw price/qty
- * strings, an error) and emits resolved, cents-internal intent via `onSubmit`.
+ * strings, an error) and emits resolved, units-internal intent via `onSubmit`.
  * It never generates a clOrdId, builds a wire frame, or touches the socket; that
  * lives in one place, the App wiring over the single useOrderBook instance, so
  * clOrdId is generated in exactly one place and never derived from server data.
@@ -9,29 +9,29 @@
  * P7-7 adds ticket affordances WITHOUT changing what it sends (the same NEW
  * frame): bid / mid / ask reference chips, one-cent tick nudges, quantity
  * presets, and an Order ID field showing the client-assigned id the next NEW
- * will use. Every affordance resolves to integer cents through format.ts; no
+ * will use. Every affordance resolves to integer units through format.ts; no
  * float touches the price path.
  *
  * P8-6 stripped this ticket's FIX teaching annotations (the Tag 44 / 38 / 11
- * labels, the Primitive-cents helper, and the "auto, client-assigned" caption):
+ * labels, the Primitive helper, and the "auto, client-assigned" caption):
  * the working ticket shows plain labels and values, and the tag-level view
  * lives only in the FIX inspector now. Every underlying value is kept.
  *
  * Controlled-price seam. The chips and nudges write the SAME uncontrolled
  * `priceInput` the user types, so there is one source of truth and the P5-4
  * validation is byte-identical. The external seam for the P7-5 depth curve
- * (wired in P7-10) is the imperative `setPrice(priceCents)` handle, which takes
+ * (wired in P7-10) is the imperative `setPrice(pricePx)` handle, which takes
  * exactly the shape `onPriceSelect` emits. The ref exposes only a price setter,
  * not state ownership, so the P5-6 discipline holds.
  */
 
 import { forwardRef, useImperativeHandle, useState } from "react";
 
-import { centsToDollars, dollarsToCents, EMPTY_PRICE } from "../format";
+import { formatPrice, parsePrice, EMPTY_PRICE } from "../format";
 import type { Side } from "../protocol/messages";
 
 export type ValidationResult =
-    | { readonly ok: true; readonly priceCents: number; readonly qty: number }
+    | { readonly ok: true; readonly pricePx: number; readonly qty: number }
     | { readonly ok: false; readonly reason: string };
 
 const PRICE_REASON = "Price must be greater than 0 with at most 2 decimals";
@@ -39,13 +39,13 @@ const QTY_REASON = "Quantity must be a positive whole number";
 
 /**
  * Pure input validation, exported for direct unit testing (mirrors P5-2's
- * `buildLadder` split). Price delegates to `dollarsToCents`, which mirrors the
+ * `buildLadder` split). Price delegates to `parsePrice`, which mirrors the
  * backend `parsePrice` policy exactly; quantity must be a positive whole number
  * (no decimals, no sign, no exponent).
  */
 export function validateOrderInput(priceInput: string, qtyInput: string): ValidationResult {
-    const priceCents = dollarsToCents(priceInput);
-    if (priceCents === null) {
+    const pricePx = parsePrice(priceInput);
+    if (pricePx === null) {
         return { ok: false, reason: PRICE_REASON };
     }
 
@@ -58,37 +58,39 @@ export function validateOrderInput(priceInput: string, qtyInput: string): Valida
         return { ok: false, reason: QTY_REASON };
     }
 
-    return { ok: true, priceCents, qty };
+    return { ok: true, pricePx, qty };
 }
 
-/** One cent. The integer-cents primitive is the unit end to end. */
-export const TICK_CENTS = 1;
+/** One cent, in units of $0.0001. The integer-units primitive is the unit end to end. */
+export const TICK_PX = 100;
 
 /** Round-lot quantity presets. */
 export const QTY_PRESETS = [10, 50, 100, 500] as const;
 
 /**
- * The mid resolved to a valid whole-cent limit, integer math only, for the mid
- * chip. Returns null when the book is one-sided (chip disabled). The mid of two
- * cent prices is (bid + ask) / 2, a half-cent when the sum is odd; the only tie
- * case is that exact half-cent, and it rounds UP toward the higher cent (toward
- * the ask by half a cent), stated so the chip can never populate a 3-decimal
- * price. This is deliberately NOT format.ts's `midpointCents`, which stays the
- * render-only half-cent float; the price path uses integers only.
+ * The mid resolved to a valid on-tick limit, integer math only, for the mid chip.
+ * Returns null when the book is one-sided (chip disabled). The mid of two on-tick
+ * prices is (bid + ask) / 2, an exact integer multiple of 50 units; when the
+ * spread is an odd number of ticks that is a half-cent, which is off the one-cent
+ * tick, so the chip snaps it UP to the next tick with integer math
+ * (Math.ceil(mid / TICK_PX) * TICK_PX). It rounds toward the ask by up to half a
+ * cent, stated so the chip can never populate a sub-penny price. This is
+ * deliberately NOT format.ts's `midpointPx`, which stays the render-only exact
+ * mid; the price path is always on the tick.
  */
-export function midChipCents(bestBid: number, bestAsk: number): number | null {
+export function midChipPx(bestBid: number, bestAsk: number): number | null {
     if (bestBid <= 0 || bestAsk <= 0) return null;
-    const sum = bestBid + bestAsk;
-    return (sum + (sum % 2)) / 2;
+    const mid = (bestBid + bestAsk) / 2;
+    return Math.ceil(mid / TICK_PX) * TICK_PX;
 }
 
 /**
- * Adjust a cent price by `steps` ticks, clamped so it can never fall below one
- * tick. Integer in, integer out, always positive: a nudge can never produce a
- * non-integer or non-positive price.
+ * Adjust a price by `steps` ticks, clamped so it can never fall below one tick.
+ * Integer in, integer out, always positive: a nudge can never produce a
+ * non-integer or non-positive price, and one tick is one cent (TICK_PX units).
  */
-export function nudgeCents(cents: number, steps: number, tick: number = TICK_CENTS): number {
-    return Math.max(tick, cents + steps * tick);
+export function nudgePx(px: number, steps: number, tick: number = TICK_PX): number {
+    return Math.max(tick, px + steps * tick);
 }
 
 /**
@@ -99,25 +101,25 @@ export function applyPreset(currentQtyInput: string, preset: number): string {
     return currentQtyInput.trim() === "" ? String(preset) : currentQtyInput;
 }
 
-/** Imperative seam for the P7-5 depth curve (wired in P7-10): set the price in cents. */
+/** Imperative seam for the P7-5 depth curve (wired in P7-10): set the price in units. */
 export interface OrderEntryHandle {
-    setPrice: (priceCents: number) => void;
+    setPrice: (pricePx: number) => void;
 }
 
 export interface OrderEntryProps {
-    readonly onSubmit: (side: Side, priceCents: number, qty: number) => void;
+    readonly onSubmit: (side: Side, pricePx: number, qty: number) => void;
     /** When true (e.g. socket not open), the whole ticket is inert and visibly disabled. */
     readonly disabled?: boolean;
-    /** Live best bid in cents for the Bid chip; -1 (default) disables it. */
-    readonly bestBidCents?: number;
-    /** Live best ask in cents for the Ask chip; -1 (default) disables it. */
-    readonly bestAskCents?: number;
+    /** Live best bid in units for the Bid chip; -1 (default) disables it. */
+    readonly bestBidPx?: number;
+    /** Live best ask in units for the Ask chip; -1 (default) disables it. */
+    readonly bestAskPx?: number;
     /** Display-only: the client-assigned id the next NEW will use (nextClOrdId.peek()). */
     readonly clOrdIdPreview?: number;
 }
 
 export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function OrderEntry(
-    { onSubmit, disabled = false, bestBidCents = -1, bestAskCents = -1, clOrdIdPreview },
+    { onSubmit, disabled = false, bestBidPx = -1, bestAskPx = -1, clOrdIdPreview },
     ref,
 ) {
     const [side, setSide] = useState<Side>("BUY");
@@ -127,8 +129,8 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
 
     // The one seam the chips, the nudges, and (via the ref) the curve all feed: it
     // writes the same priceInput the user types, so single-source-of-truth holds.
-    const applyPrice = (priceCents: number): void => {
-        setPriceInput(centsToDollars(priceCents));
+    const applyPrice = (pricePx: number): void => {
+        setPriceInput(formatPrice(pricePx));
         setError(null);
     };
 
@@ -142,7 +144,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             return;
         }
         setError(null);
-        onSubmit(side, result.priceCents, result.qty);
+        onSubmit(side, result.pricePx, result.qty);
         // Clear price + qty for the next order; keep the side for repeat fires.
         setPriceInput("");
         setQtyInput("");
@@ -150,9 +152,9 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
 
     const nudge = (steps: number): void => {
         if (disabled) return;
-        const current = dollarsToCents(priceInput);
+        const current = parsePrice(priceInput);
         if (current === null) return; // empty or invalid: no base to nudge, so no-op
-        applyPrice(nudgeCents(current, steps));
+        applyPrice(nudgePx(current, steps));
     };
 
     const preset = (value: number): void => {
@@ -160,7 +162,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
         setQtyInput((q) => applyPreset(q, value));
     };
 
-    const midCents = midChipCents(bestBidCents, bestAskCents);
+    const midPx = midChipPx(bestBidPx, bestAskPx);
 
     return (
         <div className="order-entry">
@@ -192,38 +194,38 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                     type="button"
                     className="order-entry__chip order-entry__chip--bid"
                     data-testid="chip-bid"
-                    disabled={disabled || bestBidCents <= 0}
-                    onClick={() => applyPrice(bestBidCents)}
+                    disabled={disabled || bestBidPx <= 0}
+                    onClick={() => applyPrice(bestBidPx)}
                 >
                     <span className="order-entry__chip-label">Bid</span>
                     <span className="order-entry__chip-value">
-            {bestBidCents > 0 ? centsToDollars(bestBidCents) : EMPTY_PRICE}
+            {bestBidPx > 0 ? formatPrice(bestBidPx) : EMPTY_PRICE}
           </span>
                 </button>
                 <button
                     type="button"
                     className="order-entry__chip order-entry__chip--mid"
                     data-testid="chip-mid"
-                    disabled={disabled || midCents === null}
+                    disabled={disabled || midPx === null}
                     onClick={() => {
-                        if (midCents !== null) applyPrice(midCents);
+                        if (midPx !== null) applyPrice(midPx);
                     }}
                 >
                     <span className="order-entry__chip-label">Mid</span>
                     <span className="order-entry__chip-value">
-            {midCents !== null ? centsToDollars(midCents) : EMPTY_PRICE}
+            {midPx !== null ? formatPrice(midPx) : EMPTY_PRICE}
           </span>
                 </button>
                 <button
                     type="button"
                     className="order-entry__chip order-entry__chip--ask"
                     data-testid="chip-ask"
-                    disabled={disabled || bestAskCents <= 0}
-                    onClick={() => applyPrice(bestAskCents)}
+                    disabled={disabled || bestAskPx <= 0}
+                    onClick={() => applyPrice(bestAskPx)}
                 >
                     <span className="order-entry__chip-label">Ask</span>
                     <span className="order-entry__chip-value">
-            {bestAskCents > 0 ? centsToDollars(bestAskCents) : EMPTY_PRICE}
+            {bestAskPx > 0 ? formatPrice(bestAskPx) : EMPTY_PRICE}
           </span>
                 </button>
             </div>

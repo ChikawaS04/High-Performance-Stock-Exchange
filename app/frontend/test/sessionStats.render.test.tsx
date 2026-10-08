@@ -13,14 +13,14 @@ afterEach(cleanup);
 
 /**
  * Minimal TapeEntry fixture, mirroring sessionStats.test.ts and
- * priceChart.render.test.tsx. The component reads only `priceCents` and
+ * priceChart.render.test.tsx. The component reads only `pricePx` and
  * `quantity` from a row, through buildSessionStats; every other field gets a
  * fixed local default. Built by hand, never via an ID generator.
  */
 function entry(partial: Partial<TapeEntry> = {}): TapeEntry {
     return {
         tradeId: 1,
-        priceCents: 15000,
+        pricePx: 1500000,
         quantity: 1,
         aggressorOrderId: 1,
         passiveOrderId: 2,
@@ -36,20 +36,20 @@ const LABELS = ["High", "Low", "Trades", "Last trade"];
 /** A traded session: newest first, so 150.25 x 4 is the last print. */
 const POPULATED: SessionStatsProps = {
     tape: [
-        entry({ tradeId: 3, priceCents: 15025, quantity: 4 }),
-        entry({ tradeId: 2, priceCents: 15075, quantity: 9 }),
-        entry({ tradeId: 1, priceCents: 14925, quantity: 2 }),
+        entry({ tradeId: 3, pricePx: 1502500, quantity: 4 }),
+        entry({ tradeId: 2, pricePx: 1507500, quantity: 9 }),
+        entry({ tradeId: 1, pricePx: 1492500, quantity: 2 }),
     ],
-    sessionHighCents: 15075,
-    sessionLowCents: 14925,
+    sessionHighPx: 1507500,
+    sessionLowPx: 1492500,
     sessionTradeCount: 12,
 };
 
 /** A fresh session: nothing has traded. Matches initialState's three slices. */
 const UNSET: SessionStatsProps = {
     tape: [],
-    sessionHighCents: SESSION_OPEN_UNSET,
-    sessionLowCents: SESSION_OPEN_UNSET,
+    sessionHighPx: SESSION_OPEN_UNSET,
+    sessionLowPx: SESSION_OPEN_UNSET,
     sessionTradeCount: 0,
 };
 
@@ -85,9 +85,9 @@ describe("<SessionStats /> populated session", () => {
         // ever folded the tape instead of reading index 0, these would leak out.
         renderStats({
             tape: [
-                entry({ tradeId: 9, priceCents: 10000, quantity: 7 }),
-                entry({ tradeId: 8, priceCents: 99999, quantity: 888 }),
-                entry({ tradeId: 7, priceCents: 1, quantity: 999 }),
+                entry({ tradeId: 9, pricePx: 1000000, quantity: 7 }),
+                entry({ tradeId: 8, pricePx: 9999900, quantity: 888 }),
+                entry({ tradeId: 7, pricePx: 100, quantity: 999 }),
             ],
         });
         expect(screen.getByTestId("session-last-price").textContent).toContain("100.00");

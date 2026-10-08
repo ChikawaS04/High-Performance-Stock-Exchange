@@ -10,20 +10,20 @@ import type { BookState, MyOrder, TapeEntry } from "../src/state/reducer";
 afterEach(cleanup);
 
 const BOOK: BookState = {
-    bestBid: 15000,
-    bestAsk: 15025,
-    bids: [[15000, 10]],
-    asks: [[15025, 7]],
+    bestBid: 1500000,
+    bestAsk: 1502500,
+    bids: [[1500000, 10]],
+    asks: [[1502500, 7]],
     timestamp: 111,
 };
 
 const TAPE: TapeEntry[] = [
-    { tradeId: 1, priceCents: 15025, quantity: 4, aggressorOrderId: 2, passiveOrderId: 1, timestamp: 222, mine: true },
+    { tradeId: 1, pricePx: 1502500, quantity: 4, aggressorOrderId: 2, passiveOrderId: 1, timestamp: 222, mine: true },
 ];
 
 const ORDERS: MyOrder[] = [
-    { clOrdId: 1, side: "BUY", priceCents: 15000, originalQty: 10, remainingQty: 4, status: "PARTIALLY_FILLED" },
-    { clOrdId: 2, side: "SELL", priceCents: 15025, originalQty: 5, remainingQty: 5, status: "OPEN" },
+    { clOrdId: 1, side: "BUY", pricePx: 1500000, originalQty: 10, remainingQty: 4, status: "PARTIALLY_FILLED" },
+    { clOrdId: 2, side: "SELL", pricePx: 1502500, originalQty: 5, remainingQty: 5, status: "OPEN" },
 ];
 
 function renderHeader(over: Partial<HeaderProps> = {}) {
@@ -32,7 +32,7 @@ function renderHeader(over: Partial<HeaderProps> = {}) {
         tape: TAPE,
         orders: ORDERS,
         sessionVolume: 40,
-        sessionOpenCents: 15000,
+        sessionOpenPx: 1500000,
         lastFrameNanos: 1_700_000_000_123_456_789,
         connection: "open",
         ...over,
@@ -51,10 +51,10 @@ describe("<Header /> instrument row", () => {
         expect(screen.getByTestId("header-volume").textContent).toBe("40");
     });
 
-    it("shows the spread in cents and basis points", () => {
+    it("shows the spread in ticks and basis points", () => {
         renderHeader();
-        expect(screen.getByTestId("header-spread-cents").textContent).toContain("25");
-        expect(screen.getByTestId("header-spread-bps").textContent).toContain("16.65"); // 20000*25/30025
+        expect(screen.getByTestId("header-spread-ticks").textContent).toContain("25");
+        expect(screen.getByTestId("header-spread-bps").textContent).toContain("16.65"); // 20000*2500/3002500
     });
 
     it("colours a positive session change up and shows the signed percent", () => {
@@ -74,26 +74,26 @@ describe("<Header /> instrument row", () => {
 });
 
 describe("<Header /> open field", () => {
-    it("renders the empty marker when no openCents is supplied", () => {
+    it("renders the empty marker when no openPx is supplied", () => {
         renderHeader();
         expect(screen.getByTestId("header-open").textContent).toBe("—");
     });
 
-    it("formats a supplied openCents as a dollar string", () => {
-        renderHeader({ openCents: 14980 });
+    it("formats a supplied openPx as a dollar string", () => {
+        renderHeader({ openPx: 1498000 });
         expect(screen.getByTestId("header-open").textContent).toBe("149.80");
     });
 
-    it("does not re-anchor Chg when openCents is supplied (P11 D6)", () => {
-        // Chg stays anchored to sessionOpenCents (the first trade), independent of the
-        // market-open value in the Open field. A wildly different openCents must leave
-        // Chg and its percent identical to the no-openCents render.
+    it("does not re-anchor Chg when openPx is supplied (P11 D6)", () => {
+        // Chg stays anchored to sessionOpenPx (the first trade), independent of the
+        // market-open value in the Open field. A wildly different openPx must leave
+        // Chg and its percent identical to the no-openPx render.
         const first = renderHeader();
         const chg = screen.getByTestId("header-change").textContent;
         const pct = screen.getByTestId("header-change-pct").textContent;
         first.unmount();
 
-        renderHeader({ openCents: 99999 });
+        renderHeader({ openPx: 9999900 });
         expect(screen.getByTestId("header-change").textContent).toBe(chg);
         expect(screen.getByTestId("header-change-pct").textContent).toBe(pct);
     });

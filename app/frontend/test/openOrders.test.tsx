@@ -12,7 +12,7 @@ function makeOrder(
     clOrdId: number,
     status: OrderStatus,
     side: Side = "BUY",
-    priceCents = 15000,
+    pricePx = 1500000,
     remainingQty = 10,
     originalQty = 10,
     sentAtNanos?: number,
@@ -20,7 +20,7 @@ function makeOrder(
     return {
         clOrdId,
         side,
-        priceCents,
+        pricePx,
         originalQty,
         remainingQty,
         status,
@@ -30,7 +30,7 @@ function makeOrder(
 
 describe("<OpenOrders />", () => {
     it("renders one row per order with id, side, dollar price, filled/total, and status", () => {
-        render(<OpenOrders orders={[makeOrder(7, "OPEN", "BUY", 15025, 8)]} onCancel={vi.fn()} />);
+        render(<OpenOrders orders={[makeOrder(7, "OPEN", "BUY", 1502500, 8)]} onCancel={vi.fn()} />);
 
         const rows = screen.getAllByTestId("open-orders-row");
         expect(rows).toHaveLength(1);
@@ -45,7 +45,7 @@ describe("<OpenOrders />", () => {
     it("shows filled / total derived from original minus remaining", () => {
         render(
             <OpenOrders
-                orders={[makeOrder(3, "PARTIALLY_FILLED", "BUY", 15000, 6, 10)]}
+                orders={[makeOrder(3, "PARTIALLY_FILLED", "BUY", 1500000, 6, 10)]}
                 onCancel={vi.fn()}
             />,
         );
@@ -55,7 +55,7 @@ describe("<OpenOrders />", () => {
     it("renders a client-assigned send time when the row carries one", () => {
         render(
             <OpenOrders
-                orders={[makeOrder(5, "OPEN", "BUY", 15000, 10, 10, 1_700_000_000_123_000_000)]}
+                orders={[makeOrder(5, "OPEN", "BUY", 1500000, 10, 10, 1_700_000_000_123_000_000)]}
                 onCancel={vi.fn()}
             />,
         );
@@ -108,8 +108,8 @@ describe("<OpenOrders />", () => {
         expect(screen.queryAllByTestId("open-orders-row")).toHaveLength(0);
     });
 
-    it("formats the price via centsToDollars and never leaks a sentinel", () => {
-        render(<OpenOrders orders={[makeOrder(9, "OPEN", "SELL", 5, 1)]} onCancel={vi.fn()} />);
+    it("formats the price via formatPrice and never leaks a sentinel", () => {
+        render(<OpenOrders orders={[makeOrder(9, "OPEN", "SELL", 500, 1)]} onCancel={vi.fn()} />);
 
         const priceCell = screen.getByTestId("open-orders-row").querySelector(".open-orders__price");
         expect(priceCell?.textContent).toBe("0.05");

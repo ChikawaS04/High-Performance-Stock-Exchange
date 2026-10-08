@@ -20,7 +20,7 @@ function execEntry(tradeId: number, timestamp = 2): InspectorEntry {
         execType: "ORDER_FILLED",
         orderId: 1,
         tradeId,
-        price: 15000,
+        price: 1500000,
         filledQuantity: 4,
         remainingQuantity: 0,
         aggressorOrderId: 1,

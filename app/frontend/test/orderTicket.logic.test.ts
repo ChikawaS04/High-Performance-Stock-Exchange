@@ -2,26 +2,26 @@ import { describe, expect, it } from "vitest";
 
 import {
     applyPreset,
-    midChipCents,
-    nudgeCents,
+    midChipPx,
+    nudgePx,
     QTY_PRESETS,
-    TICK_CENTS,
+    TICK_PX,
 } from "../src/components/OrderEntry";
 
-describe("midChipCents", () => {
-    it("returns the exact integer mid for an even-sum book", () => {
-        expect(midChipCents(15000, 15050)).toBe(15025);
-        expect(midChipCents(3, 5)).toBe(4);
+describe("midChipPx", () => {
+    it("returns the exact on-tick mid for an even-tick book", () => {
+        expect(midChipPx(1500000, 1505000)).toBe(1502500);
+        expect(midChipPx(300, 500)).toBe(400);
     });
 
-    it("rounds an odd-sum (half-cent) mid up to the nearest whole cent", () => {
-        expect(midChipCents(15000, 15025)).toBe(15013); // true mid 15012.5 -> 15013
-        expect(midChipCents(1, 2)).toBe(2); // true mid 1.5 -> 2
+    it("snaps an odd-cent-spread (sub-penny) mid up to the next tick", () => {
+        expect(midChipPx(1500000, 1502500)).toBe(1501300); // true mid 1501250 -> up to 1501300
+        expect(midChipPx(100, 200)).toBe(200); // true mid 150 -> 200
     });
 
-    it("always yields a positive whole cent, never a half-cent on the price path", () => {
-        for (const [b, a] of [[15000, 15025], [1, 2], [7, 8], [99, 100]] as const) {
-            const m = midChipCents(b, a);
+    it("always yields a positive on-tick price, never a sub-penny on the price path", () => {
+        for (const [b, a] of [[1500000, 1502500], [100, 200], [700, 800], [9900, 10000]] as const) {
+            const m = midChipPx(b, a);
             expect(m).not.toBeNull();
             expect(Number.isInteger(m as number)).toBe(true);
             expect(m as number).toBeGreaterThan(0);
@@ -29,29 +29,29 @@ describe("midChipCents", () => {
     });
 
     it("returns null when either side is the -1 sentinel (chip disabled)", () => {
-        expect(midChipCents(-1, 15025)).toBeNull();
-        expect(midChipCents(15000, -1)).toBeNull();
-        expect(midChipCents(-1, -1)).toBeNull();
+        expect(midChipPx(-1, 1502500)).toBeNull();
+        expect(midChipPx(1500000, -1)).toBeNull();
+        expect(midChipPx(-1, -1)).toBeNull();
     });
 });
 
-describe("nudgeCents", () => {
+describe("nudgePx", () => {
     it("adds and subtracts one tick (one cent) by default", () => {
-        expect(TICK_CENTS).toBe(1);
-        expect(nudgeCents(15000, 1)).toBe(15001);
-        expect(nudgeCents(15000, -1)).toBe(14999);
+        expect(TICK_PX).toBe(100);
+        expect(nudgePx(1500000, 1)).toBe(1500100);
+        expect(nudgePx(1500000, -1)).toBe(1499900);
     });
 
     it("never produces a non-positive price, clamping at the one-cent floor", () => {
-        expect(nudgeCents(1, -1)).toBe(1);
-        expect(nudgeCents(1, -5)).toBe(1);
-        expect(nudgeCents(2, -10)).toBe(1);
+        expect(nudgePx(100, -1)).toBe(100);
+        expect(nudgePx(100, -5)).toBe(100);
+        expect(nudgePx(200, -10)).toBe(100);
     });
 
     it("never produces a non-integer price for integer input", () => {
-        for (let c = 1; c <= 20; c++) {
+        for (let c = 100; c <= 2000; c += 100) {
             for (const s of [-3, -1, 1, 3]) {
-                const n = nudgeCents(c, s);
+                const n = nudgePx(c, s);
                 expect(Number.isInteger(n)).toBe(true);
                 expect(n).toBeGreaterThan(0);
             }

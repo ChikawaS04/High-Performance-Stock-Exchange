@@ -13,7 +13,7 @@ afterEach(cleanup);
 function entry(overrides: Partial<TapeEntry> = {}): TapeEntry {
     return {
         tradeId: 1,
-        priceCents: 15000,
+        pricePx: 1500000,
         quantity: 10,
         aggressorOrderId: 2,
         passiveOrderId: 1,
@@ -50,9 +50,9 @@ describe("TradeTape", () => {
 
     it("preserves slice order (newest-first as handed in)", () => {
         const tape = [
-            entry({ tradeId: 3, priceCents: 15030 }),
-            entry({ tradeId: 2, priceCents: 15020 }),
-            entry({ tradeId: 1, priceCents: 15010 }),
+            entry({ tradeId: 3, pricePx: 1503000 }),
+            entry({ tradeId: 2, pricePx: 1502000 }),
+            entry({ tradeId: 1, pricePx: 1501000 }),
         ];
         render(<TradeTape tape={tape} />);
         const prices = screen.getAllByTestId("tape-row").map(priceOf);
@@ -60,7 +60,7 @@ describe("TradeTape", () => {
     });
 
     it("renders price in dollars via format.ts, never a sentinel or negative", () => {
-        const tape = [entry({ tradeId: 1, priceCents: 5 }), entry({ tradeId: 2, priceCents: 15025 })];
+        const tape = [entry({ tradeId: 1, pricePx: 500 }), entry({ tradeId: 2, pricePx: 1502500 })];
         render(<TradeTape tape={tape} />);
         const prices = screen.getAllByTestId("tape-row").map(priceOf);
         expect(prices).toEqual(["0.05", "150.25"]);
@@ -131,9 +131,9 @@ describe("TradeTape", () => {
     it("colours each price against the previous (older) print", () => {
         // newest-first: 150.20 (up vs 150.10), 150.10 (flat vs 150.10), 150.10 (oldest, flat)
         const tape = [
-            entry({ tradeId: 3, priceCents: 15020 }),
-            entry({ tradeId: 2, priceCents: 15010 }),
-            entry({ tradeId: 1, priceCents: 15010 }),
+            entry({ tradeId: 3, pricePx: 1502000 }),
+            entry({ tradeId: 2, pricePx: 1501000 }),
+            entry({ tradeId: 1, pricePx: 1501000 }),
         ];
         render(<TradeTape tape={tape} />);
         const rows = screen.getAllByTestId("tape-row");

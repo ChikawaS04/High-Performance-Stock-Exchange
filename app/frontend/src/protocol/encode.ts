@@ -52,17 +52,17 @@ export function createClOrdIdGenerator(seed: number = Date.now()): ClOrdIdGenera
 /** App-wide ClOrdID source. Generated in exactly one place; never derived from server data. */
 export const nextClOrdId: ClOrdIdGenerator = createClOrdIdGenerator();
 
-/** `price` is integer cents — the server converts to FIX decimal dollars. */
+/** `price` is integer units of $0.0001 — the server converts to FIX decimal dollars. */
 export function newOrderFrame(
     clOrdId: number,
     side: Side,
-    priceCents: number,
+    pricePx: number,
     qty: number,
 ): NewOrderFrame {
     requirePositiveInt(clOrdId, "clOrdId");
-    requirePositiveInt(priceCents, "priceCents");
+    requirePositiveInt(pricePx, "pricePx");
     requirePositiveInt(qty, "qty");
-    return { type: "NEW", clOrdId, side, price: priceCents, qty, symbol: SYMBOL };
+    return { type: "NEW", clOrdId, side, price: pricePx, qty, symbol: SYMBOL };
 }
 
 /**

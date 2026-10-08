@@ -9,7 +9,7 @@
  * teardown. Mounted once above the router (P10 D2), so it fetches once per app open
  * and survives navigation with no refetch.
  *
- * The resulting openCents flows into the header's existing openCents prop (P10-5),
+ * The resulting openPx flows into the header's existing openPx prop (P10-5),
  * where an undefined value renders the EMPTY_PRICE sentinel. Chg is not affected:
  * it stays anchored to the engine's first trade (P11 D6).
  */
@@ -23,8 +23,8 @@ const RETRY_DELAY_MS = 2000;
 export type IgnitionStatus = "loading" | "ready" | "unavailable";
 
 export interface IgnitionState {
-    /** Official market open in long cents, or undefined when not available. */
-    readonly openCents?: number;
+    /** Official market open in long units of $0.0001, or undefined when not available. */
+    readonly openPx?: number;
     readonly status: IgnitionStatus;
 }
 
@@ -37,10 +37,10 @@ export function useIgnitionPrice(): IgnitionState {
         let disposed = false;
 
         const attempt = async (retriesLeft: number): Promise<void> => {
-            const cents = await fetchIgnitionOpen(controller.signal);
+            const px = await fetchIgnitionOpen(controller.signal);
             if (disposed) return;
-            if (cents !== null) {
-                setState({ openCents: cents, status: "ready" });
+            if (px !== null) {
+                setState({ openPx: px, status: "ready" });
                 return;
             }
             if (retriesLeft > 0) {

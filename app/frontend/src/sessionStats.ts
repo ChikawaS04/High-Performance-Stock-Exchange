@@ -14,7 +14,7 @@
  *
  * Two different kinds of number live here, and they take different formatters:
  *
- *  - PRICES go through centsToDollars, which already renders any negative value as
+ *  - PRICES go through formatPrice, which already renders any negative value as
  *    the EMPTY_PRICE dash. SESSION_OPEN_UNSET is negative by design, so an unset
  *    high or low formats correctly with no branch here at all.
  *  - COUNTS AND SIZES go through formatQty, the same grouped integer formatter the
@@ -29,17 +29,17 @@
  * and it yields the dash for both price and size.
  */
 
-import { centsToDollars, EMPTY_PRICE, formatQty } from "./format";
+import { formatPrice, EMPTY_PRICE, formatQty } from "./format";
 import type { TapeEntry } from "./state/reducer";
 
 /**
- * The four reducer slices the panel reads. Prices are integer cents, with
- * SESSION_OPEN_UNSET for "no trade has printed this session".
+ * The four reducer slices the panel reads. Prices are integer units of $0.0001,
+ * with SESSION_OPEN_UNSET for "no trade has printed this session".
  */
 export interface SessionStatsInput {
     readonly tape: readonly TapeEntry[];
-    readonly sessionHighCents: number;
-    readonly sessionLowCents: number;
+    readonly sessionHighPx: number;
+    readonly sessionLowPx: number;
     readonly sessionTradeCount: number;
 }
 
@@ -60,26 +60,26 @@ export interface SessionStatsModel {
  * Build the four display rows from session state. Pure and total: no input value
  * can throw, and no input value yields NaN or "undefined" in the output.
  *
- *   { tape: [print at 15025 x 4], high: 15075, low: 14925, trades: 12 }
+ *   { tape: [print at 1502500 x 4], high: 1507500, low: 1492500, trades: 12 }
  *     -> { high: "150.75", low: "149.25", trades: "12", lastPrice: "150.25", lastSize: "4" }
  *
  *   { tape: [], high: -1, low: -1, trades: 0 }
  *     -> { high: "—", low: "—", trades: "0", lastPrice: "—", lastSize: "—" }
  */
 export function buildSessionStats(input: SessionStatsInput): SessionStatsModel {
-    const { tape, sessionHighCents, sessionLowCents, sessionTradeCount } = input;
+    const { tape, sessionHighPx, sessionLowPx, sessionTradeCount } = input;
 
     // Newest-first, so the latest print is index 0. undefined only when no trade has
     // printed, which is the sole empty case either last-trade field has to handle.
     const last = tape.length > 0 ? tape[0] : undefined;
 
     return {
-        // No sentinel branch: centsToDollars maps every negative value to the dash.
-        high: centsToDollars(sessionHighCents),
-        low: centsToDollars(sessionLowCents),
+        // No sentinel branch: formatPrice maps every negative value to the dash.
+        high: formatPrice(sessionHighPx),
+        low: formatPrice(sessionLowPx),
         // A count, not a price: zero is real and renders "0".
         trades: formatQty(sessionTradeCount),
-        lastPrice: last !== undefined ? centsToDollars(last.priceCents) : EMPTY_PRICE,
+        lastPrice: last !== undefined ? formatPrice(last.pricePx) : EMPTY_PRICE,
         lastSize: last !== undefined ? formatQty(last.quantity) : EMPTY_PRICE,
     };
 }

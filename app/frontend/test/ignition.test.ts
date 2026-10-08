@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 import { parseIgnitionOpen } from "../src/market/ignition";
 
 describe("parseIgnitionOpen", () => {
-    it("parses a well-formed snapshot to integer cents", () => {
-        expect(parseIgnitionOpen({ dailyBar: { o: 149.8 } })).toBe(14980);
-        expect(parseIgnitionOpen({ dailyBar: { o: 720.15 } })).toBe(72015);
+    it("parses a well-formed snapshot to integer units", () => {
+        expect(parseIgnitionOpen({ dailyBar: { o: 149.8 } })).toBe(1498000);
+        expect(parseIgnitionOpen({ dailyBar: { o: 720.15 } })).toBe(7201500);
     });
 
     it("rounds to the nearest cent at the edge", () => {
-        expect(parseIgnitionOpen({ dailyBar: { o: 149.876 } })).toBe(14988);
-        expect(parseIgnitionOpen({ dailyBar: { o: 149.872 } })).toBe(14987);
+        expect(parseIgnitionOpen({ dailyBar: { o: 149.876 } })).toBe(1498800);
+        expect(parseIgnitionOpen({ dailyBar: { o: 149.872 } })).toBe(1498700);
     });
 
     it("returns null for a missing dailyBar", () => {

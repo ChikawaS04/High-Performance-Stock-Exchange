@@ -22,9 +22,9 @@
  * change. buildLadder exposes the raw 0..1 shadeFraction and a 0..100 widthPct
  * derived from it; the component sizes the bar from widthPct.
  *
- * Cents in, dollars only at this render edge via format.ts. No float price math.
+ * Units in, dollars only at this render edge via format.ts. No float price math.
  * midpointLabel is imported from format.ts so this divider and the P7-3 header
- * share one half-cent-safe definition. cumulate moved to depth.ts in P7-5 so the
+ * share one exact definition. cumulate moved to depth.ts in P7-5 so the
  * ladder and the depth curve share one cumulation. Sentinels never surface: rows
  * are always real levels (BOOK is a server-trimmed top-N prefix, 20 per side since
  * P9-1, replaced wholesale), and spread, mid, and last are each guarded before
@@ -34,7 +34,7 @@
 import { useState, type CSSProperties } from "react";
 
 import { cumulate, type CumLevel } from "../depth";
-import { centsToDollars, EMPTY_PRICE, midpointLabel } from "../format";
+import { formatPrice, EMPTY_PRICE, midpointLabel } from "../format";
 import type { BookState } from "../state/reducer";
 import type { Level } from "../protocol/messages";
 
@@ -48,7 +48,7 @@ const DEFAULT_DEPTH = 10;
 
 /** One rendered ladder row: real price, its quantity, cumulative depth, shading. */
 export interface LadderRow {
-    readonly priceCents: number;
+    readonly pricePx: number;
     readonly qty: number;
     readonly cumQty: number;
     /** Cumulative depth as a fraction of the full book's largest cumulative value, 0..1. */
@@ -98,7 +98,7 @@ export function buildLadder(
     const withWidth = (r: CumLevel): LadderRow => {
         const shadeFraction = sharedMax > 0 ? r.cumQty / sharedMax : 0;
         return {
-            priceCents: r.priceCents,
+            pricePx: r.pricePx,
             qty: r.qty,
             cumQty: r.cumQty,
             shadeFraction,
@@ -119,12 +119,12 @@ export function buildLadder(
 /**
  * Spread for the mid divider. Guarded: computed only when BOTH tops are real.
  * A `-1` sentinel on either side must not reach the subtraction — e.g.
- * bestAsk 15000 with bestBid -1 would yield 15001 → "150.01", a bogus spread
- * that centsToDollars cannot catch because it is positive.
+ * bestAsk 1500000 with bestBid -1 would yield 1500001 → "150.0001", a bogus spread
+ * that formatPrice cannot catch because it is positive.
  */
 export function spreadLabel(bestBid: number, bestAsk: number): string {
     if (bestBid > 0 && bestAsk > 0) {
-        return centsToDollars(bestAsk - bestBid);
+        return formatPrice(bestAsk - bestBid);
     }
     return EMPTY_PRICE;
 }
@@ -132,7 +132,7 @@ export function spreadLabel(bestBid: number, bestAsk: number): string {
 function renderRow(row: LadderRow, side: "ask" | "bid") {
     return (
         <div
-            key={row.priceCents}
+            key={row.pricePx}
             className={`depth-ladder__row depth-ladder__row--${side}`}
             data-testid={`${side}-row`}
         >
@@ -141,7 +141,7 @@ function renderRow(row: LadderRow, side: "ask" | "bid") {
                 style={{ width: `${row.widthPct}%` }}
                 aria-hidden="true"
             />
-            <span className="depth-ladder__price">{centsToDollars(row.priceCents)}</span>
+            <span className="depth-ladder__price">{formatPrice(row.pricePx)}</span>
             <span className="depth-ladder__qty">{row.qty}</span>
             <span className="depth-ladder__cum">{row.cumQty}</span>
         </div>
@@ -151,15 +151,15 @@ function renderRow(row: LadderRow, side: "ask" | "bid") {
 interface DepthLadderProps {
     readonly book: BookState;
     /**
-     * Last trade price in cents for the divider's Last cell. It is the newest tape
-     * print (App derives it as `tape[0].priceCents`), not part of the BOOK slice,
+     * Last trade price in units for the divider's Last cell. It is the newest tape
+     * print (App derives it as `tape[0].pricePx`), not part of the BOOK slice,
      * so `buildLadder` stays book-only and pure. Defaults to the -1 sentinel, which
      * renders blank, so the ladder is still valid before the first trade.
      */
-    readonly lastCents?: number;
+    readonly lastPx?: number;
 }
 
-export function DepthLadder({ book, lastCents = -1 }: DepthLadderProps) {
+export function DepthLadder({ book, lastPx = -1 }: DepthLadderProps) {
     const [depth, setDepth] = useState<number>(DEFAULT_DEPTH);
 
     const { asks, bids } = buildLadder(book.bids, book.asks);
@@ -171,7 +171,7 @@ export function DepthLadder({ book, lastCents = -1 }: DepthLadderProps) {
     const paneStyle = { "--depth-rows": depth } as CSSProperties;
     const spread = spreadLabel(book.bestBid, book.bestAsk);
     const mid = midpointLabel(book.bestBid, book.bestAsk);
-    const last = lastCents > 0 ? centsToDollars(lastCents) : EMPTY_PRICE;
+    const last = lastPx > 0 ? formatPrice(lastPx) : EMPTY_PRICE;
 
     return (
         <div className="depth-ladder">

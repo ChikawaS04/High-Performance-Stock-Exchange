@@ -3,8 +3,8 @@
  *
  * Shapes are transcribed from the Phase-4 as-built `WebSocketPublisher`
  * (serializeExecution / serializeSnapshot) and `WebSocketFrameHandler`, not from
- * a guide summary. Every price is integer cents in both directions; dollars
- * exist only at the render/parse edge (format.ts).
+ * a guide summary. Every price is integer units of $0.0001 in both directions;
+ * dollars exist only at the render/parse edge (format.ts).
  *
  * Server -> client: BOOK (authoritative book state) | EXEC (notification) |
  * FIX (raw inbound packet echo). Client -> server: NEW | CANCEL.
@@ -23,7 +23,7 @@ export type ExecType =
     | "ORDER_CANCELLED"
     | "ORDER_REJECTED";
 
-/** One depth level: [priceCents, aggregatedQty]. */
+/** One depth level: [pricePx, aggregatedQty]. */
 export type Level = readonly [price: number, qty: number];
 
 /**
@@ -94,7 +94,7 @@ export interface NewOrderFrame {
     readonly type: "NEW";
     readonly clOrdId: number;
     readonly side: Side;
-    /** Integer cents. JsonToFix.formatPrice does cents -> FIX decimal server-side. */
+    /** Integer units of $0.0001. JsonToFix.formatPrice does units -> FIX decimal server-side. */
     readonly price: number;
     readonly qty: number;
     readonly symbol: typeof SYMBOL;

@@ -40,7 +40,7 @@
 
 import { useState } from "react";
 
-import { centsToDollars, formatClockNanos } from "../format";
+import { formatPrice, formatClockNanos } from "../format";
 import type { ClockPrecision } from "../format";
 import type { TapeEntry } from "../state/reducer";
 
@@ -71,8 +71,8 @@ export function tickDirections(entries: readonly TapeEntry[]): TickDirection[] {
     return entries.map((entry, i) => {
         const prev = entries[i + 1];
         if (prev === undefined) return "flat";
-        if (entry.priceCents > prev.priceCents) return "up";
-        if (entry.priceCents < prev.priceCents) return "down";
+        if (entry.pricePx > prev.pricePx) return "up";
+        if (entry.pricePx < prev.pricePx) return "down";
         return "flat";
     });
 }
@@ -161,7 +161,7 @@ export function TradeTape({ tape }: TradeTapeProps) {
                   {formatClockNanos(entry.timestamp, precision)}
                 </span>
                                 <span className={`trade-tape__price trade-tape__price--${dir}`}>
-                  {centsToDollars(entry.priceCents)}
+                  {formatPrice(entry.pricePx)}
                 </span>
                                 <span className="trade-tape__qty">{entry.quantity}</span>
                                 <span className={sideClass} data-testid="tape-side">

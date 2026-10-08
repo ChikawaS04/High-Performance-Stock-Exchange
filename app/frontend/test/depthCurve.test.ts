@@ -9,13 +9,13 @@ function book(partial: Partial<BookState>): BookState {
 }
 
 const BIDS: Level[] = [
-    [15000, 10],
-    [14990, 4],
-    [14980, 6],
+    [1500000, 10],
+    [1499000, 4],
+    [1498000, 6],
 ];
 const ASKS: Level[] = [
-    [15025, 5],
-    [15050, 3],
+    [1502500, 5],
+    [1505000, 3],
 ];
 
 function nonDecreasing(xs: readonly number[]): boolean {
@@ -42,22 +42,22 @@ describe("buildDepthCurve (pure)", () => {
     it("builds the exact staircase, touch outward, on the bid side", () => {
         const m = buildDepthCurve(book({ bids: BIDS, asks: ASKS }));
         // cum(BIDS) = [10, 14, 20]; corners walk price down, stepping depth up
-        expect(m.bids.map((p) => p.priceCents)).toEqual([15000, 14990, 14990, 14980, 14980]);
+        expect(m.bids.map((p) => p.pricePx)).toEqual([1500000, 1499000, 1499000, 1498000, 1498000]);
         expect(m.bids.map((p) => p.cumQty)).toEqual([10, 10, 14, 14, 20]);
     });
 
     it("builds the exact staircase, touch outward, on the ask side", () => {
         const m = buildDepthCurve(book({ bids: BIDS, asks: ASKS }));
         // cum(ASKS) = [5, 8]
-        expect(m.asks.map((p) => p.priceCents)).toEqual([15025, 15050, 15050]);
+        expect(m.asks.map((p) => p.pricePx)).toEqual([1502500, 1505000, 1505000]);
         expect(m.asks.map((p) => p.cumQty)).toEqual([5, 5, 8]);
     });
 
     it("starts each side at the touch and ends at the side total", () => {
         const m = buildDepthCurve(book({ bids: BIDS, asks: ASKS }));
-        expect(m.bids[0]).toEqual({ priceCents: 15000, cumQty: 10 }); // best bid, its own qty
+        expect(m.bids[0]).toEqual({ pricePx: 1500000, cumQty: 10 }); // best bid, its own qty
         expect(m.bids[m.bids.length - 1].cumQty).toBe(20); // full bid depth
-        expect(m.asks[0]).toEqual({ priceCents: 15025, cumQty: 5 }); // best ask, its own qty
+        expect(m.asks[0]).toEqual({ pricePx: 1502500, cumQty: 5 }); // best ask, its own qty
         expect(m.asks[m.asks.length - 1].cumQty).toBe(8); // full ask depth
     });
 
@@ -65,29 +65,29 @@ describe("buildDepthCurve (pure)", () => {
         const m = buildDepthCurve(book({ bids: BIDS, asks: ASKS }));
         expect(nonDecreasing(m.bids.map((p) => p.cumQty))).toBe(true);
         expect(nonDecreasing(m.asks.map((p) => p.cumQty))).toBe(true);
-        expect(nonIncreasing(m.bids.map((p) => p.priceCents))).toBe(true); // bids highest-first
-        expect(nonDecreasing(m.asks.map((p) => p.priceCents))).toBe(true); // asks lowest-first
+        expect(nonIncreasing(m.bids.map((p) => p.pricePx))).toBe(true); // bids highest-first
+        expect(nonDecreasing(m.asks.map((p) => p.pricePx))).toBe(true); // asks lowest-first
     });
 
     it("caps each side to the depth window, nearest the touch", () => {
         const m = buildDepthCurve(book({ bids: BIDS, asks: ASKS }), 2);
-        // best two bids only: cum [10, 14] -> corners (15000,10)(14990,10)(14990,14)
-        expect(m.bids.map((p) => p.priceCents)).toEqual([15000, 14990, 14990]);
+        // best two bids only: cum [10, 14] -> corners (1500000,10)(1499000,10)(1499000,14)
+        expect(m.bids.map((p) => p.pricePx)).toEqual([1500000, 1499000, 1499000]);
         expect(m.bids.map((p) => p.cumQty)).toEqual([10, 10, 14]);
         expect(m.asks).toHaveLength(3); // asks already within the cap
     });
 
     it("handles a one-sided book with no NaN and an empty opposite side", () => {
-        const asksOnly = buildDepthCurve(book({ bestAsk: 15025, asks: ASKS }));
+        const asksOnly = buildDepthCurve(book({ bestAsk: 1502500, asks: ASKS }));
         expect(asksOnly.bids).toEqual([]);
         expect(asksOnly.asks).toHaveLength(3);
         for (const p of asksOnly.asks) {
             expect(Number.isNaN(p.cumQty)).toBe(false);
         }
 
-        const bidsOnly = buildDepthCurve(book({ bestBid: 15000, bids: [[15000, 7]] }));
+        const bidsOnly = buildDepthCurve(book({ bestBid: 1500000, bids: [[1500000, 7]] }));
         expect(bidsOnly.asks).toEqual([]);
-        expect(bidsOnly.bids).toEqual([{ priceCents: 15000, cumQty: 7 }]); // single level -> one point
+        expect(bidsOnly.bids).toEqual([{ pricePx: 1500000, cumQty: 7 }]); // single level -> one point
     });
 
     it("handles an empty book as two empty sides", () => {

@@ -20,7 +20,7 @@
  * Ordering WITHIN the EXEC stream is reliable (one ring, one sequence), so a
  * PARTIALLY_FILLED followed by its trailing ACCEPTED can be trusted.
  *
- * P7-3 adds the session state the header renders: sessionVolume, sessionOpenCents,
+ * P7-3 adds the session state the header renders: sessionVolume, sessionOpenPx,
  * a client-assigned msgSeqNum counter, and lastFrameNanos. The two aggregates are
  * accumulated here rather than folded from the tape, which only holds the newest
  * TAPE_CAP fills.
@@ -35,8 +35,8 @@
  * storage lives here rather than in a component ref. BOOK frames are not logged.
  *
  * P13-1 adds three more session accumulators for the Price Chart side panel:
- * sessionHighCents, sessionLowCents and sessionTradeCount. They sit beside
- * sessionVolume and sessionOpenCents in the same isFill guard, and they exist here
+ * sessionHighPx, sessionLowPx and sessionTradeCount. They sit beside
+ * sessionVolume and sessionOpenPx in the same isFill guard, and they exist here
  * for the same reason those two do: the tape is capped at TAPE_CAP, so a high or a
  * low folded from it would silently mean "high of the last TAPE_CAP prints" and
  * would drift as old prints age out. No notional accumulator and no VWAP this
@@ -60,7 +60,7 @@ export const INSPECTOR_CAP = 500;
  * Sentinel for "no traded price yet this session": no trade has printed, so there
  * is no open, no high and no low. Exported since P13-1 so the three price-valued
  * session accumulators and their tests name one constant rather than repeating a
- * bare -1. Negative by design: centsToDollars renders any negative value as the
+ * bare -1. Negative by design: formatPrice renders any negative value as the
  * EMPTY_PRICE dash, so an unset accumulator formats correctly with no call-site
  * branch, and "<= 0" reads as "still unset" on every comparison below.
  */
@@ -97,7 +97,7 @@ export interface BookState {
 
 export interface TapeEntry {
     readonly tradeId: number;
-    readonly priceCents: number;
+    readonly pricePx: number;
     readonly quantity: number;
     readonly aggressorOrderId: number;
     readonly passiveOrderId: number;
@@ -123,7 +123,7 @@ export interface TapeEntry {
 export interface MyOrder {
     readonly clOrdId: number;
     readonly side: Side;
-    readonly priceCents: number;
+    readonly pricePx: number;
     readonly originalQty: number;
     readonly remainingQty: number;
     readonly status: OrderStatus;
@@ -156,19 +156,19 @@ export interface AppState {
      */
     readonly sessionVolume: number;
     /**
-     * The session's first trade price in cents. Set once by the first fill EXEC and
+     * The session's first trade price in units. Set once by the first fill EXEC and
      * never overwritten; SESSION_OPEN_UNSET until then. Session change is measured
      * against this, never a previous close.
      */
-    readonly sessionOpenCents: number;
+    readonly sessionOpenPx: number;
     /**
-     * Highest and lowest traded price this session in cents, accumulated per fill.
+     * Highest and lowest traded price this session in units, accumulated per fill.
      * SESSION_OPEN_UNSET until the first fill, which seeds both to its own price.
      * Held here, never folded from the capped tape, for the same reason
      * sessionVolume is: the tape forgets.
      */
-    readonly sessionHighCents: number;
-    readonly sessionLowCents: number;
+    readonly sessionHighPx: number;
+    readonly sessionLowPx: number;
     /**
      * Count of trade prints this session. One onFill per trade, aggressor-only
      * (P7-0/Q7-2), so incrementing once per fill EXEC counts trades, not sides. A
@@ -213,9 +213,9 @@ export const initialState: AppState = {
     tape: [],
     myOrders: [],
     sessionVolume: 0,
-    sessionOpenCents: SESSION_OPEN_UNSET,
-    sessionHighCents: SESSION_OPEN_UNSET,
-    sessionLowCents: SESSION_OPEN_UNSET,
+    sessionOpenPx: SESSION_OPEN_UNSET,
+    sessionHighPx: SESSION_OPEN_UNSET,
+    sessionLowPx: SESSION_OPEN_UNSET,
     sessionTradeCount: 0,
     msgSeqNum: 0,
     lastFrameNanos: 0,
@@ -305,15 +305,15 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
 
     let tape = state.tape;
     let sessionVolume = state.sessionVolume;
-    let sessionOpenCents = state.sessionOpenCents;
-    let sessionHighCents = state.sessionHighCents;
-    let sessionLowCents = state.sessionLowCents;
+    let sessionOpenPx = state.sessionOpenPx;
+    let sessionHighPx = state.sessionHighPx;
+    let sessionLowPx = state.sessionLowPx;
     let sessionTradeCount = state.sessionTradeCount;
 
     if (isFill(frame)) {
         const entry: TapeEntry = {
             tradeId: frame.tradeId,
-            priceCents: frame.price,
+            pricePx: frame.price,
             quantity: frame.filledQuantity,
             aggressorOrderId: frame.aggressorOrderId,
             passiveOrderId: frame.passiveOrderId,
@@ -330,22 +330,22 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
 
         // The first trade sets the session-open reference, once and never again.
         // frame.price is the resting/passive execution price (carried constraint 6).
-        // Prices are positive cents, so "<= 0" reads as "still unset".
-        if (sessionOpenCents <= 0) {
-            sessionOpenCents = frame.price;
+        // Prices are positive units, so "<= 0" reads as "still unset".
+        if (sessionOpenPx <= 0) {
+            sessionOpenPx = frame.price;
         }
 
         // Session high and low (P13-1), from the same frame.price. The first fill
         // SEEDS both rather than being compared against them: an unset accumulator
         // holds SESSION_OPEN_UNSET, and -1 would win every Math.min against a real
-        // positive cent price, pinning the low at the sentinel forever. Guarded on
+        // positive price, pinning the low at the sentinel forever. Guarded on
         // the same "<= 0 means unset" test the open uses, so the two stay in step.
-        if (sessionHighCents <= 0 || sessionLowCents <= 0) {
-            sessionHighCents = frame.price;
-            sessionLowCents = frame.price;
+        if (sessionHighPx <= 0 || sessionLowPx <= 0) {
+            sessionHighPx = frame.price;
+            sessionLowPx = frame.price;
         } else {
-            sessionHighCents = Math.max(sessionHighCents, frame.price);
-            sessionLowCents = Math.min(sessionLowCents, frame.price);
+            sessionHighPx = Math.max(sessionHighPx, frame.price);
+            sessionLowPx = Math.min(sessionLowPx, frame.price);
         }
 
         // One onFill per trade, aggressor-only (P7-0/Q7-2), so one increment per fill
@@ -406,9 +406,9 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         tape,
         myOrders,
         sessionVolume,
-        sessionOpenCents,
-        sessionHighCents,
-        sessionLowCents,
+        sessionOpenPx,
+        sessionHighPx,
+        sessionLowPx,
         sessionTradeCount,
         lastFrameNanos: frame.timestamp,
         inspectorLog,
@@ -431,7 +431,7 @@ function applySent(state: AppState, frame: ClientFrame, sentAtNanos?: number): A
         const order: MyOrder = {
             clOrdId: frame.clOrdId,
             side: frame.side,
-            priceCents: frame.price,
+            pricePx: frame.price,
             originalQty: frame.qty,
             remainingQty: frame.qty,
             status: "PENDING",

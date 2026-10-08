@@ -15,24 +15,24 @@ function book(partial: Partial<BookState>): BookState {
 }
 
 const BIDS: Level[] = [
-    [15000, 10],
-    [14990, 4],
+    [1500000, 10],
+    [1499000, 4],
 ];
 const ASKS: Level[] = [
-    [15025, 5],
-    [15050, 3],
+    [1502500, 5],
+    [1505000, 3],
 ];
 
 describe("buildLadder (pure)", () => {
     it("accumulates quantity best-first on each side", () => {
         const m = buildLadder(BIDS, ASKS);
-        // bids highest-first: 15000 (cum 10), 14990 (cum 14)
-        expect(m.bids.map((r) => r.priceCents)).toEqual([15000, 14990]);
+        // bids highest-first: 1500000 (cum 10), 1499000 (cum 14)
+        expect(m.bids.map((r) => r.pricePx)).toEqual([1500000, 1499000]);
         expect(m.bids.map((r) => r.cumQty)).toEqual([10, 14]);
-        // P9-2: asks are returned touch-first (lowest-first): 15025 (cum 5), 15050
+        // P9-2: asks are returned touch-first (lowest-first): 1502500 (cum 5), 1505000
         // (cum 8). CSS column-reverse paints them highest-on-top at render; the model
         // is touch-first so cumQty rises down the array, same as the bids.
-        expect(m.asks.map((r) => r.priceCents)).toEqual([15025, 15050]);
+        expect(m.asks.map((r) => r.pricePx)).toEqual([1502500, 1505000]);
         expect(m.asks.map((r) => r.cumQty)).toEqual([5, 8]);
     });
 
@@ -57,18 +57,18 @@ describe("buildLadder (pure)", () => {
     it("returns both sides touch-first: bids highest-first, asks lowest-first", () => {
         const m = buildLadder(
             [
-                [15000, 10],
-                [14990, 4],
-                [14980, 2],
+                [1500000, 10],
+                [1499000, 4],
+                [1498000, 2],
             ],
             [
-                [15025, 5],
-                [15050, 3],
-                [15075, 1],
+                [1502500, 5],
+                [1505000, 3],
+                [1507500, 1],
             ],
         );
-        expect(m.bids.map((r) => r.priceCents)).toEqual([15000, 14990, 14980]);
-        expect(m.asks.map((r) => r.priceCents)).toEqual([15025, 15050, 15075]);
+        expect(m.bids.map((r) => r.pricePx)).toEqual([1500000, 1499000, 1498000]);
+        expect(m.asks.map((r) => r.pricePx)).toEqual([1502500, 1505000, 1507500]);
     });
 
     it("handles an empty book without NaN", () => {
@@ -83,7 +83,7 @@ describe("buildLadder (pure)", () => {
         // furthest ask is the last element (touch-first): cum 8 / max 8
         expect(asksOnly.asks[asksOnly.asks.length - 1].widthPct).toBe(100);
 
-        const bidsOnly = buildLadder([[15000, 10]], []);
+        const bidsOnly = buildLadder([[1500000, 10]], []);
         expect(bidsOnly.asks).toEqual([]);
         expect(bidsOnly.bids[0].widthPct).toBe(100);
     });
@@ -92,43 +92,44 @@ describe("buildLadder (pure)", () => {
 describe("buildLadder (P9-2 full-book render and shared-max shading)", () => {
     it("renders every level the book carries, with no depth cap", () => {
         const bids: Level[] = [
-            [15000, 5],
-            [14990, 5],
-            [14980, 5],
-            [14970, 5],
+            [1500000, 5],
+            [1499000, 5],
+            [1498000, 5],
+            [1497000, 5],
         ];
         const asks: Level[] = [
-            [15025, 5],
-            [15050, 5],
-            [15075, 5],
-            [15100, 5],
+            [1502500, 5],
+            [1505000, 5],
+            [1507500, 5],
+            [1510000, 5],
         ];
         const m = buildLadder(bids, asks);
-        expect(m.bids.map((r) => r.priceCents)).toEqual([15000, 14990, 14980, 14970]);
+        expect(m.bids.map((r) => r.pricePx)).toEqual([1500000, 1499000, 1498000, 1497000]);
         // touch-first (lowest-first); column-reverse paints highest-on-top at render
-        expect(m.asks.map((r) => r.priceCents)).toEqual([15025, 15050, 15075, 15100]);
+        expect(m.asks.map((r) => r.pricePx)).toEqual([1502500, 1505000, 1507500, 1510000]);
     });
 
     it("renders a book deeper than the pre-P9 10-level cap in full", () => {
         // 20 levels per side is the new server top-N (P9-1); the ladder must render
         // all of them and let the pane scroll (P9-2), where before it stopped at 10.
-        const deepBids: Level[] = Array.from({ length: 20 }, (_, i): Level => [15000 - i * 10, 1]);
+        // One-cent level spacing is 100 units, so the step is i * 1000 (ten ticks).
+        const deepBids: Level[] = Array.from({ length: 20 }, (_, i): Level => [1500000 - i * 1000, 1]);
         const m = buildLadder(deepBids, []);
         expect(m.bids).toHaveLength(20);
-        expect(m.bids[0].priceCents).toBe(15000); // best bid first (touch-first)
+        expect(m.bids[0].pricePx).toBe(1500000); // best bid first (touch-first)
         expect(m.bids[m.bids.length - 1].cumQty).toBe(20); // full-book cumulation
     });
 
     it("cumulative quantity is monotonic from the touch outward on each side", () => {
         const bids: Level[] = [
-            [15000, 3],
-            [14990, 1],
-            [14980, 4],
+            [1500000, 3],
+            [1499000, 1],
+            [1498000, 4],
         ];
         const asks: Level[] = [
-            [15025, 2],
-            [15050, 6],
-            [15075, 1],
+            [1502500, 2],
+            [1505000, 6],
+            [1507500, 1],
         ];
         const m = buildLadder(bids, asks);
 
@@ -157,13 +158,13 @@ describe("buildLadder (P9-2 full-book render and shared-max shading)", () => {
 
     it("normalises shading to the largest cumulative value across the FULL book", () => {
         const bids: Level[] = [
-            [15000, 1],
-            [14990, 1],
-            [14980, 100],
+            [1500000, 1],
+            [1499000, 1],
+            [1498000, 100],
         ];
         const asks: Level[] = [
-            [15025, 1],
-            [15050, 1],
+            [1502500, 1],
+            [1505000, 1],
         ];
 
         // the 100-lot deep bid dominates the shared max (102), so asks read as slivers;
@@ -189,12 +190,12 @@ describe("buildLadder (P9-2 full-book render and shared-max shading)", () => {
     });
 
     it("emits exactly one row per real level and never a stale tail", () => {
-        expect(buildLadder([[15000, 1]], []).bids).toHaveLength(1);
+        expect(buildLadder([[1500000, 1]], []).bids).toHaveLength(1);
         expect(buildLadder([], []).bids).toHaveLength(0);
 
         // BOOK is authoritative and replaced wholesale, so a shrunk input shrinks the model
-        const wide = buildLadder([[15000, 1], [14990, 1], [14980, 1]], []);
-        const narrow = buildLadder([[15000, 1]], []);
+        const wide = buildLadder([[1500000, 1], [1499000, 1], [1498000, 1]], []);
+        const narrow = buildLadder([[1500000, 1]], []);
         expect(wide.bids).toHaveLength(3);
         expect(narrow.bids).toHaveLength(1);
     });
@@ -202,12 +203,12 @@ describe("buildLadder (P9-2 full-book render and shared-max shading)", () => {
 
 describe("spreadLabel (sentinel guard)", () => {
     it("computes spread only when both tops are real", () => {
-        expect(spreadLabel(15000, 15025)).toBe("0.25");
+        expect(spreadLabel(1500000, 1502500)).toBe("0.25");
     });
 
     it("returns EMPTY_PRICE when either or both tops are the -1 sentinel", () => {
-        expect(spreadLabel(-1, 15025)).toBe(EMPTY_PRICE);
-        expect(spreadLabel(15000, -1)).toBe(EMPTY_PRICE);
+        expect(spreadLabel(-1, 1502500)).toBe(EMPTY_PRICE);
+        expect(spreadLabel(1500000, -1)).toBe(EMPTY_PRICE);
         expect(spreadLabel(-1, -1)).toBe(EMPTY_PRICE);
     });
 });
@@ -215,7 +216,7 @@ describe("spreadLabel (sentinel guard)", () => {
 describe("DepthLadder (render)", () => {
     it("renders one row per level with dollar-formatted prices", () => {
         render(
-            <DepthLadder book={book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS })} />,
+            <DepthLadder book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })} />,
         );
         expect(screen.getAllByTestId("ask-row")).toHaveLength(2);
         expect(screen.getAllByTestId("bid-row")).toHaveLength(2);
@@ -225,7 +226,7 @@ describe("DepthLadder (render)", () => {
 
     it("emits asks touch-first and bids touch-first in the DOM (CSS paints asks bottom-up)", () => {
         render(
-            <DepthLadder book={book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS })} />,
+            <DepthLadder book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })} />,
         );
         // P9-2: DOM order is best-first on both sides. The asks pane's CSS
         // column-reverse paints the best ask at the bottom near the divider; jsdom
@@ -241,7 +242,7 @@ describe("DepthLadder (render)", () => {
 
     it("shows the true spread and never leaks a sentinel as a price", () => {
         render(
-            <DepthLadder book={book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS })} />,
+            <DepthLadder book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })} />,
         );
         expect(screen.getByTestId("spread-value").textContent).toBe("0.25");
 
@@ -262,7 +263,7 @@ describe("DepthLadder (render)", () => {
 
     it("renders a one-sided book cleanly with a guarded spread", () => {
         render(
-            <DepthLadder book={book({ bestBid: -1, bestAsk: 15025, bids: [], asks: [[15025, 5]] })} />,
+            <DepthLadder book={book({ bestBid: -1, bestAsk: 1502500, bids: [], asks: [[1502500, 5]] })} />,
         );
         expect(screen.queryAllByTestId("bid-row")).toHaveLength(0);
         expect(screen.getAllByTestId("ask-row")).toHaveLength(1);
@@ -281,7 +282,7 @@ describe("DepthLadder (render)", () => {
 describe("DepthLadder (cumulative column, divider, depth viewport)", () => {
     it("renders the cumulative-quantity column alongside per-level size", () => {
         render(
-            <DepthLadder book={book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS })} />,
+            <DepthLadder book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })} />,
         );
         const bidRows = screen.getAllByTestId("bid-row");
         const cum = bidRows.map((r) => r.querySelector(".depth-ladder__cum")?.textContent);
@@ -291,8 +292,8 @@ describe("DepthLadder (cumulative column, divider, depth viewport)", () => {
     it("shows spread, mid, and last in the divider", () => {
         render(
             <DepthLadder
-                book={book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS })}
-                lastCents={15025}
+                book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })}
+                lastPx={1502500}
             />,
         );
         expect(screen.getByTestId("spread-value").textContent).toBe("0.25");
@@ -309,31 +310,31 @@ describe("DepthLadder (cumulative column, divider, depth viewport)", () => {
 
     it("blanks last before the first trade even with a two-sided book", () => {
         render(
-            <DepthLadder book={book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS })} />,
+            <DepthLadder book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })} />,
         );
-        expect(screen.getByTestId("last-value").textContent).toBe(EMPTY_PRICE); // no lastCents -> -1 -> blank
+        expect(screen.getByTestId("last-value").textContent).toBe(EMPTY_PRICE); // no lastPx -> -1 -> blank
         expect(screen.getByTestId("mid-value").textContent).toBe("150.125"); // mid still live from the book
     });
 
     it("sizes the viewport to the selected depth without changing how many rows render (P9-2)", () => {
         const wideBook = book({
-            bestBid: 15000,
-            bestAsk: 15025,
+            bestBid: 1500000,
+            bestAsk: 1502500,
             bids: [
-                [15000, 1],
-                [14990, 1],
-                [14980, 1],
-                [14970, 1],
-                [14960, 1],
-                [14950, 1],
-                [14940, 1],
-                [14930, 1],
-                [14920, 1],
-                [14910, 1],
-                [14900, 1],
-                [14890, 1],
+                [1500000, 1],
+                [1499000, 1],
+                [1498000, 1],
+                [1497000, 1],
+                [1496000, 1],
+                [1495000, 1],
+                [1494000, 1],
+                [1493000, 1],
+                [1492000, 1],
+                [1491000, 1],
+                [1490000, 1],
+                [1489000, 1],
             ],
-            asks: [[15025, 1]],
+            asks: [[1502500, 1]],
         });
         const { container } = render(<DepthLadder book={wideBook} />);
         const bidsPane = () => container.querySelector(".depth-ladder__bids") as HTMLElement;
@@ -350,13 +351,13 @@ describe("DepthLadder (cumulative column, divider, depth viewport)", () => {
     it("never shows a stale tail when the book shrinks", () => {
         const { rerender } = render(
             <DepthLadder
-                book={book({ bestBid: 15000, bestAsk: -1, bids: [[15000, 1], [14990, 1], [14980, 1]], asks: [] })}
+                book={book({ bestBid: 1500000, bestAsk: -1, bids: [[1500000, 1], [1499000, 1], [1498000, 1]], asks: [] })}
             />,
         );
         expect(screen.getAllByTestId("bid-row")).toHaveLength(3);
 
         rerender(
-            <DepthLadder book={book({ bestBid: 15000, bestAsk: -1, bids: [[15000, 1]], asks: [] })} />,
+            <DepthLadder book={book({ bestBid: 1500000, bestAsk: -1, bids: [[1500000, 1]], asks: [] })} />,
         );
         expect(screen.getAllByTestId("bid-row")).toHaveLength(1);
     });
@@ -366,8 +367,8 @@ describe("DepthLadder (P8-4 two-pane scroll layout)", () => {
     it("splits asks and bids into two depth-sized scroll panes with the spread bar pinned between them", () => {
         const { container } = render(
             <DepthLadder
-                book={book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS })}
-                lastCents={15025}
+                book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })}
+                lastPx={1502500}
             />,
         );
 

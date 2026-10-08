@@ -21,7 +21,7 @@
  *    original quantity.
  *
  *  - Limit price only. The price column is the order's own limit from SENT
- *    (priceCents); SENT is the sole source of it. Execution prices (the resting
+ *    (pricePx); SENT is the sole source of it. Execution prices (the resting
  *    price, carried constraint 6) are a per-trade concern and live in the tape,
  *    not per order, since the L2 wire reports no per-order execution price.
  *
@@ -29,7 +29,7 @@
  * on the wire at L2. Status and remaining are authoritative from EXEC (plus the
  * P7-8 passive decrement); this component never mutates them. A Cancel action is
  * offered only on isCancellable rows (OPEN / PARTIALLY_FILLED), passing the row's
- * own clOrdId as origClOrdId. Prices render through centsToDollars; a -1 would
+ * own clOrdId as origClOrdId. Prices render through formatPrice; a -1 would
  * surface as EMPTY_PRICE, never a negative.
  *
  * P8-5 (layout only): the table is wrapped in a bounded scroll body
@@ -41,7 +41,7 @@
 
 import { isCancellable } from "../state/reducer";
 import type { MyOrder } from "../state/reducer";
-import { centsToDollars, formatClockNanos } from "../format";
+import { formatPrice, formatClockNanos } from "../format";
 
 /**
  * Filled quantity for a row: original minus remaining, clamped at zero. Pure and
@@ -99,7 +99,7 @@ export function OpenOrders({ orders, onCancel }: OpenOrdersProps) {
                                 {formatClockNanos(order.sentAtNanos ?? 0)}
                             </td>
                             <td className="open-orders__side">{order.side}</td>
-                            <td className="open-orders__price">{centsToDollars(order.priceCents)}</td>
+                            <td className="open-orders__price">{formatPrice(order.pricePx)}</td>
                             <td className="open-orders__qty" data-testid={`filled-${order.clOrdId}`}>
                                 {filledOf(order)} / {order.originalQty}
                             </td>

@@ -12,7 +12,7 @@
  * Mirrors Header / deriveHeader: the component owns the props and the markup, the
  * pure function owns the derivation and is unit tested without a DOM. The one
  * structural difference is the props type. Header declares its own HeaderProps
- * because it adds two fields the pure input does not have (connection, openCents);
+ * because it adds two fields the pure input does not have (connection, openPx);
  * this component adds nothing, so SessionStatsProps is an alias of
  * SessionStatsInput rather than a second identical interface to keep in sync.
  *
@@ -46,11 +46,11 @@ export type SessionStatsProps = SessionStatsInput;
 
 export function SessionStats({
                                  tape,
-                                 sessionHighCents,
-                                 sessionLowCents,
+                                 sessionHighPx,
+                                 sessionLowPx,
                                  sessionTradeCount,
                              }: SessionStatsProps) {
-    const m = buildSessionStats({ tape, sessionHighCents, sessionLowCents, sessionTradeCount });
+    const m = buildSessionStats({ tape, sessionHighPx, sessionLowPx, sessionTradeCount });
 
     return (
         <div className="session-stats">

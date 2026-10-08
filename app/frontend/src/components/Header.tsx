@@ -6,7 +6,7 @@
  *
  * Instrument row, all derived from BOOK plus the session aggregates and your own
  * orders (never from EXEC arrival order): symbol, last, session change, bid, ask,
- * mid, spread in cents and basis points, session volume, and the P9-Extras Filled
+ * mid, spread in ticks and basis points, session volume, and the P9-Extras Filled
  * and Rem counters. The last-frame clock rides at the end of the same row as
  * session meta, and the reused ConnectionBadge is pinned to the top-right corner.
  *
@@ -22,17 +22,20 @@
  * session volume). Filled sums the executed portion over every one of your orders;
  * Rem sums the still-working remainder over your non-terminal orders. Both are
  * pure exported helpers (mirroring deriveHeader / buildLadder / validateOrderInput)
- * so they are unit-tested without a DOM. Spread cents/bps and change stay local
+ * so they are unit-tested without a DOM. Spread ticks/bps and change stay local
  * pure helpers here; the midpoint and clock formatters live in format.ts so this
  * header, the depth-ladder divider, and the trade tape share one definition each.
  */
 
-import { centsToDollars, EMPTY_PRICE, formatClockNanos, formatQty, midpointLabel } from "../format";
+import { formatPrice, EMPTY_PRICE, formatClockNanos, formatQty, midpointLabel } from "../format";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { isTerminal } from "../state/reducer";
 import type { BookState, ConnectionStatus, MyOrder, TapeEntry } from "../state/reducer";
 
 const SYMBOL = "ASML";
+
+/** One cent, in units of $0.0001: the on-tick spacing the spread is counted in. */
+const TICK_PX = 100;
 
 export type ChangeDirection = "up" | "down" | "flat" | "none";
 
@@ -44,7 +47,7 @@ export interface HeaderModel {
     readonly bestBid: string;
     readonly bestAsk: string;
     readonly mid: string;
-    readonly spreadCents: string;
+    readonly spreadTicks: string;
     readonly spreadBps: string;
     readonly volume: string;
     readonly filledQty: string;
@@ -57,7 +60,7 @@ export interface HeaderInput {
     readonly tape: readonly TapeEntry[];
     readonly orders: readonly MyOrder[];
     readonly sessionVolume: number;
-    readonly sessionOpenCents: number;
+    readonly sessionOpenPx: number;
     readonly lastFrameNanos: number;
 }
 
@@ -66,17 +69,20 @@ function twoSided(bestBid: number, bestAsk: number): boolean {
     return bestBid > 0 && bestAsk > 0;
 }
 
-/** Spread as an integer number of cents ("50"), or EMPTY_PRICE when one-sided. */
-function spreadCentsLabel(bestBid: number, bestAsk: number): string {
+/** Spread as an integer number of ticks ("50"), or EMPTY_PRICE when one-sided. */
+function spreadTicksLabel(bestBid: number, bestAsk: number): string {
     if (!twoSided(bestBid, bestAsk)) return EMPTY_PRICE;
-    return String(bestAsk - bestBid);
+    // Both tops are on the one-cent tick, so their difference is a whole number of
+    // ticks: one cent is TICK_PX (100) units, so divide to count ticks.
+    return String((bestAsk - bestBid) / TICK_PX);
 }
 
 /**
- * Spread in basis points relative to the mid, from integer cents, at fixed
- * precision. bps = spread / mid * 10000 = 20000 * (ask - bid) / (ask + bid).
+ * Spread in basis points relative to the mid, at fixed precision. bps =
+ * spread / mid * 10000 = 20000 * (ask - bid) / (ask + bid). The ratio is
+ * unit-invariant, so it is identical at the old cent scale or the new unit scale.
  * Only bps (an inherently fractional ratio) touches float, at the display edge;
- * prices stay integer cents. EMPTY_PRICE when one-sided.
+ * prices stay integer units. EMPTY_PRICE when one-sided.
  */
 function spreadBpsLabel(bestBid: number, bestAsk: number): string {
     if (!twoSided(bestBid, bestAsk)) return EMPTY_PRICE;
@@ -92,21 +98,21 @@ interface ChangeParts {
 
 /**
  * Session change against the session's first trade price. Signed dollar delta
- * (from integer cents) plus a signed percent (fractional, display edge only).
+ * (from integer units) plus a signed percent (fractional, display edge only).
  * Blank until both a last price and a session-open price exist. There is no
  * previous close, so this is a session change, never a daily change. dir drives
  * the up/down colour.
  */
-function changeLabel(lastCents: number, sessionOpenCents: number): ChangeParts {
-    if (lastCents <= 0 || sessionOpenCents <= 0) {
+function changeLabel(lastPx: number, sessionOpenPx: number): ChangeParts {
+    if (lastPx <= 0 || sessionOpenPx <= 0) {
         return { abs: EMPTY_PRICE, pct: EMPTY_PRICE, dir: "none" };
     }
-    const deltaCents = lastCents - sessionOpenCents;
-    const dir: ChangeDirection = deltaCents > 0 ? "up" : deltaCents < 0 ? "down" : "flat";
-    const sign = deltaCents > 0 ? "+" : deltaCents < 0 ? "-" : "";
-    const abs = `${sign}${centsToDollars(Math.abs(deltaCents))}`;
-    const pctValue = (deltaCents / sessionOpenCents) * 100;
-    const pct = `${deltaCents > 0 ? "+" : ""}${pctValue.toFixed(2)}%`;
+    const deltaPx = lastPx - sessionOpenPx;
+    const dir: ChangeDirection = deltaPx > 0 ? "up" : deltaPx < 0 ? "down" : "flat";
+    const sign = deltaPx > 0 ? "+" : deltaPx < 0 ? "-" : "";
+    const abs = `${sign}${formatPrice(Math.abs(deltaPx))}`;
+    const pctValue = (deltaPx / sessionOpenPx) * 100;
+    const pct = `${deltaPx > 0 ? "+" : ""}${pctValue.toFixed(2)}%`;
     return { abs, pct, dir };
 }
 
@@ -136,19 +142,19 @@ export function sessionWorkingQty(orders: readonly MyOrder[]): number {
 
 /** Pure, exported: every header field from one state slice. */
 export function deriveHeader(input: HeaderInput): HeaderModel {
-    const { book, tape, orders, sessionVolume, sessionOpenCents, lastFrameNanos } = input;
-    const lastCents = tape.length > 0 ? tape[0].priceCents : -1;
-    const change = changeLabel(lastCents, sessionOpenCents);
+    const { book, tape, orders, sessionVolume, sessionOpenPx, lastFrameNanos } = input;
+    const lastPx = tape.length > 0 ? tape[0].pricePx : -1;
+    const change = changeLabel(lastPx, sessionOpenPx);
 
     return {
-        last: centsToDollars(lastCents),
+        last: formatPrice(lastPx),
         changeAbs: change.abs,
         changePct: change.pct,
         changeDir: change.dir,
-        bestBid: centsToDollars(book.bestBid),
-        bestAsk: centsToDollars(book.bestAsk),
+        bestBid: formatPrice(book.bestBid),
+        bestAsk: formatPrice(book.bestAsk),
         mid: midpointLabel(book.bestBid, book.bestAsk),
-        spreadCents: spreadCentsLabel(book.bestBid, book.bestAsk),
+        spreadTicks: spreadTicksLabel(book.bestBid, book.bestAsk),
         spreadBps: spreadBpsLabel(book.bestBid, book.bestAsk),
         volume: formatQty(sessionVolume),
         filledQty: formatQty(sessionFilledQty(orders)),
@@ -167,18 +173,18 @@ export interface HeaderProps {
     readonly tape: readonly TapeEntry[];
     readonly orders: readonly MyOrder[];
     readonly sessionVolume: number;
-    readonly sessionOpenCents: number;
+    readonly sessionOpenPx: number;
     readonly lastFrameNanos: number;
     readonly connection: ConnectionStatus;
     /**
-     * Session-open price in cents for the Open field (P10-5 seam). Distinct from
-     * sessionOpenCents above, which is the first-TRADE price that anchors Chg: this
+     * Session-open price in units for the Open field (P10-5 seam). Distinct from
+     * sessionOpenPx above, which is the first-TRADE price that anchors Chg: this
      * is the market open (the Alpaca ignition price, arriving P11), rendered directly
      * in the JSX rather than through deriveHeader so the pure model stays book-derived.
-     * Omitted this phase, so the field shows the "—" sentinel via centsToDollars(-1)
+     * Omitted this phase, so the field shows the "—" sentinel via formatPrice(-1)
      * until P11 supplies a value.
      */
-    readonly openCents?: number;
+    readonly openPx?: number;
 }
 
 export function Header({
@@ -186,12 +192,12 @@ export function Header({
                            tape,
                            orders,
                            sessionVolume,
-                           sessionOpenCents,
+                           sessionOpenPx,
                            lastFrameNanos,
                            connection,
-                           openCents,
+                           openPx,
                        }: HeaderProps) {
-    const m = deriveHeader({ book, tape, orders, sessionVolume, sessionOpenCents, lastFrameNanos });
+    const m = deriveHeader({ book, tape, orders, sessionVolume, sessionOpenPx, lastFrameNanos });
 
     const changeClass =
         m.changeDir === "up"
@@ -220,7 +226,7 @@ export function Header({
 
                 <div className="header__metric">
                     <span className="header__label">Open</span>
-                    <span className="header__value" data-testid="header-open">{centsToDollars(openCents ?? -1)}</span>
+                    <span className="header__value" data-testid="header-open">{formatPrice(openPx ?? -1)}</span>
                 </div>
 
                 <div className="header__metric header__metric--bid">
@@ -241,7 +247,7 @@ export function Header({
                 <div className="header__metric">
                     <span className="header__label">Spread</span>
                     <span className="header__value" data-testid="header-spread">
-            <span data-testid="header-spread-cents">{withUnit(m.spreadCents, "\u00A2")}</span>
+            <span data-testid="header-spread-ticks">{withUnit(m.spreadTicks, "¢")}</span>
             <span className="header__value-sub" data-testid="header-spread-bps">
               {withUnit(m.spreadBps, " bps")}
             </span>

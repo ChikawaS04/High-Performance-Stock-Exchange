@@ -11,10 +11,10 @@ import {
 
 const BOOK_JSON = JSON.stringify({
     type: "BOOK",
-    bestBid: 15000,
-    bestAsk: 15025,
-    bids: [[15000, 10], [14900, 5]],
-    asks: [[15025, 7]],
+    bestBid: 1500000,
+    bestAsk: 1502500,
+    bids: [[1500000, 10], [1490000, 5]],
+    asks: [[1502500, 7]],
     timestamp: 1234567890,
 });
 
@@ -23,7 +23,7 @@ const EXEC_JSON = JSON.stringify({
     execType: "ORDER_FILLED",
     orderId: 2,
     tradeId: 1,
-    price: 15000,
+    price: 1500000,
     filledQuantity: 4,
     remainingQuantity: 0,
     aggressorOrderId: 2,
@@ -36,10 +36,10 @@ describe("parseServerFrame — BOOK", () => {
         const frame = parseServerFrame(BOOK_JSON);
         expect(frame?.type).toBe("BOOK");
         const book = frame as BookFrame;
-        expect(book.bestBid).toBe(15000);
-        expect(book.bestAsk).toBe(15025);
-        expect(book.bids).toEqual([[15000, 10], [14900, 5]]);
-        expect(book.asks).toEqual([[15025, 7]]);
+        expect(book.bestBid).toBe(1500000);
+        expect(book.bestAsk).toBe(1502500);
+        expect(book.bids).toEqual([[1500000, 10], [1490000, 5]]);
+        expect(book.asks).toEqual([[1502500, 7]]);
         expect(book.timestamp).toBe(1234567890);
     });
 
@@ -65,7 +65,7 @@ describe("parseServerFrame — BOOK", () => {
             type: "BOOK",
             bestBid: 1,
             bestAsk: 2,
-            bids: [[15000]],
+            bids: [[1500000]],
             asks: [],
             timestamp: 1,
         });
@@ -106,7 +106,7 @@ describe("parseServerFrame — EXEC", () => {
         expect(exec.orderId).toBe(2);
         expect(exec.aggressorOrderId).toBe(2);
         expect(exec.passiveOrderId).toBe(1);
-        expect(exec.price).toBe(15000);
+        expect(exec.price).toBe(1500000);
         expect(exec.remainingQuantity).toBe(0);
     });
 
@@ -116,7 +116,7 @@ describe("parseServerFrame — EXEC", () => {
             execType: "ORDER_ACCEPTED",
             orderId: 1,
             tradeId: -1,
-            price: 15000,
+            price: 1500000,
             filledQuantity: -1,
             remainingQuantity: 10,
             aggressorOrderId: -1,
@@ -177,13 +177,13 @@ describe("isFill", () => {
 });
 
 describe("outbound encoders", () => {
-    it("emits the exact NEW shape in integer cents", () => {
-        const frame = newOrderFrame(7, "BUY", 15025, 10);
+    it("emits the exact NEW shape in integer units", () => {
+        const frame = newOrderFrame(7, "BUY", 1502500, 10);
         expect(frame).toEqual({
             type: "NEW",
             clOrdId: 7,
             side: "BUY",
-            price: 15025,
+            price: 1502500,
             qty: 10,
             symbol: "ASML",
         });
@@ -195,8 +195,8 @@ describe("outbound encoders", () => {
     });
 
     it("serializes to the JSON the server parses", () => {
-        expect(serializeClientFrame(newOrderFrame(7, "SELL", 5, 3))).toBe(
-            '{"type":"NEW","clOrdId":7,"side":"SELL","price":5,"qty":3,"symbol":"ASML"}',
+        expect(serializeClientFrame(newOrderFrame(7, "SELL", 500, 3))).toBe(
+            '{"type":"NEW","clOrdId":7,"side":"SELL","price":500,"qty":3,"symbol":"ASML"}',
         );
         expect(serializeClientFrame(cancelOrderFrame(9, 1))).toBe(
             '{"type":"CANCEL","clOrdId":9,"origClOrdId":1}',
@@ -206,9 +206,9 @@ describe("outbound encoders", () => {
     it("rejects non-positive or non-integer fields", () => {
         expect(() => newOrderFrame(7, "BUY", 0, 10)).toThrow(RangeError);
         expect(() => newOrderFrame(7, "BUY", -1, 10)).toThrow(RangeError);
-        expect(() => newOrderFrame(7, "BUY", 15025, 0)).toThrow(RangeError);
+        expect(() => newOrderFrame(7, "BUY", 1502500, 0)).toThrow(RangeError);
         expect(() => newOrderFrame(7, "BUY", 150.25, 10)).toThrow(RangeError);
-        expect(() => newOrderFrame(0, "BUY", 15025, 10)).toThrow(RangeError);
+        expect(() => newOrderFrame(0, "BUY", 1502500, 10)).toThrow(RangeError);
         expect(() => cancelOrderFrame(9, 0)).toThrow(RangeError);
     });
 });

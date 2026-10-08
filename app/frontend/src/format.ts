@@ -1,39 +1,50 @@
 /**
  * Price formatting primitives for the OMS frontend.
  *
- * Cents are the internal unit everywhere (Phase 5 decision 4). Dollars appear
- * only at the render/parse edge, and every conversion here is string-based
- * integer math — no floating-point arithmetic ever touches a price, so a value
- * like 150.25 can never drift to 150.249999….
+ * Prices are long units of $0.0001 everywhere (SRS §4, Phase 14): one unit is a
+ * hundredth of a cent, 10,000 units to the dollar. Dollars appear only at the
+ * render/parse edge, and every conversion here is string-based integer math — no
+ * floating-point arithmetic ever touches a price, so a value like 150.25 can never
+ * drift to 150.249999….
  */
 
 /** Rendered in place of an absent price (the backend's -1L sentinel). */
 export const EMPTY_PRICE = '—'
 
 /**
- * Convert integer cents to a fixed two-decimal dollar string.
+ * Convert integer units of $0.0001 to a dollar string.
+ *
+ * A price on the one-cent tick (a multiple of 100 units) renders at exactly two
+ * decimal places, as it always has. A sub-penny price — which only a midpoint
+ * execution can produce — renders with up to four decimal places, trailing zeros
+ * trimmed but never below two. This is how a real tape prints a sub-penny fill.
  *
  * Any negative value is the "no price" sentinel (the backend uses -1L for empty
  * book sides and NA fields) and renders as EMPTY_PRICE — never as a negative
  * dollar amount. Non-integer / non-finite input is likewise rejected to
- * EMPTY_PRICE, since cents on the wire are always whole numbers.
+ * EMPTY_PRICE, since prices on the wire are always whole units.
  *
- *   5     -> "0.05"
- *   15020 -> "150.20"
- *   15025 -> "150.25"
- *   15000 -> "150.00"
- *   -1    -> "—"
+ *   500     -> "0.05"
+ *   1502000 -> "150.20"
+ *   1502500 -> "150.25"
+ *   1500000 -> "150.00"
+ *   1000050 -> "100.005"
+ *   1000025 -> "100.0025"
+ *   -1      -> "—"
  */
-export function centsToDollars(cents: number): string {
-    if (!Number.isInteger(cents) || cents < 0) {
+export function formatPrice(px: number): string {
+    if (!Number.isInteger(px) || px < 0) {
         return EMPTY_PRICE
     }
-    // Zero-pad to at least three digits so there are always two fractional
-    // digits to slice off the end: 5 -> "005" -> "0" + "05".
-    const digits = String(cents).padStart(3, '0')
-    const whole = digits.slice(0, -2)
-    const fraction = digits.slice(-2)
-    return `${whole}.${fraction}`
+    // Zero-pad to at least five digits so there are always four fractional digits
+    // to slice off the end: 500 -> "00500" -> "0" + "0500".
+    const digits = String(px).padStart(5, '0')
+    const whole = digits.slice(0, -4)
+    const fraction = digits.slice(-4)
+    // Trim trailing zeros, but never below two places: "0500" -> "05", "0050" ->
+    // "005", "0025" -> "0025", "0000" -> "00".
+    const trimmed = fraction.replace(/0+$/, '').padEnd(2, '0')
+    return `${whole}.${trimmed}`
 }
 
 /**
@@ -61,46 +72,44 @@ export function formatQty(n: number): string {
 }
 
 /**
- * Midpoint of two cent prices as a half-cent-safe dollar string, integer math
- * only (no float on the price path). The mid is (bid + ask) / 2, a half-cent
- * when the sum is odd; centsToDollars renders whole cents, so the trailing
- * half-cent is appended as "5": 15000/15025 gives "150.125". EMPTY_PRICE unless
- * both sides are real, guarding the -1 empty-book sentinel the same way every
- * other formatter here does.
+ * Midpoint of two prices as a dollar string, integer math only (no float on the
+ * price path). The mid is (bid + ask) / 2. Both tops lie on the one-cent tick, so
+ * their sum is even and the mid is an exact integer number of units; when the
+ * spread is an odd number of ticks the mid lands on a half-cent, which formatPrice
+ * renders exactly (e.g. 1500000/1502500 gives "150.125"). EMPTY_PRICE unless both
+ * sides are real, guarding the -1 empty-book sentinel the same way every other
+ * formatter here does.
  *
  * Moved here in P7-4 (it began as a private helper in Header.tsx) so the header
  * instrument row and the depth-ladder divider share one definition rather than
- * each keeping its own copy of the half-cent logic.
+ * each keeping its own copy of the midpoint logic.
  *
- *   15000, 15050 -> "150.25"
- *   15000, 15025 -> "150.125"
- *   -1,    15025 -> "—"
+ *   1500000, 1505000 -> "150.25"
+ *   1500000, 1502500 -> "150.125"
+ *   -1,      1502500 -> "—"
  */
 export function midpointLabel(bestBid: number, bestAsk: number): string {
     if (bestBid <= 0 || bestAsk <= 0) {
         return EMPTY_PRICE
     }
-    const sum = bestBid + bestAsk
-    const whole = (sum - (sum % 2)) / 2
-    const base = centsToDollars(whole)
-    return sum % 2 === 0 ? base : `${base}5`
+    return formatPrice((bestBid + bestAsk) / 2)
 }
 
 /**
- * Numeric midpoint of two cent prices, for POSITIONING only, never an order
- * price. midpointLabel above is the display string; a plotted mid marker needs a
- * number for its coordinate, so this is computed rather than parsed back out of
- * that string. The mid is (bid + ask) / 2, which is a half-cent (x.5) when the
- * sum is odd; that fractional value is fine here because it is a render-edge
- * position, not a price on the wire. Returns null unless both sides are real,
- * guarding the -1 sentinel exactly as midpointLabel does, so a one-sided or empty
- * book plots no marker.
+ * Numeric midpoint of two prices, for POSITIONING only, never an order price.
+ * midpointLabel above is the display string; a plotted mid marker needs a number
+ * for its coordinate, so this is computed rather than parsed back out of that
+ * string. The mid is (bid + ask) / 2. Both tops are on the one-cent tick, so their
+ * sum is even and the mid is an EXACT integer number of units (a multiple of 50) —
+ * no fractional coordinate as there was under the cent scale. Returns null unless both sides
+ * are real, guarding the -1 sentinel exactly as midpointLabel does, so a one-sided
+ * or empty book plots no marker.
  *
- *   15000, 15050 -> 15025
- *   15000, 15025 -> 15012.5
- *   -1,    15025 -> null
+ *   1500000, 1505000 -> 1502500
+ *   1500000, 1502500 -> 1501250
+ *   -1,      1502500 -> null
  */
-export function midpointCents(bestBid: number, bestAsk: number): number | null {
+export function midpointPx(bestBid: number, bestAsk: number): number | null {
     if (bestBid <= 0 || bestAsk <= 0) {
         return null
     }
@@ -108,17 +117,19 @@ export function midpointCents(bestBid: number, bestAsk: number): number | null {
 }
 
 /**
- * Parse a dollar string to integer cents, mirroring the backend parsePrice
- * policy (Phase 3): strictly positive, at most two decimal places, no float.
+ * Parse a dollar string to integer units of $0.0001, mirroring the backend
+ * parsePrice policy (Phase 3): strictly positive, at most two decimal places, no
+ * float. At most two decimals means every parsed price is a whole number of ticks,
+ * i.e. a multiple of 100 units, so the ticket can never submit an off-tick price.
  *
  * Returns null on anything the backend would reject, so bad input is caught
  * locally before send (Phase 5 decision 6 — the server exposes no reject
  * feedback path):
  *
- *   "150"     -> 15000
- *   "150.2"   -> 15020
- *   "0.05"    -> 5
- *   "150.25"  -> 15025
+ *   "150"     -> 1500000
+ *   "150.2"   -> 1502000
+ *   "0.05"    -> 500
+ *   "150.25"  -> 1502500
  *   "150.255" -> null   (> 2 decimals)
  *   "150."    -> null   (dangling dot)
  *   ".5"      -> null   (no integer part)
@@ -127,7 +138,7 @@ export function midpointCents(bestBid: number, bestAsk: number): number | null {
  *   ""        -> null
  *   "abc"     -> null
  */
-export function dollarsToCents(input: string): number | null {
+export function parsePrice(input: string): number | null {
     const trimmed = input.trim()
 
     // Grammar: one or more digits, optionally a dot and one or two digits.
@@ -141,15 +152,16 @@ export function dollarsToCents(input: string): number | null {
     const wholePart = match[1]
     const fractionPart = (match[2] ?? '').padEnd(2, '0')
 
-    // String concatenation, not "* 100" — keeps the whole path in integer land.
-    const cents = Number(wholePart + fractionPart)
+    // String concatenation plus the two tick zeros, not "* 10000" — keeps the
+    // whole path in integer land. "150" + "25" + "00" -> 1502500 units.
+    const units = Number(wholePart + fractionPart + '00')
 
     // Reject zero / non-positive and any pathological non-safe-integer result.
-    if (!Number.isSafeInteger(cents) || cents <= 0) {
+    if (!Number.isSafeInteger(units) || units <= 0) {
         return null
     }
 
-    return cents
+    return units
 }
 
 /** Clock display precision: milliseconds (default) or full nanoseconds. */

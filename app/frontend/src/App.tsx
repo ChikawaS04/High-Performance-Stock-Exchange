@@ -12,10 +12,10 @@
  * entryRef / click-to-ticket seam) moved verbatim into pages/TradingPage. App no
  * longer holds inspector or entryRef state; those are Trading-local and live there.
  *
- * P10-5: the Header gains an optional openCents seam for the P11 ignition price.
+ * P10-5: the Header gains an optional openPx seam for the P11 ignition price.
  *
  * P11-4: that seam is now filled. useIgnitionPrice() fetches the official market
- * open once on app open, entirely off the socket, and its openCents flows into the
+ * open once on app open, entirely off the socket, and its openPx flows into the
  * Header prop (undefined until it resolves, which renders the "—" sentinel). It is a
  * separate hook from useOrderBook and never touches the reducer or the hot path. Chg
  * is not affected: it stays anchored to the session's first trade (P11 D6).
@@ -46,10 +46,10 @@ import "./styles/terminal.css";
 
 export default function App() {
     const { state, send } = useOrderBook();
-    const { openCents } = useIgnitionPrice();
+    const { openPx } = useIgnitionPrice();
 
-    const handleSubmit = (side: Side, priceCents: number, qty: number): void => {
-        send(newOrderFrame(nextClOrdId(), side, priceCents, qty));
+    const handleSubmit = (side: Side, pricePx: number, qty: number): void => {
+        send(newOrderFrame(nextClOrdId(), side, pricePx, qty));
     };
 
     const handleCancel = (origClOrdId: number): void => {
@@ -64,10 +64,10 @@ export default function App() {
                     tape={state.tape}
                     orders={state.myOrders}
                     sessionVolume={state.sessionVolume}
-                    sessionOpenCents={state.sessionOpenCents}
+                    sessionOpenPx={state.sessionOpenPx}
                     lastFrameNanos={state.lastFrameNanos}
                     connection={state.connection}
-                    openCents={openCents}
+                    openPx={openPx}
                 />
             </header>
 
@@ -91,7 +91,7 @@ export default function App() {
                     element={
                         <PriceChartPage
                             state={state}
-                            openCents={openCents}
+                            openPx={openPx}
                             onSubmitOrder={handleSubmit}
                             clOrdIdPreview={nextClOrdId.peek()}
                         />

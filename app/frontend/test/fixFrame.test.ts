@@ -8,7 +8,7 @@
  * no-op). P7-3 promoted lastFrameNanos to a real liveness marker: a FIX echo
  * advances it and nothing else. P7-9 adds inspector storage: a FIX echo now also
  * prepends itself to inspectorLog. Every other slice (book, tape, myOrders,
- * sessionVolume, sessionOpenCents, msgSeqNum) still keeps its reference.
+ * sessionVolume, sessionOpenPx, msgSeqNum) still keeps its reference.
  */
 
 import { describe, expect, it } from "vitest";
@@ -100,7 +100,7 @@ describe("FIX frames advance the last-frame marker and log to the inspector (P7-
         expect(after.tape).toBe(initialState.tape);
         expect(after.myOrders).toBe(initialState.myOrders);
         expect(after.sessionVolume).toBe(initialState.sessionVolume);
-        expect(after.sessionOpenCents).toBe(initialState.sessionOpenCents);
+        expect(after.sessionOpenPx).toBe(initialState.sessionOpenPx);
         expect(after.msgSeqNum).toBe(initialState.msgSeqNum);
 
         expect(after.inspectorLog).toHaveLength(1);
@@ -112,10 +112,10 @@ describe("FIX frames advance the last-frame marker and log to the inspector (P7-
             type: "FRAME",
             frame: {
                 type: "BOOK",
-                bestBid: 15000,
-                bestAsk: 15025,
-                bids: [[15000, 10]],
-                asks: [[15025, 7]],
+                bestBid: 1500000,
+                bestAsk: 1502500,
+                bids: [[1500000, 10]],
+                asks: [[1502500, 7]],
                 timestamp: 1,
             },
         });
@@ -128,7 +128,7 @@ describe("FIX frames advance the last-frame marker and log to the inspector (P7-
         expect(after).not.toBe(withBook);
         expect(after.lastFrameNanos).toBe(VALID.timestamp);
         expect(after.book).toBe(withBook.book);
-        expect(after.book.bids).toEqual([[15000, 10]]);
+        expect(after.book.bids).toEqual([[1500000, 10]]);
         expect(after.inspectorLog).toHaveLength(1);
         expect(after.inspectorLog[0]).toBe(fix);
     });

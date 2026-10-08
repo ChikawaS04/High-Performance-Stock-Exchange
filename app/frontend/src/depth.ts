@@ -8,10 +8,11 @@
  * plain left-to-right fold accumulates outward from the touch on either side.
  *
  * `buildDepthCurve` is the P7-5 curve model: a cumulative-depth STEP function per
- * side, in domain units (integer cents, integer cumulative quantity). It emits no
- * pixels; the component maps points to an SVG viewBox at the render edge, exactly
- * as buildLadder emits a 0..1 fraction and lets the component size the bar. Cents
- * stay integers here; only the SVG scales touch float, later, in the component.
+ * side, in domain units (integer units of $0.0001, integer cumulative quantity).
+ * It emits no pixels; the component maps points to an SVG viewBox at the render
+ * edge, exactly as buildLadder emits a 0..1 fraction and lets the component size
+ * the bar. Prices stay integers here; only the SVG scales touch float, later, in
+ * the component.
  */
 
 import type { BookState } from "./state/reducer";
@@ -19,7 +20,7 @@ import type { Level } from "./protocol/messages";
 
 /** One level with its running cumulative quantity, best-first from the touch. */
 export interface CumLevel {
-    readonly priceCents: number;
+    readonly pricePx: number;
     readonly qty: number;
     readonly cumQty: number;
 }
@@ -30,14 +31,14 @@ export function cumulate(levels: readonly Level[]): CumLevel[] {
     let running = 0;
     for (const level of levels) {
         running += level[1];
-        rows.push({ priceCents: level[0], qty: level[1], cumQty: running });
+        rows.push({ pricePx: level[0], qty: level[1], cumQty: running });
     }
     return rows;
 }
 
 /** One vertex of a side's depth curve, in domain units (never pixels). */
 export interface CurvePoint {
-    readonly priceCents: number;
+    readonly pricePx: number;
     readonly cumQty: number;
 }
 
@@ -62,12 +63,12 @@ function stepCorners(cum: readonly CumLevel[]): CurvePoint[] {
     if (cum.length === 0) {
         return [];
     }
-    const points: CurvePoint[] = [{ priceCents: cum[0].priceCents, cumQty: cum[0].cumQty }];
+    const points: CurvePoint[] = [{ pricePx: cum[0].pricePx, cumQty: cum[0].cumQty }];
     for (let i = 1; i < cum.length; i++) {
         // horizontal: advance to this level's price while depth is still the prior total
-        points.push({ priceCents: cum[i].priceCents, cumQty: cum[i - 1].cumQty });
+        points.push({ pricePx: cum[i].pricePx, cumQty: cum[i - 1].cumQty });
         // vertical: step up to this level's own cumulative total
-        points.push({ priceCents: cum[i].priceCents, cumQty: cum[i].cumQty });
+        points.push({ pricePx: cum[i].pricePx, cumQty: cum[i].cumQty });
     }
     return points;
 }

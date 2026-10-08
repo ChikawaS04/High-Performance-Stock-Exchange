@@ -9,44 +9,44 @@ import type { Level } from "../src/protocol/messages";
 // explicitly to keep renders isolated.
 afterEach(cleanup);
 
+const BIDS: Level[] = [
+    [1500000, 10],
+    [1499000, 4],
+];
+const ASKS: Level[] = [
+    [1502500, 5],
+    [1505000, 3],
+];
+
 function book(partial: Partial<BookState>): BookState {
     return { bestBid: -1, bestAsk: -1, bids: [], asks: [], timestamp: 0, ...partial };
 }
 
-const BIDS: Level[] = [
-    [15000, 10],
-    [14990, 4],
-];
-const ASKS: Level[] = [
-    [15025, 5],
-    [15050, 3],
-];
-
 function twoSided(): BookState {
-    return book({ bestBid: 15000, bestAsk: 15025, bids: BIDS, asks: ASKS });
+    return book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS });
 }
 
 describe("DepthCurve (click-to-price mapping)", () => {
-    it("maps a click on a bid level's band to that level's cent price", () => {
+    it("maps a click on a bid level's band to that level's price in units", () => {
         const onPriceSelect = vi.fn();
         render(<DepthCurve book={twoSided()} onPriceSelect={onPriceSelect} />);
 
-        fireEvent.click(screen.getByTestId("curve-hit-15000"));
-        expect(onPriceSelect).toHaveBeenCalledWith(15000);
+        fireEvent.click(screen.getByTestId("curve-hit-1500000"));
+        expect(onPriceSelect).toHaveBeenCalledWith(1500000);
 
-        fireEvent.click(screen.getByTestId("curve-hit-14990"));
-        expect(onPriceSelect).toHaveBeenCalledWith(14990);
+        fireEvent.click(screen.getByTestId("curve-hit-1499000"));
+        expect(onPriceSelect).toHaveBeenCalledWith(1499000);
     });
 
-    it("maps a click on an ask level's band to that level's cent price (real level, snapped)", () => {
+    it("maps a click on an ask level's band to that level's price in units (real level, snapped)", () => {
         const onPriceSelect = vi.fn();
         render(<DepthCurve book={twoSided()} onPriceSelect={onPriceSelect} />);
 
-        fireEvent.click(screen.getByTestId("curve-hit-15025"));
-        expect(onPriceSelect).toHaveBeenCalledWith(15025);
+        fireEvent.click(screen.getByTestId("curve-hit-1502500"));
+        expect(onPriceSelect).toHaveBeenCalledWith(1502500);
 
-        fireEvent.click(screen.getByTestId("curve-hit-15050"));
-        expect(onPriceSelect).toHaveBeenCalledWith(15050);
+        fireEvent.click(screen.getByTestId("curve-hit-1505000"));
+        expect(onPriceSelect).toHaveBeenCalledWith(1505000);
     });
 
     it("exposes exactly one hit band per real level across both sides", () => {
@@ -57,25 +57,25 @@ describe("DepthCurve (click-to-price mapping)", () => {
 
     it("does not throw when a band is clicked with no handler wired", () => {
         render(<DepthCurve book={twoSided()} />);
-        expect(() => fireEvent.click(screen.getByTestId("curve-hit-15000"))).not.toThrow();
+        expect(() => fireEvent.click(screen.getByTestId("curve-hit-1500000"))).not.toThrow();
     });
 });
 
 describe("DepthCurve (mid marker and guards)", () => {
-    it("marks the mid, labelled half-cent-safe, on a two-sided book", () => {
+    it("marks the mid, labelled exactly, on a two-sided book", () => {
         render(<DepthCurve book={twoSided()} />);
         const mid = screen.getByTestId("depth-curve-mid");
-        // midpointLabel(15000, 15025) -> "150.125"; numeric mid 15012.5 positions it
+        // midpointLabel(1500000, 1502500) -> "150.125"; numeric mid 1501250 positions it
         expect(mid.textContent).toContain("150.125");
     });
 
     it("plots a one-sided book with no mid marker and only the present side's bands", () => {
         const { container } = render(
-            <DepthCurve book={book({ bestAsk: 15025, asks: [[15025, 5]] })} />,
+            <DepthCurve book={book({ bestAsk: 1502500, asks: [[1502500, 5]] })} />,
         );
         expect(screen.queryByTestId("depth-curve-mid")).toBeNull();
-        expect(screen.getByTestId("curve-hit-15025")).not.toBeNull();
-        expect(screen.queryByTestId("curve-hit-15000")).toBeNull();
+        expect(screen.getByTestId("curve-hit-1502500")).not.toBeNull();
+        expect(screen.queryByTestId("curve-hit-1500000")).toBeNull();
         expect(container.querySelectorAll('[data-testid^="curve-hit-"]')).toHaveLength(1);
     });
 

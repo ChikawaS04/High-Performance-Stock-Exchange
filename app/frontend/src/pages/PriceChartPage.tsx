@@ -3,9 +3,9 @@
  *
  * A two-region layout, the chart region (left) and the side-panel region (right).
  * P12-3 filled the chart region with <PriceChart>, fed from the shared reducer
- * state: state.tape is the session's trade-print series, and state.sessionOpenCents
+ * state: state.tape is the session's trade-print series, and state.sessionOpenPx
  * is the engine's first-trade anchor (the same value the header Chg uses). The
- * optional openCents is the Alpaca market open (P11), threaded from App and drawn
+ * optional openPx is the Alpaca market open (P11), threaded from App and drawn
  * only when it falls inside the plotted price domain.
  *
  * P13-4 fills the side-panel region, closing the arc that began at P10-4: the
@@ -17,9 +17,9 @@
  *
  * The ticket is the SAME <OrderEntry> the Trading page mounts, with no new prop and
  * no behavioural branch (P13 D3): a second entry component would duplicate the
- * dollars-to-cents parse and the validation, which is the part least worth having
- * twice. Compact panel density is a CSS concern and lands in P13-5. bestBidCents
- * and bestAskCents are passed from state.book deliberately: omitting them leaves
+ * dollars-to-units parse and the validation, which is the part least worth having
+ * twice. Compact panel density is a CSS concern and lands in P13-5. bestBidPx
+ * and bestAskPx are passed from state.book deliberately: omitting them leaves
  * OrderEntry's -1 defaults in place, which permanently disables the Bid, Mid and
  * Ask chips and renders three dashes, so the ticket would read as broken rather
  * than compact (P13-0 decision C).
@@ -54,14 +54,14 @@ import { OrderEntry } from "../components/OrderEntry";
 
 export interface PriceChartPageProps {
     readonly state: AppState;
-    readonly openCents?: number;
-    readonly onSubmitOrder: (side: Side, priceCents: number, qty: number) => void;
+    readonly openPx?: number;
+    readonly onSubmitOrder: (side: Side, pricePx: number, qty: number) => void;
     readonly clOrdIdPreview: number;
 }
 
 export function PriceChartPage({
                                    state,
-                                   openCents,
+                                   openPx,
                                    onSubmitOrder,
                                    clOrdIdPreview,
                                }: PriceChartPageProps) {
@@ -73,8 +73,8 @@ export function PriceChartPage({
                 <h2 className="panel__title">Price chart</h2>
                 <PriceChart
                     tape={state.tape}
-                    sessionOpenCents={state.sessionOpenCents}
-                    openCents={openCents}
+                    sessionOpenPx={state.sessionOpenPx}
+                    openPx={openPx}
                 />
             </section>
 
@@ -82,8 +82,8 @@ export function PriceChartPage({
                 <h2 className="panel__title">Session</h2>
                 <SessionStats
                     tape={state.tape}
-                    sessionHighCents={state.sessionHighCents}
-                    sessionLowCents={state.sessionLowCents}
+                    sessionHighPx={state.sessionHighPx}
+                    sessionLowPx={state.sessionLowPx}
                     sessionTradeCount={state.sessionTradeCount}
                 />
 
@@ -91,8 +91,8 @@ export function PriceChartPage({
                 <OrderEntry
                     onSubmit={onSubmitOrder}
                     disabled={!connected}
-                    bestBidCents={state.book.bestBid}
-                    bestAskCents={state.book.bestAsk}
+                    bestBidPx={state.book.bestBid}
+                    bestAskPx={state.book.bestAsk}
                     clOrdIdPreview={clOrdIdPreview}
                 />
             </section>

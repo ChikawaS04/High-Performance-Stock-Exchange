@@ -7,14 +7,14 @@
  * both sides so imbalance reads truthfully, the same choice the ladder makes.
  *
  * Pure/edge split: buildDepthCurve (in depth.ts) owns the maths and emits domain
- * points (integer cents, integer cumulative qty); this component owns only the
- * viewBox scales, the SVG, and the click mapping. Cents stay integers; only the
- * scales and the half-cent mid position touch float, here at the render edge.
+ * points (integer units of $0.0001, integer cumulative qty); this component owns
+ * only the viewBox scales, the SVG, and the click mapping. Prices stay integers;
+ * only the scales and the mid position touch float, here at the render edge.
  *
  * Click-to-price: the price axis is partitioned into one hit band per real level
  * (boundaries at the midpoints between adjacent level x-positions), so a click
  * anywhere snaps to the nearest real level on either side and calls onPriceSelect
- * with that cent price. Price only: the ticket owns side and qty, and how a
+ * with that price in units. Price only: the ticket owns side and qty, and how a
  * clicked price populates the ticket is P7-7's job, so this step just delivers
  * the callback. Not wired into App yet; that lands with the P7-10 layout.
  *
@@ -23,7 +23,7 @@
  */
 
 import { buildDepthCurve, type CurvePoint } from "../depth";
-import { midpointCents, midpointLabel } from "../format";
+import { midpointPx, midpointLabel } from "../format";
 import type { BookState } from "../state/reducer";
 
 const VIEW_W = 320;
@@ -42,12 +42,12 @@ const PLOT_BOTTOM = PAD_T + PLOT_H;
 export interface DepthCurveProps {
     readonly book: BookState;
     /**
-     * Called with a cent price when a level's hit band is clicked, snapped to the
-     * nearest real visible level. Price only: side and quantity stay with the
+     * Called with a price in units when a level's hit band is clicked, snapped to
+     * the nearest real visible level. Price only: side and quantity stay with the
      * ticket, and wiring this into order entry is P7-7 (this step delivers the
      * callback). Optional so the panel is inert-but-valid before it is wired.
      */
-    readonly onPriceSelect?: (priceCents: number) => void;
+    readonly onPriceSelect?: (pricePx: number) => void;
     /**
      * Optional cap on visible levels per side; omitted plots the whole book. Held
      * here, deliberately independent of the DepthLadder 8/10/14 selector so the two
@@ -65,7 +65,7 @@ function levelAnchors(points: readonly CurvePoint[]): CurvePoint[] {
     const anchors: CurvePoint[] = [];
     for (const p of points) {
         const last = anchors[anchors.length - 1];
-        if (last !== undefined && last.priceCents === p.priceCents) {
+        if (last !== undefined && last.pricePx === p.pricePx) {
             if (p.cumQty > last.cumQty) {
                 anchors[anchors.length - 1] = p;
             }
@@ -111,21 +111,21 @@ export function DepthCurve({ book, onPriceSelect, depth }: DepthCurveProps) {
     }
 
     // Shared price axis across both sides; shared depth max for imbalance truth.
-    const prices = anchors.map((a) => a.priceCents);
+    const prices = anchors.map((a) => a.pricePx);
     const xMin = Math.min(...prices);
     const xMax = Math.max(...prices);
     const maxCum = Math.max(...anchors.map((a) => a.cumQty));
 
-    const xOf = (priceCents: number): number =>
+    const xOf = (pricePx: number): number =>
         xMax === xMin
             ? PLOT_LEFT + PLOT_W / 2
-            : PLOT_LEFT + ((priceCents - xMin) / (xMax - xMin)) * PLOT_W;
+            : PLOT_LEFT + ((pricePx - xMin) / (xMax - xMin)) * PLOT_W;
 
     const yOf = (cumQty: number): number =>
         maxCum <= 0 ? PLOT_BOTTOM : PLOT_BOTTOM - (cumQty / maxCum) * PLOT_H;
 
     const polyline = (points: readonly CurvePoint[]): string =>
-        points.map((p) => `${xOf(p.priceCents)},${yOf(p.cumQty)}`).join(" ");
+        points.map((p) => `${xOf(p.pricePx)},${yOf(p.cumQty)}`).join(" ");
 
     // Filled area: the step line dropped to the baseline at both ends.
     const area = (points: readonly CurvePoint[]): string => {
@@ -134,22 +134,22 @@ export function DepthCurve({ book, onPriceSelect, depth }: DepthCurveProps) {
         }
         const first = points[0];
         const last = points[points.length - 1];
-        return `${xOf(first.priceCents)},${PLOT_BOTTOM} ${polyline(points)} ${xOf(last.priceCents)},${PLOT_BOTTOM}`;
+        return `${xOf(first.pricePx)},${PLOT_BOTTOM} ${polyline(points)} ${xOf(last.pricePx)},${PLOT_BOTTOM}`;
     };
 
     // Click bands: one per real level across BOTH sides, tiled by price with
     // boundaries at the midpoints between neighbours, so any x snaps to the nearest
     // real level. Sorted by price (== by x) for contiguous, non-overlapping bands.
-    const sorted = [...anchors].sort((a, b) => a.priceCents - b.priceCents);
+    const sorted = [...anchors].sort((a, b) => a.pricePx - b.pricePx);
     const bands = sorted.map((anchor, i) => {
-        const x = xOf(anchor.priceCents);
-        const left = i === 0 ? PLOT_LEFT : (xOf(sorted[i - 1].priceCents) + x) / 2;
+        const x = xOf(anchor.pricePx);
+        const left = i === 0 ? PLOT_LEFT : (xOf(sorted[i - 1].pricePx) + x) / 2;
         const right =
-            i === sorted.length - 1 ? PLOT_RIGHT : (x + xOf(sorted[i + 1].priceCents)) / 2;
-        return { priceCents: anchor.priceCents, left, width: Math.max(0, right - left) };
+            i === sorted.length - 1 ? PLOT_RIGHT : (x + xOf(sorted[i + 1].pricePx)) / 2;
+        return { pricePx: anchor.pricePx, left, width: Math.max(0, right - left) };
     });
 
-    const mid = midpointCents(book.bestBid, book.bestAsk);
+    const mid = midpointPx(book.bestBid, book.bestAsk);
     const midX = mid !== null ? xOf(mid) : null;
 
     return (
@@ -226,16 +226,16 @@ export function DepthCurve({ book, onPriceSelect, depth }: DepthCurveProps) {
                 {/* Transparent click bands, drawn last so they receive the clicks. */}
                 {bands.map((b) => (
                     <rect
-                        key={b.priceCents}
+                        key={b.pricePx}
                         className="depth-curve__hit"
-                        data-testid={`curve-hit-${b.priceCents}`}
+                        data-testid={`curve-hit-${b.pricePx}`}
                         x={b.left}
                         y={PLOT_TOP}
                         width={b.width}
                         height={PLOT_H}
                         fill="transparent"
                         style={{ cursor: onPriceSelect ? "pointer" : "default" }}
-                        onClick={() => onPriceSelect?.(b.priceCents)}
+                        onClick={() => onPriceSelect?.(b.pricePx)}
                     />
                 ))}
             </svg>

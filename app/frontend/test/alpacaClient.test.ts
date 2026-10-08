@@ -8,12 +8,12 @@ afterEach(() => {
 });
 
 describe("fetchIgnitionOpen", () => {
-    it("returns cents on a 200 with a parseable body", async () => {
+    it("returns units on a 200 with a parseable body", async () => {
         vi.stubGlobal(
             "fetch",
             vi.fn().mockResolvedValue({ ok: true, json: async () => ({ dailyBar: { o: 149.8 } }) }),
         );
-        expect(await fetchIgnitionOpen()).toBe(14980);
+        expect(await fetchIgnitionOpen()).toBe(1498000);
     });
 
     it("returns null on a non-ok status", async () => {

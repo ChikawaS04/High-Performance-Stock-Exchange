@@ -4,7 +4,7 @@ import { filledOf } from "../src/components/OpenOrders";
 import type { MyOrder } from "../src/state/reducer";
 
 function order(originalQty: number, remainingQty: number): MyOrder {
-    return { clOrdId: 1, side: "BUY", priceCents: 15000, originalQty, remainingQty, status: "OPEN" };
+    return { clOrdId: 1, side: "BUY", pricePx: 1500000, originalQty, remainingQty, status: "OPEN" };
 }
 
 describe("filledOf", () => {

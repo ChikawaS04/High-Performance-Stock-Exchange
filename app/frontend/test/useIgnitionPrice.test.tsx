@@ -18,23 +18,23 @@ afterEach(() => {
 });
 
 describe("useIgnitionPrice", () => {
-    it("sets openCents and ready on a successful fetch", async () => {
-        mockFetch.mockResolvedValue(14980);
+    it("sets openPx and ready on a successful fetch", async () => {
+        mockFetch.mockResolvedValue(1498000);
         const { result } = renderHook(() => useIgnitionPrice());
         await waitFor(() => expect(result.current.status).toBe("ready"));
-        expect(result.current.openCents).toBe(14980);
+        expect(result.current.openPx).toBe(1498000);
         expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it("retries once and succeeds", async () => {
         vi.useFakeTimers();
-        mockFetch.mockResolvedValueOnce(null).mockResolvedValueOnce(14980);
+        mockFetch.mockResolvedValueOnce(null).mockResolvedValueOnce(1498000);
         const { result } = renderHook(() => useIgnitionPrice());
         await act(async () => {
             await vi.runAllTimersAsync();
         });
         expect(result.current.status).toBe("ready");
-        expect(result.current.openCents).toBe(14980);
+        expect(result.current.openPx).toBe(1498000);
         expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
@@ -46,7 +46,7 @@ describe("useIgnitionPrice", () => {
             await vi.runAllTimersAsync();
         });
         expect(result.current.status).toBe("unavailable");
-        expect(result.current.openCents).toBeUndefined();
+        expect(result.current.openPx).toBeUndefined();
         expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
@@ -62,7 +62,7 @@ describe("useIgnitionPrice", () => {
         expect(result.current.status).toBe("loading");
         unmount();
         await act(async () => {
-            resolveFetch(14980);
+            resolveFetch(1498000);
             await Promise.resolve();
         });
         expect(result.current.status).toBe("loading");

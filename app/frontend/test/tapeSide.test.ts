@@ -33,8 +33,8 @@ const sent = (f: ReturnType<typeof newOrderFrame>): Action => ({ type: "SENT", f
 
 describe("aggressorSideFor (pure)", () => {
     const orders: MyOrder[] = [
-        { clOrdId: 1, side: "BUY", priceCents: 15000, originalQty: 10, remainingQty: 10, status: "OPEN" },
-        { clOrdId: 2, side: "SELL", priceCents: 15025, originalQty: 5, remainingQty: 5, status: "OPEN" },
+        { clOrdId: 1, side: "BUY", pricePx: 1500000, originalQty: 10, remainingQty: 10, status: "OPEN" },
+        { clOrdId: 2, side: "SELL", pricePx: 1502500, originalQty: 5, remainingQty: 5, status: "OPEN" },
     ];
 
     it("returns our own side when we are the aggressor", () => {
@@ -57,8 +57,8 @@ describe("reducer attaches aggressorSide to the tape print", () => {
     it("tags our aggressor fill with our side", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 15000, 10)),
-            fill(1, 99, { tradeId: 1, price: 15000, filled: 10 }),
+            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            fill(1, 99, { tradeId: 1, price: 1500000, filled: 10 }),
         );
         expect(state.tape[0].aggressorSide).toBe("BUY");
         expect(state.tape[0].mine).toBe(true);
@@ -67,8 +67,8 @@ describe("reducer attaches aggressorSide to the tape print", () => {
     it("tags our passive fill with the opposite side", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "SELL", 15025, 10)),
-            fill(99, 1, { tradeId: 2, price: 15025, filled: 4 }),
+            sent(newOrderFrame(1, "SELL", 1502500, 10)),
+            fill(99, 1, { tradeId: 2, price: 1502500, filled: 4 }),
         );
         expect(state.tape[0].aggressorSide).toBe("BUY");
         expect(state.tape[0].mine).toBe(true);
@@ -77,8 +77,8 @@ describe("reducer attaches aggressorSide to the tape print", () => {
     it("leaves a foreign print without a side, matching mine=false", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 15000, 10)),
-            fill(98, 99, { tradeId: 3, price: 15000, filled: 1 }),
+            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            fill(98, 99, { tradeId: 3, price: 1500000, filled: 1 }),
         );
         expect(state.tape[0].aggressorSide).toBeUndefined();
         expect(state.tape[0].mine).toBe(false);

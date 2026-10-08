@@ -5,11 +5,11 @@
  * right), price on y. Mirrors DepthCurve's pure/edge split: buildPriceSeries (in
  * priceSeries.ts) owns the domain points and bounds in integer units; this
  * component owns only the viewBox, the scales, and the SVG. Prices stay integer
- * cents; only the scales touch float, here at the render edge.
+ * units; only the scales touch float, here at the render edge.
  *
- * Reference lines (P12-3): a session-open line (state.sessionOpenCents, the same
+ * Reference lines (P12-3): a session-open line (state.sessionOpenPx, the same
  * anchor as the header Chg) drawn by default when set and in domain, and the
- * Alpaca market-open line (openCents, P11) drawn only when it falls inside the
+ * Alpaca market-open line (openPx, P11) drawn only when it falls inside the
  * price domain. A reference never widens the domain (D5): the domain is set by the
  * actual prints, and a reference out of range is simply not drawn. Guards: an
  * empty tape plots a quiet "No trades yet" state (no path, no NaN); a single print
@@ -20,7 +20,7 @@
  */
 
 import { buildPriceSeries } from "../priceSeries";
-import { centsToDollars, formatClockNanos } from "../format";
+import { formatPrice, formatClockNanos } from "../format";
 import type { TapeEntry } from "../state/reducer";
 
 const VIEW_W = 480;
@@ -38,13 +38,13 @@ const PLOT_BOTTOM = PAD_T + PLOT_H;
 
 export interface PriceChartProps {
     readonly tape: readonly TapeEntry[];
-    /** Engine first-trade anchor (state.sessionOpenCents); drawn when > 0 and in domain. */
-    readonly sessionOpenCents: number;
-    /** Alpaca market open in cents (P11); drawn only when inside the price domain. */
-    readonly openCents?: number;
+    /** Engine first-trade anchor (state.sessionOpenPx); drawn when > 0 and in domain. */
+    readonly sessionOpenPx: number;
+    /** Alpaca market open in units (P11); drawn only when inside the price domain. */
+    readonly openPx?: number;
 }
 
-export function PriceChart({ tape, sessionOpenCents, openCents }: PriceChartProps) {
+export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
     const series = buildPriceSeries(tape);
 
     // Empty: a quiet frame, nothing to plot, no NaN. The null-bound checks also
@@ -88,23 +88,23 @@ export function PriceChart({ tape, sessionOpenCents, openCents }: PriceChartProp
             ? PLOT_LEFT + PLOT_W / 2
             : PLOT_LEFT + ((t - tMin) / (tMax - tMin)) * PLOT_W;
 
-    const yOf = (cents: number): number =>
+    const yOf = (px: number): number =>
         cMax === cMin
             ? PLOT_TOP + PLOT_H / 2
-            : PLOT_BOTTOM - ((cents - cMin) / (cMax - cMin)) * PLOT_H;
+            : PLOT_BOTTOM - ((px - cMin) / (cMax - cMin)) * PLOT_H;
 
-    const line = points.map((p) => `${xOf(p.t)},${yOf(p.priceCents)}`).join(" ");
+    const line = points.map((p) => `${xOf(p.t)},${yOf(p.pricePx)}`).join(" ");
     const last = points[points.length - 1];
 
     // A reference draws only when its price sits inside the plotted domain, so it
     // never widens the domain (D5). When cMin === cMax (all-equal prices), only a
     // reference exactly on that level is in domain and draws, centered with the line.
-    const inDomain = (cents: number): boolean => cents >= cMin && cents <= cMax;
+    const inDomain = (px: number): boolean => px >= cMin && px <= cMax;
 
     const sessionRef =
-        sessionOpenCents > 0 && inDomain(sessionOpenCents) ? sessionOpenCents : null;
+        sessionOpenPx > 0 && inDomain(sessionOpenPx) ? sessionOpenPx : null;
     const marketRef =
-        openCents !== undefined && openCents > 0 && inDomain(openCents) ? openCents : null;
+        openPx !== undefined && openPx > 0 && inDomain(openPx) ? openPx : null;
 
     return (
         <div className="price-chart">
@@ -159,7 +159,7 @@ export function PriceChart({ tape, sessionOpenCents, openCents }: PriceChartProp
                     className="price-chart__last"
                     data-testid="price-chart-last"
                     cx={xOf(last.t)}
-                    cy={yOf(last.priceCents)}
+                    cy={yOf(last.pricePx)}
                     r="2.5"
                     fill="var(--live)"
                 />
@@ -174,7 +174,7 @@ export function PriceChart({ tape, sessionOpenCents, openCents }: PriceChartProp
                             dominantBaseline="hanging"
                             textAnchor="start"
                         >
-                            {centsToDollars(cMax)}
+                            {formatPrice(cMax)}
                         </text>
                         <text
                             className="price-chart__y-label"
@@ -183,7 +183,7 @@ export function PriceChart({ tape, sessionOpenCents, openCents }: PriceChartProp
                             dominantBaseline="alphabetic"
                             textAnchor="start"
                         >
-                            {centsToDollars(cMin)}
+                            {formatPrice(cMin)}
                         </text>
                     </>
                 ) : (
@@ -194,7 +194,7 @@ export function PriceChart({ tape, sessionOpenCents, openCents }: PriceChartProp
                         dominantBaseline="middle"
                         textAnchor="start"
                     >
-                        {centsToDollars(cMin)}
+                        {formatPrice(cMin)}
                     </text>
                 )}
 

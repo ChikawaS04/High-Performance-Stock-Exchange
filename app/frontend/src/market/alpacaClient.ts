@@ -19,7 +19,7 @@ const FEED = "iex";
 /** Instrument symbol, config-driven (P11 D8); defaults to ASML, the header symbol. */
 const SYMBOL = import.meta.env.VITE_IGNITION_SYMBOL ?? "ASML";
 
-/** Official market open in long cents, or null on any failure. Never throws. */
+/** Official market open in long units of $0.0001, or null on any failure. Never throws. */
 export async function fetchIgnitionOpen(signal?: AbortSignal): Promise<number | null> {
     try {
         const res = await fetch(

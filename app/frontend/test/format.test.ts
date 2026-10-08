@@ -1,44 +1,58 @@
 import { describe, it, expect } from 'vitest'
 import {
-    centsToDollars,
-    dollarsToCents,
+    formatPrice,
+    parsePrice,
     EMPTY_PRICE,
     formatClockNanos,
     formatQty,
-    midpointCents,
+    midpointPx,
     midpointLabel,
 } from '../src/format'
 
-describe('centsToDollars', () => {
+describe('formatPrice', () => {
     it('formats sub-dollar values with a leading zero', () => {
-        expect(centsToDollars(5)).toBe('0.05')
-        expect(centsToDollars(1)).toBe('0.01')
-        expect(centsToDollars(99)).toBe('0.99')
+        expect(formatPrice(500)).toBe('0.05')
+        expect(formatPrice(100)).toBe('0.01')
+        expect(formatPrice(9900)).toBe('0.99')
     })
 
     it('formats whole and fractional dollar values to two places', () => {
-        expect(centsToDollars(15000)).toBe('150.00')
-        expect(centsToDollars(15020)).toBe('150.20')
-        expect(centsToDollars(15025)).toBe('150.25')
-        expect(centsToDollars(100)).toBe('1.00')
+        expect(formatPrice(1500000)).toBe('150.00')
+        expect(formatPrice(1502000)).toBe('150.20')
+        expect(formatPrice(1502500)).toBe('150.25')
+        expect(formatPrice(10000)).toBe('1.00')
     })
 
     it('renders the -1 sentinel (and any negative) as the empty marker', () => {
         expect(EMPTY_PRICE).toBe('—')
-        expect(centsToDollars(-1)).toBe(EMPTY_PRICE)
-        expect(centsToDollars(-9999)).toBe(EMPTY_PRICE)
+        expect(formatPrice(-1)).toBe(EMPTY_PRICE)
+        expect(formatPrice(-999900)).toBe(EMPTY_PRICE)
     })
 
-    it('rejects non-integer / non-finite cents to the empty marker', () => {
-        expect(centsToDollars(150.5)).toBe(EMPTY_PRICE)
-        expect(centsToDollars(Number.NaN)).toBe(EMPTY_PRICE)
-        expect(centsToDollars(Number.POSITIVE_INFINITY)).toBe(EMPTY_PRICE)
+    it('rejects non-integer / non-finite units to the empty marker', () => {
+        expect(formatPrice(1500050.5)).toBe(EMPTY_PRICE)
+        expect(formatPrice(Number.NaN)).toBe(EMPTY_PRICE)
+        expect(formatPrice(Number.POSITIVE_INFINITY)).toBe(EMPTY_PRICE)
     })
 
-    it('round-trips through dollarsToCents for valid prices', () => {
-        for (const cents of [1, 5, 100, 15020, 15025, 999999]) {
-            expect(dollarsToCents(centsToDollars(cents))).toBe(cents)
+    it('round-trips through parsePrice for valid on-tick prices', () => {
+        for (const px of [100, 500, 10000, 1502000, 1502500, 99999900]) {
+            expect(parsePrice(formatPrice(px))).toBe(px)
         }
+    })
+})
+
+describe('formatPrice — sub-penny and tick (P14-3)', () => {
+    it('renders sub-penny midpoint prices up to four places, trailing zeros trimmed to two', () => {
+        expect(formatPrice(1_000_050)).toBe('100.005')
+        expect(formatPrice(1_000_025)).toBe('100.0025')
+        expect(formatPrice(1_000_500)).toBe('100.05')
+    })
+
+    it('renders on-tick prices unchanged at exactly two places', () => {
+        expect(formatPrice(1_502_500)).toBe('150.25')
+        expect(formatPrice(1_500_000)).toBe('150.00')
+        expect(formatPrice(1_000_000)).toBe('100.00')
     })
 })
 
@@ -62,38 +76,38 @@ describe('formatQty', () => {
 })
 
 describe('midpointLabel', () => {
-    it('renders an even-sum mid to two places', () => {
-        expect(midpointLabel(15000, 15050)).toBe('150.25')
-        expect(midpointLabel(3, 5)).toBe('0.04')
+    it('renders an even-tick mid to two places', () => {
+        expect(midpointLabel(1500000, 1505000)).toBe('150.25')
+        expect(midpointLabel(300, 500)).toBe('0.04')
     })
 
-    it('renders an odd-sum mid with an exact trailing half-cent, no float drift', () => {
-        expect(midpointLabel(15000, 15025)).toBe('150.125')
-        expect(midpointLabel(1, 2)).toBe('0.015')
+    it('renders a sub-penny mid exactly, no float drift', () => {
+        expect(midpointLabel(1500000, 1502500)).toBe('150.125')
+        expect(midpointLabel(100, 200)).toBe('0.015')
     })
 
     it('blanks to the empty marker when either side is the -1 sentinel', () => {
-        expect(midpointLabel(-1, 15025)).toBe(EMPTY_PRICE)
-        expect(midpointLabel(15000, -1)).toBe(EMPTY_PRICE)
+        expect(midpointLabel(-1, 1502500)).toBe(EMPTY_PRICE)
+        expect(midpointLabel(1500000, -1)).toBe(EMPTY_PRICE)
         expect(midpointLabel(-1, -1)).toBe(EMPTY_PRICE)
     })
 })
 
-describe('midpointCents', () => {
-    it('returns the exact integer mid for an even-sum book', () => {
-        expect(midpointCents(15000, 15050)).toBe(15025)
-        expect(midpointCents(3, 5)).toBe(4)
+describe('midpointPx', () => {
+    it('returns the exact integer mid for an even-tick book', () => {
+        expect(midpointPx(1500000, 1505000)).toBe(1502500)
+        expect(midpointPx(300, 500)).toBe(400)
     })
 
-    it('returns the half-cent mid for an odd-sum book (positioning only)', () => {
-        expect(midpointCents(15000, 15025)).toBe(15012.5)
-        expect(midpointCents(1, 2)).toBe(1.5)
+    it('returns the exact integer mid for an odd-cent-spread book (no fractional coordinate)', () => {
+        expect(midpointPx(1500000, 1502500)).toBe(1501250)
+        expect(midpointPx(100, 200)).toBe(150)
     })
 
     it('returns null when either side is the -1 sentinel', () => {
-        expect(midpointCents(-1, 15025)).toBeNull()
-        expect(midpointCents(15000, -1)).toBeNull()
-        expect(midpointCents(-1, -1)).toBeNull()
+        expect(midpointPx(-1, 1502500)).toBeNull()
+        expect(midpointPx(1500000, -1)).toBeNull()
+        expect(midpointPx(-1, -1)).toBeNull()
     })
 })
 
@@ -131,48 +145,48 @@ describe('formatClockNanos', () => {
     })
 })
 
-describe('dollarsToCents', () => {
+describe('parsePrice', () => {
     it('parses integer dollars', () => {
-        expect(dollarsToCents('150')).toBe(15000)
-        expect(dollarsToCents('1')).toBe(100)
+        expect(parsePrice('150')).toBe(1500000)
+        expect(parsePrice('1')).toBe(10000)
     })
 
     it('parses one- and two-decimal dollars via string math', () => {
-        expect(dollarsToCents('150.2')).toBe(15020)
-        expect(dollarsToCents('150.25')).toBe(15025)
-        expect(dollarsToCents('0.05')).toBe(5)
-        expect(dollarsToCents('0.01')).toBe(1)
-        expect(dollarsToCents('150.00')).toBe(15000)
+        expect(parsePrice('150.2')).toBe(1502000)
+        expect(parsePrice('150.25')).toBe(1502500)
+        expect(parsePrice('0.05')).toBe(500)
+        expect(parsePrice('0.01')).toBe(100)
+        expect(parsePrice('150.00')).toBe(1500000)
     })
 
     it('trims surrounding whitespace', () => {
-        expect(dollarsToCents('  150.25  ')).toBe(15025)
+        expect(parsePrice('  150.25  ')).toBe(1502500)
     })
 
     it('rejects more than two decimal places', () => {
-        expect(dollarsToCents('150.255')).toBeNull()
-        expect(dollarsToCents('0.001')).toBeNull()
+        expect(parsePrice('150.255')).toBeNull()
+        expect(parsePrice('0.001')).toBeNull()
     })
 
     it('rejects a dangling dot or a missing integer part', () => {
-        expect(dollarsToCents('150.')).toBeNull()
-        expect(dollarsToCents('.5')).toBeNull()
-        expect(dollarsToCents('.')).toBeNull()
+        expect(parsePrice('150.')).toBeNull()
+        expect(parsePrice('.5')).toBeNull()
+        expect(parsePrice('.')).toBeNull()
     })
 
     it('rejects zero and non-positive values', () => {
-        expect(dollarsToCents('0')).toBeNull()
-        expect(dollarsToCents('0.00')).toBeNull()
-        expect(dollarsToCents('-1')).toBeNull()
-        expect(dollarsToCents('-150.25')).toBeNull()
+        expect(parsePrice('0')).toBeNull()
+        expect(parsePrice('0.00')).toBeNull()
+        expect(parsePrice('-1')).toBeNull()
+        expect(parsePrice('-150.25')).toBeNull()
     })
 
     it('rejects empty and non-numeric input', () => {
-        expect(dollarsToCents('')).toBeNull()
-        expect(dollarsToCents('   ')).toBeNull()
-        expect(dollarsToCents('abc')).toBeNull()
-        expect(dollarsToCents('12.3abc')).toBeNull()
-        expect(dollarsToCents('1e3')).toBeNull()
-        expect(dollarsToCents('1,000')).toBeNull()
+        expect(parsePrice('')).toBeNull()
+        expect(parsePrice('   ')).toBeNull()
+        expect(parsePrice('abc')).toBeNull()
+        expect(parsePrice('12.3abc')).toBeNull()
+        expect(parsePrice('1e3')).toBeNull()
+        expect(parsePrice('1,000')).toBeNull()
     })
 })

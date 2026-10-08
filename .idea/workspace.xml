@@ -6,16 +6,54 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/Main.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/Main.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngine.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngine.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/BookSnapshotEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/BookSnapshotEvent.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/ExecutionEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/ExecutionEvent.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/OrderEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/OrderEvent.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixParser.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixParser.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/market/MarketDataService.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/market/MarketDataService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/model/Order.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/model/Order.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/publisher/WebSocketPublisher.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/publisher/WebSocketPublisher.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/DepthLadder.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/DepthLadder.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/Header.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/Header.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/SessionStats.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/SessionStats.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/depth.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/depth.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/format.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/format.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/market/alpacaClient.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/market/alpacaClient.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/market/ignition.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/market/ignition.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/priceSeries.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/priceSeries.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/messages.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/messages.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/sessionStats.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/sessionStats.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/state/useIgnitionPrice.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/state/useIgnitionPrice.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/alpacaClient.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/alpacaClient.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/depthCurve.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/depthCurve.render.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/depthCurve.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/depthCurve.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/depthLadder.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/depthLadder.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/fixFrame.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/fixFrame.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/fixInspector.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/fixInspector.logic.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/fixInspector.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/fixInspector.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/format.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/format.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/header.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/ignition.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/ignition.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderTicket.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderTicket.logic.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/passiveFill.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/passiveFill.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/priceChart.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/priceChart.render.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/priceSeries.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/priceSeries.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/reducer.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/reducer.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/session.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/session.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/sessionStats.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/sessionStats.render.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/sessionStats.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/sessionStats.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/tapeSide.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tapeSide.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/tradeTape.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tradeTape.logic.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/tradeTape.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tradeTape.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/useIgnitionPrice.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/useIgnitionPrice.test.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -23,7 +61,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="74" />
+    <option name="cachedIndexableFilesCount" value="75" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
@@ -392,7 +430,8 @@
       <workItem from="1791313577822" duration="13223000" />
       <workItem from="1791403609404" duration="786000" />
       <workItem from="1791434284994" duration="1000" />
-      <workItem from="1791441070057" duration="2294000" />
+      <workItem from="1791441070057" duration="2588000" />
+      <workItem from="1791487400820" duration="672000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

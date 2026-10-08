@@ -17,7 +17,7 @@ function execEntry(): InspectorEntry {
         execType: "ORDER_FILLED",
         orderId: 1,
         tradeId: 1,
-        price: 15000,
+        price: 1500000,
         filledQuantity: 4,
         remainingQuantity: 0,
         aggressorOrderId: 1,

@@ -8,7 +8,7 @@
  *
  * The entryRef seam (OrderEntryHandle via forwardRef / useImperativeHandle) and the
  * click-to-ticket prefill relocate here verbatim from the pre-P10 App: a depth-curve
- * click calls entryRef.current?.setPrice(priceCents) with no intermediate state. The
+ * click calls entryRef.current?.setPrice(pricePx) with no intermediate state. The
  * FIX inspector open / close flag is likewise page-local.
  *
  * Because useOrderBook lives above the router in App, leaving and returning to this
@@ -34,7 +34,7 @@ import { FixInspector } from "../components/FixInspector";
 
 export interface TradingPageProps {
     readonly state: AppState;
-    readonly onSubmitOrder: (side: Side, priceCents: number, qty: number) => void;
+    readonly onSubmitOrder: (side: Side, pricePx: number, qty: number) => void;
     readonly onCancelOrder: (origClOrdId: number) => void;
     readonly clOrdIdPreview: number;
 }
@@ -70,12 +70,12 @@ export function TradingPage({
                     <h2 className="panel__title">Depth</h2>
                     <DepthLadder
                         book={state.book}
-                        lastCents={state.tape.length > 0 ? state.tape[0].priceCents : -1}
+                        lastPx={state.tape.length > 0 ? state.tape[0].pricePx : -1}
                     />
                     <h2 className="panel__title panel__title--chart">Depth chart</h2>
                     <DepthCurve
                         book={state.book}
-                        onPriceSelect={(priceCents) => entryRef.current?.setPrice(priceCents)}
+                        onPriceSelect={(pricePx) => entryRef.current?.setPrice(pricePx)}
                     />
                 </section>
 
@@ -91,8 +91,8 @@ export function TradingPage({
                             ref={entryRef}
                             onSubmit={onSubmitOrder}
                             disabled={!connected}
-                            bestBidCents={state.book.bestBid}
-                            bestAskCents={state.book.bestAsk}
+                            bestBidPx={state.book.bestBid}
+                            bestAskPx={state.book.bestAsk}
                             clOrdIdPreview={clOrdIdPreview}
                         />
                     </section>

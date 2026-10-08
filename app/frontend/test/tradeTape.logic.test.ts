@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { passesBlockFilter, tickDirections } from "../src/components/TradeTape";
 import type { TapeEntry } from "../src/state/reducer";
 
-function tapeEntry(tradeId: number, priceCents: number, quantity = 1): TapeEntry {
+function tapeEntry(tradeId: number, pricePx: number, quantity = 1): TapeEntry {
     return {
         tradeId,
-        priceCents,
+        pricePx,
         quantity,
         aggressorOrderId: -1,
         passiveOrderId: -1,
@@ -41,28 +41,28 @@ describe("passesBlockFilter", () => {
 
 describe("tickDirections", () => {
     it("marks up, down, and flat against the older neighbour (newest-first)", () => {
-        // newest-first prices: 12, 11, 11, 13
-        const dirs = tickDirections(tapeOf([12, 11, 11, 13]));
-        // i0: 12 vs 11 -> up; i1: 11 vs 11 -> flat; i2: 11 vs 13 -> down; i3: oldest -> flat
+        // newest-first prices: 1200, 1100, 1100, 1300
+        const dirs = tickDirections(tapeOf([1200, 1100, 1100, 1300]));
+        // i0: 1200 vs 1100 -> up; i1: 1100 vs 1100 -> flat; i2: 1100 vs 1300 -> down; i3: oldest -> flat
         expect(dirs).toEqual(["up", "flat", "down", "flat"]);
     });
 
     it("treats equal consecutive prices as flat, with no zero-tick carry", () => {
-        // newest-first: 11, 11, 10
-        const dirs = tickDirections(tapeOf([11, 11, 10]));
-        // i0: 11 vs 11 -> flat (a repeat is not carried up); i1: 11 vs 10 -> up; i2: oldest -> flat
+        // newest-first: 1100, 1100, 1000
+        const dirs = tickDirections(tapeOf([1100, 1100, 1000]));
+        // i0: 1100 vs 1100 -> flat (a repeat is not carried up); i1: 1100 vs 1000 -> up; i2: oldest -> flat
         expect(dirs).toEqual(["flat", "up", "flat"]);
     });
 
     it("guards the oldest print and single / empty inputs", () => {
-        expect(tickDirections(tapeOf([15000]))).toEqual(["flat"]);
+        expect(tickDirections(tapeOf([1500000]))).toEqual(["flat"]);
         expect(tickDirections([])).toEqual([]);
     });
 });
 
 describe("filtering preserves newest-first order and the cap", () => {
     it("returns an order-preserving subsequence, never reordering or growing", () => {
-        const prices = [15060, 15010, 15080, 15010, 15090];
+        const prices = [1506000, 1501000, 1508000, 1501000, 1509000];
         const quantities = [700, 100, 300, 50, 900];
         const tape = tapeOf(prices).map((e, i) => ({ ...e, quantity: quantities[i] }));
 
