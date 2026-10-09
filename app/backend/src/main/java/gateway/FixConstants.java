@@ -25,6 +25,8 @@ public final class FixConstants {
     public static final int ORIG_CL_ORD_ID = 41;  // cancels only
     public static final int TIME_IN_FORCE = 59;   // new orders; optional, GTC default (Phase 14)
     public static final int MAX_FLOOR = 111;      // iceberg display size (MaxFloor); optional (Phase 14)
+    public static final int ORD_TYPE = 40;        // new orders; optional, Limit default (Phase 14)
+    public static final int EXEC_INST = 18;       // pegged orders; required 'M' for a midpoint peg (Phase 14)
 
     // --- Message-type values (the byte after 35=) ---
     public static final byte MSG_TYPE_NEW_ORDER = 'D';  // NewOrderSingle

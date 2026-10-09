@@ -2,6 +2,8 @@ package gateway;
 
 import event.OrderEvent;
 import event.OrderEventType;
+import model.OrdType;
+import model.Prices;
 import model.Side;
 import model.TimeInForce;
 import org.junit.jupiter.api.DisplayName;
@@ -249,5 +251,73 @@ class FixParserTest {
         byte[] can = msg("35=F", "11=2", "41=1");
         assertTrue(parser.parse(can, 0, can.length, event));
         assertEquals(0L, event.maxFloor, "cancel must clear the stale maxFloor from the reused slot");
+    }
+
+    // --- Order type / midpoint peg (tags 40, 18), Phase 14-9 ----------------
+
+    @Test
+    @DisplayName("missing tag 40 defaults to a LIMIT order")
+    void ordTypeDefaultsToLimit() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(OrdType.LIMIT, event.ordType);
+    }
+
+    @Test
+    @DisplayName("40=2 is an explicit LIMIT order")
+    void ordType40Of2IsLimit() {
+        byte[] m = msg("35=D", "11=1", "54=1", "40=2", "44=150.25", "38=100", "55=ASML");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(OrdType.LIMIT, event.ordType);
+    }
+
+    @Test
+    @DisplayName("40=P with 18=M and no 44 is accepted as a midpoint peg at price NA")
+    void pegWith40PAnd18M_accepted() {
+        byte[] m = msg("35=D", "11=1", "54=1", "40=P", "18=M", "38=100", "55=ASML");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(OrdType.PEG_MID, event.ordType);
+        assertEquals(Prices.NA, event.price);
+        assertEquals(TimeInForce.GTC, event.tif);   // a missing 59 still defaults to GTC
+    }
+
+    @Test
+    @DisplayName("a pegged order carrying tag 44 is rejected")
+    void pegWithPriceRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "40=P", "18=M", "44=150.25", "38=100", "55=ASML");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("a pegged order without ExecInst 18 is rejected")
+    void pegWithout18Rejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "40=P", "38=100", "55=ASML");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("a pegged order with 18 other than M is rejected")
+    void pegWith18OtherThanMRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "40=P", "18=1", "38=100", "55=ASML");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("an unknown tag 40 value is rejected")
+    void ordType40UnknownRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "40=1", "44=150.25", "38=100", "55=ASML");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("a cancel after a peg new order clears ordType on the reused slot")
+    void ordTypeClearedOnReusedSlotByCancel() {
+        byte[] neu = msg("35=D", "11=1", "54=1", "40=P", "18=M", "38=100", "55=ASML");
+        assertTrue(parser.parse(neu, 0, neu.length, event));
+        assertEquals(OrdType.PEG_MID, event.ordType);
+
+        byte[] can = msg("35=F", "11=2", "41=1");
+        assertTrue(parser.parse(can, 0, can.length, event));
+        assertNull(event.ordType, "cancel must clear the stale ordType from the reused slot");
     }
 }

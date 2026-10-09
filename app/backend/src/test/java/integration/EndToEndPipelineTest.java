@@ -278,6 +278,31 @@ class EndToEndPipelineTest {
         assertEquals(0, filled.remainingQuantity());
     }
 
+    @Test
+    void midpointPeg_crossesAtSubPennyMid_endToEndFromFixBytes() {
+        // Build a two-sided lit book: bid $100.00, ask $100.01 => mid $100.005 (1_000_050).
+        send(newOrder(901, '1', "100.00", 10));     // ACCEPTED
+        send(newOrder(902, '2', "100.01", 10));     // ACCEPTED, mid now exists
+        send(newOrderPeg(1, '2', 100, '1'));        // peg sell rests in the ask pool: ACCEPTED at NA
+        send(newOrderPeg(2, '1', 100, '1'));        // peg buy crosses the pool at the mid: FILLED
+
+        List<Observed> obs = captured.awaitAtLeast(4, 1000);
+        assertEquals(4, obs.size());
+
+        assertEquals(ExecutionEventType.ORDER_ACCEPTED, obs.get(2).eventType());
+        assertEquals(1, obs.get(2).orderId());
+        assertEquals(-1L, obs.get(2).price());       // a resting peg acknowledges at price NA
+
+        Observed fill = obs.get(3);
+        assertEquals(ExecutionEventType.ORDER_FILLED, fill.eventType());
+        assertEquals(2, fill.orderId());             // the aggressor peg buy
+        assertEquals(1, fill.passiveOrderId());      // the resting peg sell
+        assertEquals(1_000_050L, fill.price());      // the exact sub-penny midpoint
+        assertEquals(100, fill.filledQuantity());
+        assertEquals(0, fill.remainingQuantity());
+        assertTrue(fill.tradeId() > 0);
+    }
+
     // --- FIX message builders (54=1 BUY, 54=2 SELL; price in dollars, symbol ASML) ---
 
     private static byte[] newOrder(long clOrdId, char side, String price, long qty) {
@@ -293,6 +318,11 @@ class EndToEndPipelineTest {
     private static byte[] newOrderIceberg(long clOrdId, char side, String price, long qty, long maxFloor) {
         return msg("35=D", "11=" + clOrdId, "54=" + side,
                 "44=" + price, "38=" + qty, "55=ASML", "111=" + maxFloor);
+    }
+
+    private static byte[] newOrderPeg(long clOrdId, char side, long qty, char tif) {
+        return msg("35=D", "11=" + clOrdId, "54=" + side,
+                "40=P", "18=M", "38=" + qty, "55=ASML", "59=" + tif);
     }
 
     private static byte[] cancel(long clOrdId, long origClOrdId) {

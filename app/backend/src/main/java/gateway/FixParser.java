@@ -2,6 +2,7 @@ package gateway;
 
 import event.OrderEvent;
 import event.OrderEventType;
+import model.OrdType;
 import model.Prices;
 import model.Side;
 import model.TimeInForce;
@@ -227,14 +228,13 @@ final class FixParser {
         }
     }
 
-    /** NewOrderSingle (35=D): requires tags 11, 54, 44, 38, 55. Tags 59 and 111 optional. */
+    /** NewOrderSingle (35=D): requires tags 11, 54, 38, 55; tag 44 by order type (40); tags 40/18/59/111 optional per the SRS 3.1 rules. */
     private boolean parseNewOrder(byte[] buf, int count, OrderEvent target) {
         int iId = findTag(FixConstants.CL_ORD_ID, count);
         int iSide = findTag(FixConstants.SIDE, count);
-        int iPrice = findTag(FixConstants.PRICE, count);
         int iQty = findTag(FixConstants.ORDER_QTY, count);
         int iSym = findTag(FixConstants.SYMBOL, count);
-        if (iId < 0 || iSide < 0 || iPrice < 0 || iQty < 0 || iSym < 0) return false;
+        if (iId < 0 || iSide < 0 || iQty < 0 || iSym < 0) return false;
 
         // Symbol must match the single configured instrument.
         if (!symbolMatches(buf, valStarts[iSym], valEnds[iSym])) return false;
@@ -246,11 +246,37 @@ final class FixParser {
         Side side = mapSide(buf, valStarts[iSide], valEnds[iSide]);
         if (side == null) return false;                    // 54=3 and friends
 
-        long price = parsePrice(buf, valStarts[iPrice], valEnds[iPrice]);
-        if (price < 0) return false;                       // 0 / negative / >2dp
-
         long qty = FixConstants.parseLong(buf, valStarts[iQty], valEnds[iQty]);
         if (qty <= 0) return false;                        // 38=0 and non-numeric
+
+        // Order type (tag 40): absent or '2' -> LIMIT; 'P' -> PEG_MID; anything else is a reject
+        // (Phase 14 D9, SRS 3.1). A missing 40 means Limit, matching the tag-59 approach, so every
+        // existing client and hand-built test frame still parses as a limit order.
+        int iOrdType = findTag(FixConstants.ORD_TYPE, count);
+        OrdType ordType;
+        if (iOrdType < 0) {
+            ordType = OrdType.LIMIT;
+        } else {
+            ordType = mapOrdType(buf, valStarts[iOrdType], valEnds[iOrdType]);
+            if (ordType == null) return false;             // 40=1 (market), 40=3 (stop), ...
+        }
+
+        // Price (tag 44) by order type (Phase 14 D9, SRS 3.1): a LIMIT order requires 44 on the
+        // one-cent tick; a PEG_MID order forbids 44 (it has no price of its own) and instead
+        // requires ExecInst 18=M, carrying Prices.NA as its price.
+        int iPrice = findTag(FixConstants.PRICE, count);
+        long price;
+        if (ordType == OrdType.LIMIT) {
+            if (iPrice < 0) return false;                  // a limit order must carry a price
+            price = parsePrice(buf, valStarts[iPrice], valEnds[iPrice]);
+            if (price < 0) return false;                   // 0 / negative / >2dp
+        } else { // PEG_MID
+            if (iPrice >= 0) return false;                 // tag 44 is forbidden on a peg
+            int iExec = findTag(FixConstants.EXEC_INST, count);
+            if (iExec < 0) return false;                   // a peg must carry ExecInst 18
+            if (!isMidPeg(buf, valStarts[iExec], valEnds[iExec])) return false; // 18 must be 'M'
+            price = Prices.NA;
+        }
 
         // Time in force (tag 59): absent -> GTC (documented Day deviation); 1/3/4 -> enum;
         // anything else, including 0 (Day) and 6 (GTD), is a reject (Phase 14 decision C).
@@ -283,6 +309,7 @@ final class FixParser {
         target.eventType       = OrderEventType.NEW_ORDER;
         target.orderId         = orderId;
         target.side            = side;
+        target.ordType         = ordType;
         target.tif             = tif;
         target.price           = price;
         target.quantity        = qty;
@@ -308,6 +335,7 @@ final class FixParser {
         target.orderId         = orderId;
         target.originalOrderId = origId;
         target.side            = null;                     // unused by F; clear stale
+        target.ordType         = null;                     // unused by F; clear stale
         target.tif             = null;                     // unused by F; clear stale
         target.price           = -1L;
         target.quantity        = -1L;
@@ -354,5 +382,20 @@ final class FixParser {
             case '4': return TimeInForce.FOK;
             default:  return null;
         }
+    }
+
+    /** FIX OrdType (tag 40) -> enum. '2' = Limit, 'P' = Pegged; anything else -> null. */
+    private OrdType mapOrdType(byte[] buf, int start, int end) {
+        if (end - start != 1) return null;
+        switch (buf[start]) {
+            case '2': return OrdType.LIMIT;
+            case 'P': return OrdType.PEG_MID;
+            default:  return null;
+        }
+    }
+
+    /** FIX ExecInst (tag 18) mid-price-peg qualifier: true iff the value is exactly 'M'. */
+    private boolean isMidPeg(byte[] buf, int start, int end) {
+        return (end - start == 1) && buf[start] == 'M';
     }
 }

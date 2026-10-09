@@ -1,6 +1,7 @@
 package net;
 
 import gateway.FixConstants;
+import model.OrdType;
 import model.Prices;
 import model.Side;
 import model.TimeInForce;
@@ -45,14 +46,25 @@ public final class JsonToFix {
     }
 
     /**
-     * NewOrderSingle (35=D) with an explicit time in force and iceberg display size: tags 11, 55,
-     * 54, 38, 44, 59, plus 111 only when {@code maxFloor > 0} (an order that hides nothing omits
-     * it). The terminal always sends tag 59 (§3.1/§3.6). The tag order leaves room for 40 (OrdType)
-     * to land between 38 and 44 at P14-9; the parser is tag-order-agnostic, so appending 111 last
-     * is valid FIX now and reorders cleanly then.
+     * NewOrderSingle (35=D) with an explicit time in force and iceberg display size (legacy 7-arg
+     * form). Kept as a delegating overload so existing callers are unchanged; delegates with order
+     * type LIMIT (Phase 14 decision J).
      */
     public static byte[] newOrderSingle(long clOrdId, Side side, long priceUnits, long qty, String symbol,
                                         TimeInForce tif, long maxFloor) {
+        return newOrderSingle(clOrdId, side, OrdType.LIMIT, priceUnits, qty, symbol, tif, maxFloor);
+    }
+
+    /**
+     * NewOrderSingle (35=D), full form with an explicit order type (P14-9). Emits tags 11, 55, 54,
+     * 38, 40, then the price field by type: a LIMIT carries 44; a PEG_MID carries ExecInst 18=M and
+     * no 44 (it has no price of its own, so {@code priceUnits} is ignored). Then 59, and 111 only
+     * when {@code maxFloor > 0}. Tag order 35, 11, 55, 54, 38, 40, (44 | 18), 59, [111] matches the
+     * SRS 3.1 layout; the parser is tag-order-agnostic regardless.
+     */
+    public static byte[] newOrderSingle(long clOrdId, Side side, OrdType ordType, long priceUnits, long qty,
+                                        String symbol, TimeInForce tif, long maxFloor) {
+        String priceField = (ordType == OrdType.PEG_MID) ? "18=M" : "44=" + formatPrice(priceUnits);
         if (maxFloor > 0) {
             return assemble(
                     "35=D",
@@ -60,7 +72,8 @@ public final class JsonToFix {
                     "55=" + symbol,
                     "54=" + sideCode(side),
                     "38=" + qty,
-                    "44=" + formatPrice(priceUnits),
+                    "40=" + ordTypeCode(ordType),
+                    priceField,
                     "59=" + tifCode(tif),
                     "111=" + maxFloor);
         }
@@ -70,7 +83,8 @@ public final class JsonToFix {
                 "55=" + symbol,
                 "54=" + sideCode(side),
                 "38=" + qty,
-                "44=" + formatPrice(priceUnits),
+                "40=" + ordTypeCode(ordType),
+                priceField,
                 "59=" + tifCode(tif));
     }
 
@@ -85,6 +99,11 @@ public final class JsonToFix {
     /** FIX side code: 1 = buy, 2 = sell (mirrors FixParser.mapSide). */
     private static char sideCode(Side side) {
         return side == Side.BUY ? '1' : '2';
+    }
+
+    /** FIX OrdType code: 2 = Limit, P = Pegged (mirrors FixParser.mapOrdType). */
+    private static char ordTypeCode(OrdType ordType) {
+        return ordType == OrdType.PEG_MID ? 'P' : '2';
     }
 
     /** FIX TimeInForce code: 1 = GTC, 3 = IOC, 4 = FOK (mirrors FixParser.mapTif). */

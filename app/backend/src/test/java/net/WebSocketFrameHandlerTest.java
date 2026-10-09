@@ -14,6 +14,7 @@ import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.util.concurrent.GlobalEventExecutor;
+import model.OrdType;
 import model.Side;
 import model.TimeInForce;
 import org.junit.jupiter.api.AfterEach;
@@ -317,5 +318,47 @@ class WebSocketFrameHandlerTest {
         } finally {
             frame.release();
         }
+    }
+
+    // --- order type / midpoint peg on the inbound edge (Phase 14-9) ---
+
+    @Test
+    void pegOrderCarriedToTheWireAs40PAnd18M() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"BUY\",\"ordType\":\"PEG_MID\",\"tif\":\"GTC\",\"price\":-1,\"qty\":100,\"symbol\":\"ASML\"}"));
+
+        CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        assertNotNull(obs, "a peg order should reach the inbound ring");
+
+        JsonNode echo = readEcho();
+        assertNotNull(echo);
+        String expected = new String(
+                JsonToFix.newOrderSingle(7L, Side.BUY, OrdType.PEG_MID, -1L, 100L, "ASML", TimeInForce.GTC, 0L),
+                StandardCharsets.ISO_8859_1);
+        assertEquals(expected, echo.path("raw").asText(), "a peg must encode as 40=P with ExecInst 18=M and no 44");
+    }
+
+    @Test
+    void pegOrderWithoutPriceFieldStillReachesTheWire() throws Exception {
+        // A peg frame may omit price entirely; the handler must branch on ordType before reading it.
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"SELL\",\"ordType\":\"PEG_MID\",\"tif\":\"IOC\",\"qty\":100,\"symbol\":\"ASML\"}"));
+
+        CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        assertNotNull(obs, "a peg order with no price field should still reach the inbound ring");
+
+        JsonNode echo = readEcho();
+        assertNotNull(echo);
+        String expected = new String(
+                JsonToFix.newOrderSingle(7L, Side.SELL, OrdType.PEG_MID, -1L, 100L, "ASML", TimeInForce.IOC, 0L),
+                StandardCharsets.ISO_8859_1);
+        assertEquals(expected, echo.path("raw").asText());
+    }
+
+    @Test
+    void unknownOrdTypePublishesNothing() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\",\"ordType\":\"MARKET\",\"price\":1502500,\"qty\":100,\"symbol\":\"ASML\"}"));
+        assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS), "unknown ordType dropped at the edge");
     }
 }

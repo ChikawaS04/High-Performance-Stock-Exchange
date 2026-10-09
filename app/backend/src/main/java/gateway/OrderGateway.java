@@ -44,7 +44,7 @@ public final class OrderGateway {
      * into a claimed slot would force publishing rejects (or push reject-awareness
      * into the engine, breaking boundary separation, SRS §5.5). So we parse into a
      * reusable scratch, decide, and only claim+copy on success. The parser clears
-     * type-specific fields per branch (Step 5) and this copies all nine, so a
+     * type-specific fields per branch (Step 5) and this copies all ten, so a
      * reused slot never bleeds stale data.
      */
     private static final EventTranslatorOneArg<OrderEvent, OrderEvent> COPY_INTO_SLOT =
@@ -52,6 +52,7 @@ public final class OrderGateway {
                 slot.eventType       = src.eventType;
                 slot.orderId         = src.orderId;
                 slot.side            = src.side;
+                slot.ordType         = src.ordType;
                 slot.tif             = src.tif;
                 slot.price           = src.price;
                 slot.quantity        = src.quantity;

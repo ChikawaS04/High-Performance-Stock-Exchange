@@ -8,6 +8,7 @@ import event.ExecutionEventType;
 import event.OrderEvent;
 import event.OrderEventType;
 import model.Order;
+import model.OrdType;
 import model.TimeInForce;
 
 import java.util.function.LongSupplier;
@@ -98,6 +99,10 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
         // maps to GTC; coalesce here so the canonical constructor's non-null guard stays a
         // guard for direct callers rather than a reject path for the live pipeline.
         TimeInForce tif = (event.tif == null) ? TimeInForce.GTC : event.tif;
+        // A null ordType reaching the engine means the slot carried no tag 40, which the wire maps
+        // to LIMIT; coalesce here exactly as tif is, so the canonical constructor's non-null guard
+        // stays a guard for direct callers rather than a reject path for the live pipeline.
+        OrdType ordType = (event.ordType == null) ? OrdType.LIMIT : event.ordType;
         Order order;
         try {
             order = new Order(
@@ -108,7 +113,8 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
                     event.price,
                     GATEWAY_PARTICIPANT_ID,
                     tif,
-                    (int) event.maxFloor   // iceberg display size (tag 111); 0 means a plain order
+                    (int) event.maxFloor,  // iceberg display size (tag 111); 0 means a plain order
+                    ordType                // LIMIT or PEG_MID (tag 40)
             );
         } catch (IllegalArgumentException rejected) {
             publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA);

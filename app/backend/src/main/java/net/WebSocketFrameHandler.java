@@ -11,6 +11,7 @@ import io.netty.channel.group.ChannelGroup;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
+import model.OrdType;
 import model.Side;
 import model.TimeInForce;
 import org.slf4j.Logger;
@@ -161,6 +162,15 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                     log.warn("Dropping NEW order with invalid/missing side: {}", json);
                     return;
                 }
+                // Order type: a missing or null ordType defaults to LIMIT; an unknown value is
+                // dropped at the boundary with a warning, exactly as an invalid side is (SRS 3.6).
+                JsonNode ordTypeNode = node.path("ordType");
+                String ordTypeStr = (ordTypeNode.isMissingNode() || ordTypeNode.isNull()) ? "LIMIT" : ordTypeNode.asText();
+                OrdType ordType = mapOrdType(ordTypeStr);
+                if (ordType == null) {
+                    log.warn("Dropping NEW order with unknown ordType '{}': {}", ordTypeStr, json);
+                    return;
+                }
                 // Time in force: a missing or null tif defaults to GTC; an unknown value is dropped
                 // at the boundary with a warning, exactly as an invalid side is (§3.6).
                 JsonNode tifNode = node.path("tif");
@@ -175,10 +185,14 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                 // Order constructor's job downstream (§3.1), as for price and qty.
                 JsonNode maxFloorNode = node.path("maxFloor");
                 long maxFloor = (maxFloorNode.isMissingNode() || maxFloorNode.isNull()) ? 0L : maxFloorNode.asLong();
+                // A peg carries no price of its own; the frontend sends price:-1, but branch on
+                // ordType so a peg frame that omits price never trips the reader (P14-0 finding).
+                long price = (ordType == OrdType.PEG_MID) ? -1L : node.get("price").asLong();
                 fix = JsonToFix.newOrderSingle(
                         node.get("clOrdId").asLong(),
                         side,
-                        node.get("price").asLong(),
+                        ordType,
+                        price,
                         node.get("qty").asLong(),
                         node.get("symbol").asText(),
                         tif,
@@ -232,6 +246,13 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
         if ("GTC".equals(s)) return TimeInForce.GTC;
         if ("IOC".equals(s)) return TimeInForce.IOC;
         if ("FOK".equals(s)) return TimeInForce.FOK;
+        return null;
+    }
+
+    /** JSON ordType string -> enum. "LIMIT"/"PEG_MID" map through; anything else -> null (dropped). */
+    private static OrdType mapOrdType(String s) {
+        if ("LIMIT".equals(s)) return OrdType.LIMIT;
+        if ("PEG_MID".equals(s)) return OrdType.PEG_MID;
         return null;
     }
 }

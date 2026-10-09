@@ -16,30 +16,18 @@
       <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/net/WebSocketFrameHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/net/WebSocketFrameHandler.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineHandlerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineHandlerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineSnapshotTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineSnapshotTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/gateway/FixParserTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/gateway/FixParserTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/gateway/JsonToFixParseTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/gateway/JsonToFixParseTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/integration/EndToEndPipelineTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/integration/EndToEndPipelineTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/net/WebSocketFrameHandlerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/net/WebSocketFrameHandlerTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/messages.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/messages.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/header.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.test.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/passiveFill.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/passiveFill.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderTicket.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderTicket.logic.test.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/reducer.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/reducer.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/session.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/session.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/tapeSide.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tapeSide.test.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -47,7 +35,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="78" />
+    <option name="cachedIndexableFilesCount" value="79" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
@@ -81,23 +69,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.7386959320880335" />
-      <entry key="MS500" value="2.656470501324235" />
-      <entry key="S2" value="5.027576525411483" />
-      <entry key="S5" value="10.19032024981139" />
-      <entry key="S10" value="15.788166944894272" />
-      <entry key="S30" value="23.19507844074443" />
-      <entry key="S60" value="25.867708614076914" />
-      <entry key="M2" value="27.371212169070592" />
-      <entry key="M5" value="28.59284265621738" />
-      <entry key="M10" value="33.89880141605116" />
-      <entry key="M15" value="43.12137297079627" />
-      <entry key="M30" value="68.89590893557545" />
-      <entry key="H1" value="106.88909894812605" />
-      <entry key="H2" value="194.98870925990155" />
-      <entry key="H4" value="395.65672167609927" />
-      <entry key="D1" value="1174.7070900867138" />
-      <entry key="W1" value="1671.5576282023817" />
+      <entry key="MS100" value="1.4207205460241996" />
+      <entry key="MS500" value="2.839319521662625" />
+      <entry key="S2" value="6.414057852967078" />
+      <entry key="S5" value="12.097449323736315" />
+      <entry key="S10" value="18.34422316125013" />
+      <entry key="S30" value="26.97573822236729" />
+      <entry key="S60" value="30.183903737756452" />
+      <entry key="M2" value="32.008340329552794" />
+      <entry key="M5" value="33.441003109274014" />
+      <entry key="M10" value="38.80941114930456" />
+      <entry key="M15" value="48.04624803126122" />
+      <entry key="M30" value="73.83665319499646" />
+      <entry key="H1" value="111.84348445264726" />
+      <entry key="H2" value="199.94736974117538" />
+      <entry key="H4" value="400.6149465926907" />
+      <entry key="D1" value="1179.6864712246474" />
+      <entry key="W1" value="1676.5534384281286" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -119,23 +107,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.6381895699905653" />
-      <entry key="MS500" value="2.6238740634525883" />
-      <entry key="S2" value="5.012744290977398" />
-      <entry key="S5" value="10.178543029483425" />
-      <entry key="S10" value="15.779045643609987" />
-      <entry key="S30" value="23.190598180726305" />
-      <entry key="S60" value="25.865207617234493" />
-      <entry key="M2" value="27.36988820202333" />
-      <entry key="M5" value="28.592288619945528" />
-      <entry key="M10" value="33.89846671685134" />
-      <entry key="M15" value="43.12108233951943" />
-      <entry key="M30" value="68.89566794749166" />
-      <entry key="H1" value="106.88889835136283" />
-      <entry key="H2" value="194.98849799578065" />
-      <entry key="H4" value="395.6564825464962" />
-      <entry key="D1" value="1174.7069641832372" />
-      <entry key="W1" value="1671.5576025478674" />
+      <entry key="MS100" value="1.3177147446381723" />
+      <entry key="MS500" value="2.7781017061663333" />
+      <entry key="S2" value="6.355324693392247" />
+      <entry key="S5" value="12.059563106331465" />
+      <entry key="S10" value="18.31993770052944" />
+      <entry key="S30" value="26.96553422629308" />
+      <entry key="S60" value="30.178431699037255" />
+      <entry key="M2" value="32.00550069885065" />
+      <entry key="M5" value="33.43983518194182" />
+      <entry key="M10" value="38.80876832150333" />
+      <entry key="M15" value="48.045751766422235" />
+      <entry key="M30" value="73.83630927810944" />
+      <entry key="H1" value="111.8432323569112" />
+      <entry key="H2" value="199.94713272541404" />
+      <entry key="H4" value="400.61469458909846" />
+      <entry key="D1" value="1179.6863431733682" />
+      <entry key="W1" value="1676.5534124665307" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -421,6 +409,9 @@
       <workItem from="1791506708867" duration="3673000" />
       <workItem from="1791512774057" duration="461000" />
       <workItem from="1791565920438" duration="897000" />
+      <workItem from="1791567692544" duration="879000" />
+      <workItem from="1791569328802" duration="2680000" />
+      <workItem from="1791574629753" duration="1651000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

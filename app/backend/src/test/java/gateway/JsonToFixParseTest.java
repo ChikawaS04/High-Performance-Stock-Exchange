@@ -2,6 +2,8 @@ package gateway;
 
 import event.OrderEvent;
 import event.OrderEventType;
+import model.OrdType;
+import model.Prices;
 import model.Side;
 import model.TimeInForce;
 import net.JsonToFix;
@@ -129,5 +131,31 @@ class JsonToFixParseTest {
     void legacyFormsCarryNoMaxFloor() {
         assertEquals(0L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML")).maxFloor);
         assertEquals(0L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML", TimeInForce.IOC)).maxFloor);
+    }
+
+    // --- Order type / midpoint peg (tags 40, 18), Phase 14-9 ----------------
+
+    @Test
+    void limitFullFormEmits40_2AndRoundTrips() {
+        OrderEvent ev = parseOk(
+                JsonToFix.newOrderSingle(1L, Side.BUY, OrdType.LIMIT, 1_502_500L, 100L, "ASML", TimeInForce.GTC, 0L));
+        assertEquals(OrdType.LIMIT, ev.ordType);
+        assertEquals(1_502_500L, ev.price);
+    }
+
+    @Test
+    void pegEmits40PAnd18M_atPriceNa_andRoundTrips() {
+        OrderEvent ev = parseOk(
+                JsonToFix.newOrderSingle(1L, Side.BUY, OrdType.PEG_MID, Prices.NA, 100L, "ASML", TimeInForce.IOC, 0L));
+        assertEquals(OrdType.PEG_MID, ev.ordType);
+        assertEquals(Prices.NA, ev.price);
+        assertEquals(TimeInForce.IOC, ev.tif);
+    }
+
+    @Test
+    void legacyFormsDefaultToLimit() {
+        assertEquals(OrdType.LIMIT, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML")).ordType);
+        assertEquals(OrdType.LIMIT,
+                parseOk(JsonToFix.newOrderSingle(1L, Side.SELL, 1_500_000L, 1L, "ASML", TimeInForce.FOK, 0L)).ordType);
     }
 }

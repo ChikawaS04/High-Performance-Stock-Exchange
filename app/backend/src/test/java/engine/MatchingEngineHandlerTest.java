@@ -6,6 +6,7 @@ import event.ExecutionEventType;
 import event.OrderEvent;
 import event.OrderEventType;
 import event.OutboundPipeline;
+import model.OrdType;
 import model.Side;
 import model.TimeInForce;
 import org.junit.jupiter.api.AfterEach;
@@ -228,6 +229,24 @@ class MatchingEngineHandlerTest {
         // peak > 0 with a non-GTC tif violates the Order constructor's iceberg rule, so the
         // handler's IllegalArgumentException path reports ORDER_REJECTED (D8).
         submit(newOrder(1, Side.BUY, 1_000_000, 1000, TimeInForce.IOC, 100), 0);
+
+        List<Observed> obs = captured.awaitAtLeast(1, 1000);
+        assertEquals(1, obs.size());
+        assertEquals(ExecutionEventType.ORDER_REJECTED, obs.get(0).eventType());
+        assertEquals(1, obs.get(0).orderId());
+    }
+
+    private static OrderEvent peg(long orderId, Side side, long qty, TimeInForce tif, long maxFloor) {
+        OrderEvent e = newOrder(orderId, side, -1L, qty, tif, maxFloor);
+        e.ordType = OrdType.PEG_MID;
+        return e;
+    }
+
+    @Test
+    void pegWithDisplaySize_isRejectedByTheDomainConstructor() {
+        // A midpoint peg with a display size (tag 111 > 0) violates the Order constructor rule that
+        // a non-displayed order cannot be an iceberg, so the handler reports ORDER_REJECTED (E).
+        submit(peg(1, Side.BUY, 1000, TimeInForce.GTC, 100), 0);
 
         List<Observed> obs = captured.awaitAtLeast(1, 1000);
         assertEquals(1, obs.size());
