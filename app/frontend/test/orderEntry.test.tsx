@@ -304,3 +304,100 @@ describe("<OrderEntry /> FIX annotation cleanup (P8-6)", () => {
         expect(screen.queryByText(/client-assigned/i)).toBeNull();
     });
 });
+
+describe("<OrderEntry /> iceberg display (P14-8)", () => {
+    const display = () => screen.getByTestId("display-input") as HTMLInputElement;
+
+    it("shows the Display field for GTC and hides it for IOC and FOK", () => {
+        render(<OrderEntry onSubmit={vi.fn()} />);
+        expect(screen.queryByTestId("display-input")).not.toBeNull(); // GTC is default
+
+        fireEvent.click(screen.getByTestId("tif-ioc"));
+        expect(screen.queryByTestId("display-input")).toBeNull();
+
+        fireEvent.click(screen.getByTestId("tif-fok"));
+        expect(screen.queryByTestId("display-input")).toBeNull();
+
+        fireEvent.click(screen.getByTestId("tif-gtc"));
+        expect(screen.queryByTestId("display-input")).not.toBeNull();
+    });
+
+    it("carries a valid display quantity in the intent as displayQty", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "100" } });
+        fireEvent.change(display(), { target: { value: "10" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+
+        expect(onSubmit).toHaveBeenCalledWith(
+            expect.objectContaining({ ordType: "LIMIT", tif: "GTC", qty: 100, displayQty: 10 }),
+        );
+    });
+
+    it("sends displayQty 0 when the field is left empty (a plain order)", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "100" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+
+        expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ displayQty: 0 }));
+    });
+
+    it("normalises display == qty to 0 (hides nothing)", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "100" } });
+        fireEvent.change(display(), { target: { value: "100" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+
+        expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ displayQty: 0 }));
+    });
+
+    it("blocks a display greater than the quantity and does not submit", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "100" } });
+        fireEvent.change(display(), { target: { value: "150" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(screen.getByTestId("order-entry-error").textContent).toMatch(/display/i);
+    });
+
+    it("ignores a display typed under GTC once IOC is selected, sending displayQty 0", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "100" } });
+        fireEvent.change(display(), { target: { value: "10" } });
+        // Switch to IOC: the field unmounts and its value is ignored, so a valid
+        // order still sends with no iceberg rather than being blocked.
+        fireEvent.click(screen.getByTestId("tif-ioc"));
+        fireEvent.click(screen.getByTestId("order-submit"));
+
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+        expect(onSubmit).toHaveBeenCalledWith(
+            expect.objectContaining({ tif: "IOC", displayQty: 0 }),
+        );
+    });
+
+    it("clears the display field after a successful submit", () => {
+        render(<OrderEntry onSubmit={vi.fn()} />);
+
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "100" } });
+        fireEvent.change(display(), { target: { value: "10" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+
+        expect(display().value).toBe("");
+    });
+});

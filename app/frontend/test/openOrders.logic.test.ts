@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filledOf } from "../src/components/OpenOrders";
+import { filledOf, orderTypeLabel } from "../src/components/OpenOrders";
 import type { MyOrder } from "../src/state/reducer";
 
 function order(originalQty: number, remainingQty: number): MyOrder {
@@ -31,5 +31,27 @@ describe("filledOf", () => {
         // Defensive: remaining should never exceed original, but a bad pair must not
         // render a negative filled quantity.
         expect(filledOf(order(10, 12))).toBe(0);
+    });
+});
+
+describe("orderTypeLabel", () => {
+    const withDisplay = (displayQty: number): MyOrder => ({
+        clOrdId: 1,
+        side: "BUY",
+        pricePx: 1500000,
+        originalQty: 100,
+        remainingQty: 100,
+        status: "OPEN",
+        ordType: "LIMIT",
+        tif: "GTC",
+        displayQty,
+    });
+
+    it("is ICE when a display quantity is set", () => {
+        expect(orderTypeLabel(withDisplay(10))).toBe("ICE");
+    });
+
+    it("is LMT when there is no display quantity", () => {
+        expect(orderTypeLabel(withDisplay(0))).toBe("LMT");
     });
 });

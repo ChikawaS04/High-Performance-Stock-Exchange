@@ -254,6 +254,11 @@ describe("outbound encoders", () => {
         }
     });
 
+    it("carries a positive display size through to maxFloor (P14-8)", () => {
+        const frame = newOrderFrame(9, intent("BUY", 1500000, 100, { displayQty: 10 }));
+        expect(frame.maxFloor).toBe(10);
+    });
+
     it("emits the exact CANCEL shape", () => {
         expect(cancelOrderFrame(9, 1)).toEqual({ type: "CANCEL", clOrdId: 9, origClOrdId: 1 });
     });

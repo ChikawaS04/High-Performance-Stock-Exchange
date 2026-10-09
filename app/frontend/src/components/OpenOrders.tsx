@@ -42,6 +42,12 @@
  * placed between Side and Price so P14-8's Type column slots in alongside it. The
  * EXPIRED status needs no code here: it prints verbatim like every other status,
  * and isCancellable already excludes it, so an expired row shows no Cancel action.
+ *
+ * P14-8: a Type column (between Side and TIF) renders ICE for an order carrying an
+ * iceberg display quantity and LMT otherwise, via the pure orderTypeLabel. It is
+ * shaped so P14-10 adds only a PEG_MID -> "MID" branch ahead of the displayQty
+ * check, with no change to the table itself. displayQty is already captured at
+ * send time (P14-6); nothing new is read from the wire.
  */
 
 import { isCancellable } from "../state/reducer";
@@ -57,6 +63,17 @@ import { formatPrice, formatClockNanos } from "../format";
  */
 export function filledOf(order: MyOrder): number {
     return Math.max(0, order.originalQty - order.remainingQty);
+}
+
+/**
+ * The blotter Type code for a row. Pure and exported (mirrors filledOf) so the
+ * label is unit-tested without a DOM. ICE when an iceberg display quantity is set
+ * (captured at send time, P14-6), LMT otherwise. P14-10 adds a
+ * `order.ordType === "PEG_MID" -> "MID"` branch AHEAD of this displayQty check;
+ * the column is shaped for it now, so that step touches only this helper.
+ */
+export function orderTypeLabel(order: MyOrder): string {
+    return order.displayQty > 0 ? "ICE" : "LMT";
 }
 
 export interface OpenOrdersProps {
@@ -86,6 +103,7 @@ export function OpenOrders({ orders, onCancel }: OpenOrdersProps) {
                             Sent
                         </th>
                         <th className="open-orders__col-side">Side</th>
+                        <th className="open-orders__col-type">Type</th>
                         <th className="open-orders__col-tif">TIF</th>
                         <th className="open-orders__col-price">Price</th>
                         <th className="open-orders__col-qty">Filled</th>
@@ -105,6 +123,9 @@ export function OpenOrders({ orders, onCancel }: OpenOrdersProps) {
                                 {formatClockNanos(order.sentAtNanos ?? 0)}
                             </td>
                             <td className="open-orders__side">{order.side}</td>
+                            <td className="open-orders__type" data-testid={`type-${order.clOrdId}`}>
+                                {orderTypeLabel(order)}
+                            </td>
                             <td className="open-orders__tif" data-testid={`tif-${order.clOrdId}`}>
                                 {order.tif}
                             </td>

@@ -2202,3 +2202,27 @@ body {
     font-size: 11px;
     color: var(--text-dim);
 }
+
+
+/* --------------------------------------------------------------------------
+   P14-8: iceberg Display quantity field and the blotter Type column.
+   Existing tokens only (as P13 D8). The Display field is a full-width optional
+   input shown only for a Limit GTC order, reusing the shared input styling; the
+   Type column mirrors the TIF column (a short sans code, left-aligned, quiet
+   like the status column).
+   -------------------------------------------------------------------------- */
+
+.order-entry__field--display {
+    grid-column: 1 / -1;
+}
+
+.open-orders__col-type {
+    text-align: left;
+}
+
+.open-orders__type {
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--text-dim);
+}

@@ -22,7 +22,14 @@
  * moves the submit seam to a single OrderIntent object (decision H), so the later
  * iceberg (P14-8) and midpoint-peg (P14-10) steps add meaning to the intent's
  * displayQty / ordType without the signature growing again. For now the ticket
- * only ever sends ordType "LIMIT" and displayQty 0.
+ * only ever sends ordType "LIMIT".
+ *
+ * P14-8 gives the iceberg half meaning: an optional Display quantity field, shown
+ * only for a GTC order (an iceberg is GTC-only, D8), validated locally against
+ * 0 < display <= qty with display == qty normalised to 0 (hides nothing, D7). IOC
+ * and FOK hide the field and always send displayQty 0, so no iceberg+IOC/FOK
+ * combination can leave the ticket. The resolved displayQty rides the existing
+ * intent -> maxFloor wiring (P14-6); ordType stays "LIMIT" until P14-10.
  *
  * Controlled-price seam. The chips and nudges write the SAME uncontrolled
  * `priceInput` the user types, so there is one source of truth and the P5-4
@@ -66,6 +73,38 @@ export function validateOrderInput(priceInput: string, qtyInput: string): Valida
     }
 
     return { ok: true, pricePx, qty };
+}
+
+/**
+ * The resolved iceberg display quantity for a GTC order, or a reason it is
+ * invalid. Exported for direct unit testing (mirrors validateOrderInput), kept
+ * separate from it so the price/qty return shape is unchanged. Takes the
+ * already-resolved integer qty, so it runs only after validateOrderInput passes.
+ * Rules (D7/D8): an empty field is a plain order (display 0); any entered value
+ * must be a positive whole number no greater than qty; display == qty hides
+ * nothing and is normalised to 0. IOC/FOK never reach here; the caller sends
+ * displayQty 0 for them.
+ */
+export type DisplayResult =
+    | { readonly ok: true; readonly displayQty: number }
+    | { readonly ok: false; readonly reason: string };
+
+const DISPLAY_REASON = "Display must be a whole number from 1 to the order quantity";
+
+export function validateDisplayQty(displayInput: string, qty: number): DisplayResult {
+    const trimmed = displayInput.trim();
+    if (trimmed === "") {
+        return { ok: true, displayQty: 0 };
+    }
+    if (!/^\d+$/.test(trimmed)) {
+        return { ok: false, reason: DISPLAY_REASON };
+    }
+    const display = Number(trimmed);
+    if (!Number.isSafeInteger(display) || display <= 0 || display > qty) {
+        return { ok: false, reason: DISPLAY_REASON };
+    }
+    // display == qty hides nothing, so it is a plain order, not an iceberg (D7).
+    return { ok: true, displayQty: display === qty ? 0 : display };
 }
 
 /** One cent, in units of $0.0001. The integer-units primitive is the unit end to end. */
@@ -136,6 +175,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
     const [tif, setTif] = useState<TimeInForce>("GTC");
     const [priceInput, setPriceInput] = useState("");
     const [qtyInput, setQtyInput] = useState("");
+    const [displayInput, setDisplayInput] = useState("");
     const [error, setError] = useState<string | null>(null);
 
     // The one seam the chips, the nudges, and (via the ref) the curve all feed: it
@@ -154,21 +194,35 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             setError(result.reason);
             return;
         }
+        // P14-8: the Display quantity is an iceberg's visible slice, meaningful only
+        // for a resting (GTC) order. IOC and FOK hide the field, so no display is
+        // resolved or validated for them and the frame carries displayQty 0. For
+        // GTC an empty field is a plain order, and display == qty normalises to 0.
+        let displayQty = 0;
+        if (tif === "GTC") {
+            const display = validateDisplayQty(displayInput, result.qty);
+            if (!display.ok) {
+                setError(display.reason);
+                return;
+            }
+            displayQty = display.displayQty;
+        }
         setError(null);
-        // P14-6: a single resolved intent. ordType is LIMIT and displayQty is 0
-        // until P14-10 / P14-8 give the ticket controls for them.
+        // A single resolved intent (P14-6, decision H). ordType stays LIMIT until
+        // P14-10; displayQty now carries the iceberg size (P14-8).
         onSubmit({
             side,
             ordType: "LIMIT",
             tif,
             pricePx: result.pricePx,
             qty: result.qty,
-            displayQty: 0,
+            displayQty,
         });
-        // Clear price + qty for the next order; keep the side and time in force for
-        // repeat fires.
+        // Clear price, qty and display for the next order; keep side and time in
+        // force for repeat fires.
         setPriceInput("");
         setQtyInput("");
+        setDisplayInput("");
     };
 
     const nudge = (steps: number): void => {
@@ -336,6 +390,25 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                     ))}
                 </div>
             </div>
+
+            {tif === "GTC" ? (
+                <div className="order-entry__field order-entry__field--display">
+                    <div className="order-entry__field-head">
+                        <span className="order-entry__label">Display</span>
+                    </div>
+                    <input
+                        className="order-entry__input"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={displayInput}
+                        data-testid="display-input"
+                        aria-label="Display quantity"
+                        disabled={disabled}
+                        onChange={(e) => setDisplayInput(e.target.value)}
+                    />
+                </div>
+            ) : null}
 
             <div className="order-entry__clordid" data-testid="order-entry-clordid">
                 <span className="order-entry__label">Order ID</span>

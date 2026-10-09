@@ -6,6 +6,7 @@ import {
     nudgePx,
     QTY_PRESETS,
     TICK_PX,
+    validateDisplayQty,
 } from "../src/components/OrderEntry";
 
 describe("midChipPx", () => {
@@ -72,5 +73,35 @@ describe("applyPreset", () => {
 
     it("offers round-lot presets", () => {
         expect(QTY_PRESETS).toEqual([10, 50, 100, 500]);
+    });
+});
+
+describe("validateDisplayQty", () => {
+    it("treats an empty or whitespace field as a plain order (display 0)", () => {
+        expect(validateDisplayQty("", 100)).toEqual({ ok: true, displayQty: 0 });
+        expect(validateDisplayQty("   ", 100)).toEqual({ ok: true, displayQty: 0 });
+    });
+
+    it("accepts a positive display strictly below the quantity", () => {
+        expect(validateDisplayQty("10", 100)).toEqual({ ok: true, displayQty: 10 });
+        expect(validateDisplayQty("99", 100)).toEqual({ ok: true, displayQty: 99 });
+    });
+
+    it("normalises display == qty to a plain order (hides nothing, D7)", () => {
+        expect(validateDisplayQty("100", 100)).toEqual({ ok: true, displayQty: 0 });
+    });
+
+    it("rejects a display greater than the quantity", () => {
+        const r = validateDisplayQty("101", 100);
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.reason).toMatch(/display/i);
+    });
+
+    it("rejects zero, negative, fractional, and non-numeric displays", () => {
+        for (const d of ["0", "-1", "1.5", "abc", "1e2", "1,0"]) {
+            const r = validateDisplayQty(d, 100);
+            expect(r.ok).toBe(false);
+            if (!r.ok) expect(r.reason).toMatch(/display/i);
+        }
     });
 });

@@ -17,6 +17,7 @@ function makeOrder(
     originalQty = 10,
     sentAtNanos?: number,
     tif: TimeInForce = "GTC",
+    displayQty = 0,
 ): MyOrder {
     return {
         clOrdId,
@@ -27,7 +28,7 @@ function makeOrder(
         status,
         ordType: "LIMIT",
         tif,
-        displayQty: 0,
+        displayQty,
         ...(sentAtNanos !== undefined ? { sentAtNanos } : {}),
     };
 }
@@ -55,6 +56,20 @@ describe("<OpenOrders />", () => {
         );
         expect(screen.getByTestId("tif-7").textContent).toBe("IOC");
         expect(screen.getByTestId("open-orders-row").textContent).toContain("IOC");
+    });
+
+    it("renders the Type column as ICE for an iceberg and LMT otherwise (P14-8)", () => {
+        render(
+            <OpenOrders
+                orders={[
+                    makeOrder(7, "OPEN", "BUY", 1500000, 100, 100, undefined, "GTC", 10),
+                    makeOrder(8, "OPEN", "BUY", 1500000, 100, 100, undefined, "GTC", 0),
+                ]}
+                onCancel={vi.fn()}
+            />,
+        );
+        expect(screen.getByTestId("type-7").textContent).toBe("ICE");
+        expect(screen.getByTestId("type-8").textContent).toBe("LMT");
     });
 
     it("shows EXPIRED as a terminal, non-cancellable status (P14-6)", () => {
