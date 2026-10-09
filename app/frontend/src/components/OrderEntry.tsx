@@ -1,10 +1,11 @@
 /**
  * Manual order entry ticket (SRS §3.7), refined in P7-7. Presentational and
- * callback-driven: it owns only transient form state (side, the raw price/qty
- * strings, an error) and emits resolved, units-internal intent via `onSubmit`.
- * It never generates a clOrdId, builds a wire frame, or touches the socket; that
- * lives in one place, the App wiring over the single useOrderBook instance, so
- * clOrdId is generated in exactly one place and never derived from server data.
+ * callback-driven: it owns only transient form state (side, time in force, the
+ * raw price/qty strings, an error) and emits resolved, units-internal intent via
+ * `onSubmit`. It never generates a clOrdId, builds a wire frame, or touches the
+ * socket; that lives in one place, the App wiring over the single useOrderBook
+ * instance, so clOrdId is generated in exactly one place and never derived from
+ * server data.
  *
  * P7-7 adds ticket affordances WITHOUT changing what it sends (the same NEW
  * frame): bid / mid / ask reference chips, one-cent tick nudges, quantity
@@ -17,6 +18,12 @@
  * the working ticket shows plain labels and values, and the tag-level view
  * lives only in the FIX inspector now. Every underlying value is kept.
  *
+ * P14-6 adds a time-in-force segmented control (GTC / IOC / FOK, default GTC) and
+ * moves the submit seam to a single OrderIntent object (decision H), so the later
+ * iceberg (P14-8) and midpoint-peg (P14-10) steps add meaning to the intent's
+ * displayQty / ordType without the signature growing again. For now the ticket
+ * only ever sends ordType "LIMIT" and displayQty 0.
+ *
  * Controlled-price seam. The chips and nudges write the SAME uncontrolled
  * `priceInput` the user types, so there is one source of truth and the P5-4
  * validation is byte-identical. The external seam for the P7-5 depth curve
@@ -28,7 +35,7 @@
 import { forwardRef, useImperativeHandle, useState } from "react";
 
 import { formatPrice, parsePrice, EMPTY_PRICE } from "../format";
-import type { Side } from "../protocol/messages";
+import type { OrderIntent, Side, TimeInForce } from "../protocol/messages";
 
 export type ValidationResult =
     | { readonly ok: true; readonly pricePx: number; readonly qty: number }
@@ -66,6 +73,9 @@ export const TICK_PX = 100;
 
 /** Round-lot quantity presets. */
 export const QTY_PRESETS = [10, 50, 100, 500] as const;
+
+/** The time-in-force options, in the order the segmented control renders them. */
+export const TIF_OPTIONS = ["GTC", "IOC", "FOK"] as const satisfies readonly TimeInForce[];
 
 /**
  * The mid resolved to a valid on-tick limit, integer math only, for the mid chip.
@@ -107,7 +117,7 @@ export interface OrderEntryHandle {
 }
 
 export interface OrderEntryProps {
-    readonly onSubmit: (side: Side, pricePx: number, qty: number) => void;
+    readonly onSubmit: (intent: OrderIntent) => void;
     /** When true (e.g. socket not open), the whole ticket is inert and visibly disabled. */
     readonly disabled?: boolean;
     /** Live best bid in units for the Bid chip; -1 (default) disables it. */
@@ -123,6 +133,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
     ref,
 ) {
     const [side, setSide] = useState<Side>("BUY");
+    const [tif, setTif] = useState<TimeInForce>("GTC");
     const [priceInput, setPriceInput] = useState("");
     const [qtyInput, setQtyInput] = useState("");
     const [error, setError] = useState<string | null>(null);
@@ -144,8 +155,18 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             return;
         }
         setError(null);
-        onSubmit(side, result.pricePx, result.qty);
-        // Clear price + qty for the next order; keep the side for repeat fires.
+        // P14-6: a single resolved intent. ordType is LIMIT and displayQty is 0
+        // until P14-10 / P14-8 give the ticket controls for them.
+        onSubmit({
+            side,
+            ordType: "LIMIT",
+            tif,
+            pricePx: result.pricePx,
+            qty: result.qty,
+            displayQty: 0,
+        });
+        // Clear price + qty for the next order; keep the side and time in force for
+        // repeat fires.
         setPriceInput("");
         setQtyInput("");
     };
@@ -187,6 +208,22 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 >
                     SELL
                 </button>
+            </div>
+
+            <div className="order-entry__tif" role="group" aria-label="Time in force">
+                {TIF_OPTIONS.map((option) => (
+                    <button
+                        key={option}
+                        type="button"
+                        className={`order-entry__tif-btn${tif === option ? " order-entry__tif-btn--active" : ""}`}
+                        aria-pressed={tif === option}
+                        data-testid={`tif-${option.toLowerCase()}`}
+                        disabled={disabled}
+                        onClick={() => setTif(option)}
+                    >
+                        {option}
+                    </button>
+                ))}
             </div>
 
             <div className="order-entry__chips" role="group" aria-label="Reference prices">

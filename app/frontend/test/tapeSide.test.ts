@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { aggressorSideFor, initialState, reducer } from "../src/state/reducer";
 import type { Action, AppState, MyOrder } from "../src/state/reducer";
 import { newOrderFrame } from "../src/protocol/encode";
-import type { ExecFrame } from "../src/protocol/messages";
+import type { ExecFrame, Side } from "../src/protocol/messages";
 
 function run(state: AppState, ...actions: readonly Action[]): AppState {
     return actions.reduce(reducer, state);
@@ -29,12 +29,38 @@ function fill(
     return { type: "FRAME", frame };
 }
 
+// P14-6: newOrderFrame takes an OrderIntent. Keep the positional call shape; every
+// order here is a GTC LIMIT.
+function nf(clOrdId: number, side: Side, pricePx: number, qty: number) {
+    return newOrderFrame(clOrdId, { side, ordType: "LIMIT", tif: "GTC", pricePx, qty, displayQty: 0 });
+}
+
 const sent = (f: ReturnType<typeof newOrderFrame>): Action => ({ type: "SENT", frame: f });
 
 describe("aggressorSideFor (pure)", () => {
     const orders: MyOrder[] = [
-        { clOrdId: 1, side: "BUY", pricePx: 1500000, originalQty: 10, remainingQty: 10, status: "OPEN" },
-        { clOrdId: 2, side: "SELL", pricePx: 1502500, originalQty: 5, remainingQty: 5, status: "OPEN" },
+        {
+            clOrdId: 1,
+            side: "BUY",
+            pricePx: 1500000,
+            originalQty: 10,
+            remainingQty: 10,
+            status: "OPEN",
+            ordType: "LIMIT",
+            tif: "GTC",
+            displayQty: 0,
+        },
+        {
+            clOrdId: 2,
+            side: "SELL",
+            pricePx: 1502500,
+            originalQty: 5,
+            remainingQty: 5,
+            status: "OPEN",
+            ordType: "LIMIT",
+            tif: "GTC",
+            displayQty: 0,
+        },
     ];
 
     it("returns our own side when we are the aggressor", () => {
@@ -57,7 +83,7 @@ describe("reducer attaches aggressorSide to the tape print", () => {
     it("tags our aggressor fill with our side", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             fill(1, 99, { tradeId: 1, price: 1500000, filled: 10 }),
         );
         expect(state.tape[0].aggressorSide).toBe("BUY");
@@ -67,7 +93,7 @@ describe("reducer attaches aggressorSide to the tape print", () => {
     it("tags our passive fill with the opposite side", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "SELL", 1502500, 10)),
+            sent(nf(1, "SELL", 1502500, 10)),
             fill(99, 1, { tradeId: 2, price: 1502500, filled: 4 }),
         );
         expect(state.tape[0].aggressorSide).toBe("BUY");
@@ -77,7 +103,7 @@ describe("reducer attaches aggressorSide to the tape print", () => {
     it("leaves a foreign print without a side, matching mine=false", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             fill(98, 99, { tradeId: 3, price: 1500000, filled: 1 }),
         );
         expect(state.tape[0].aggressorSide).toBeUndefined();

@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { isFill, parseServerFrame, SYMBOL } from "../src/protocol/messages";
-import type { BookFrame, ExecFrame } from "../src/protocol/messages";
+import { isExecType, isFill, parseServerFrame, SYMBOL } from "../src/protocol/messages";
+import type { BookFrame, ExecFrame, OrderIntent, Side, TimeInForce } from "../src/protocol/messages";
 import {
     cancelOrderFrame,
     createClOrdIdGenerator,
     newOrderFrame,
     serializeClientFrame,
 } from "../src/protocol/encode";
+
+// A LIMIT intent, the only kind the ticket sends at P14-6. Overrides let a test
+// flip the time in force without restating the whole shape.
+function intent(
+    side: Side,
+    pricePx: number,
+    qty: number,
+    over: Partial<OrderIntent> = {},
+): OrderIntent {
+    return { side, ordType: "LIMIT", tif: "GTC", pricePx, qty, displayQty: 0, ...over };
+}
 
 const BOOK_JSON = JSON.stringify({
     type: "BOOK",
@@ -128,8 +139,31 @@ describe("parseServerFrame — EXEC", () => {
         expect(exec.remainingQuantity).toBe(10);
     });
 
+    it("accepts ORDER_EXPIRED and narrows its NA sentinels (P14-6)", () => {
+        // SRS §3.4: orderId plus the expired quantity in remainingQuantity; every
+        // other field is the -1 NA sentinel, which is a valid integer and so rides
+        // through the same nine-field path.
+        const json = JSON.stringify({
+            type: "EXEC",
+            execType: "ORDER_EXPIRED",
+            orderId: 7,
+            tradeId: -1,
+            price: -1,
+            filledQuantity: -1,
+            remainingQuantity: 40,
+            aggressorOrderId: -1,
+            passiveOrderId: -1,
+            timestamp: 9,
+        });
+        const exec = parseServerFrame(json) as ExecFrame;
+        expect(exec).not.toBeNull();
+        expect(exec.execType).toBe("ORDER_EXPIRED");
+        expect(exec.orderId).toBe(7);
+        expect(exec.remainingQuantity).toBe(40);
+    });
+
     it("rejects an unknown execType", () => {
-        const bad = EXEC_JSON.replace("ORDER_FILLED", "ORDER_EXPIRED");
+        const bad = EXEC_JSON.replace("ORDER_FILLED", "ORDER_REPLACED");
         expect(parseServerFrame(bad)).toBeNull();
     });
 
@@ -165,6 +199,23 @@ describe("parseServerFrame — rejects", () => {
     });
 });
 
+describe("isExecType", () => {
+    it("accepts every execType including ORDER_EXPIRED and rejects unknowns", () => {
+        const types: readonly string[] = [
+            "ORDER_ACCEPTED",
+            "ORDER_FILLED",
+            "ORDER_PARTIALLY_FILLED",
+            "ORDER_CANCELLED",
+            "ORDER_REJECTED",
+            "ORDER_EXPIRED",
+        ];
+        for (const t of types) expect(isExecType(t)).toBe(true);
+        expect(isExecType("ORDER_REPLACED")).toBe(false);
+        expect(isExecType("")).toBe(false);
+        expect(isExecType(5)).toBe(false);
+    });
+});
+
 describe("isFill", () => {
     it("is true only for the two trade reports", () => {
         const base = parseServerFrame(EXEC_JSON) as ExecFrame;
@@ -173,21 +224,34 @@ describe("isFill", () => {
         expect(isFill({ ...base, execType: "ORDER_ACCEPTED" })).toBe(false);
         expect(isFill({ ...base, execType: "ORDER_CANCELLED" })).toBe(false);
         expect(isFill({ ...base, execType: "ORDER_REJECTED" })).toBe(false);
+        expect(isFill({ ...base, execType: "ORDER_EXPIRED" })).toBe(false);
     });
 });
 
 describe("outbound encoders", () => {
     it("emits the exact NEW shape in integer units", () => {
-        const frame = newOrderFrame(7, "BUY", 1502500, 10);
+        const frame = newOrderFrame(7, intent("BUY", 1502500, 10));
         expect(frame).toEqual({
             type: "NEW",
             clOrdId: 7,
             side: "BUY",
+            ordType: "LIMIT",
+            tif: "GTC",
             price: 1502500,
             qty: 10,
+            maxFloor: 0,
             symbol: "ASML",
         });
         expect(SYMBOL).toBe("ASML");
+    });
+
+    it("carries the intent's time in force, order type and display size (P14-6)", () => {
+        for (const tif of ["GTC", "IOC", "FOK"] as const satisfies readonly TimeInForce[]) {
+            const frame = newOrderFrame(8, intent("SELL", 500, 3, { tif }));
+            expect(frame.tif).toBe(tif);
+            expect(frame.ordType).toBe("LIMIT");
+            expect(frame.maxFloor).toBe(0);
+        }
     });
 
     it("emits the exact CANCEL shape", () => {
@@ -195,8 +259,8 @@ describe("outbound encoders", () => {
     });
 
     it("serializes to the JSON the server parses", () => {
-        expect(serializeClientFrame(newOrderFrame(7, "SELL", 500, 3))).toBe(
-            '{"type":"NEW","clOrdId":7,"side":"SELL","price":500,"qty":3,"symbol":"ASML"}',
+        expect(serializeClientFrame(newOrderFrame(7, intent("SELL", 500, 3)))).toBe(
+            '{"type":"NEW","clOrdId":7,"side":"SELL","ordType":"LIMIT","tif":"GTC","price":500,"qty":3,"maxFloor":0,"symbol":"ASML"}',
         );
         expect(serializeClientFrame(cancelOrderFrame(9, 1))).toBe(
             '{"type":"CANCEL","clOrdId":9,"origClOrdId":1}',
@@ -204,11 +268,11 @@ describe("outbound encoders", () => {
     });
 
     it("rejects non-positive or non-integer fields", () => {
-        expect(() => newOrderFrame(7, "BUY", 0, 10)).toThrow(RangeError);
-        expect(() => newOrderFrame(7, "BUY", -1, 10)).toThrow(RangeError);
-        expect(() => newOrderFrame(7, "BUY", 1502500, 0)).toThrow(RangeError);
-        expect(() => newOrderFrame(7, "BUY", 150.25, 10)).toThrow(RangeError);
-        expect(() => newOrderFrame(0, "BUY", 1502500, 10)).toThrow(RangeError);
+        expect(() => newOrderFrame(7, intent("BUY", 0, 10))).toThrow(RangeError);
+        expect(() => newOrderFrame(7, intent("BUY", -1, 10))).toThrow(RangeError);
+        expect(() => newOrderFrame(7, intent("BUY", 1502500, 0))).toThrow(RangeError);
+        expect(() => newOrderFrame(7, intent("BUY", 150.25, 10))).toThrow(RangeError);
+        expect(() => newOrderFrame(0, intent("BUY", 1502500, 10))).toThrow(RangeError);
         expect(() => cancelOrderFrame(9, 0)).toThrow(RangeError);
     });
 });

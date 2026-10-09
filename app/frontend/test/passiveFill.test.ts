@@ -53,6 +53,9 @@ function order(overrides: Partial<MyOrder> = {}): MyOrder {
         originalQty: 10,
         remainingQty: 10,
         status: "OPEN",
+        ordType: "LIMIT",
+        tif: "GTC",
+        displayQty: 0,
         ...overrides,
     };
 }
@@ -77,7 +80,7 @@ describe("passiveFill (pure)", () => {
     });
 
     it("never resurrects a terminal row (returns the same reference)", () => {
-        for (const status of ["FILLED", "CANCELLED", "REJECTED"] as const) {
+        for (const status of ["FILLED", "CANCELLED", "REJECTED", "EXPIRED"] as const) {
             const before = order({ remainingQty: 5, status });
             expect(passiveFill(before, 2)).toBe(before);
         }
@@ -85,7 +88,11 @@ describe("passiveFill (pure)", () => {
 });
 
 describe("reducer applies the passive decrement via passiveOrderId (P7-8)", () => {
-    const resting = (): AppState => run(initialState, sent(newOrderFrame(1, "BUY", 1500000, 10)));
+    const resting = (): AppState =>
+        run(
+            initialState,
+            sent(newOrderFrame(1, { side: "BUY", ordType: "LIMIT", tif: "GTC", pricePx: 1500000, qty: 10, displayQty: 0 })),
+        );
 
     it("decrements our resting order when it is the passive side of a fill", () => {
         const after = run(resting(), fill(99, 1, { tradeId: 1, price: 1500000, filled: 4 }));

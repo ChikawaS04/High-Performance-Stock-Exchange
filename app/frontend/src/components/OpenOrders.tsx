@@ -37,6 +37,11 @@
  * rows instead of collapsing to one, the header row stays sticky, and a long list
  * scrolls internally rather than pushing the Cancel-by-ID ticket below it down. No
  * field, testid, or state behaviour changes; the row markup is untouched.
+ *
+ * P14-6: a TIF column renders each order's time in force (captured at send time),
+ * placed between Side and Price so P14-8's Type column slots in alongside it. The
+ * EXPIRED status needs no code here: it prints verbatim like every other status,
+ * and isCancellable already excludes it, so an expired row shows no Cancel action.
  */
 
 import { isCancellable } from "../state/reducer";
@@ -81,6 +86,7 @@ export function OpenOrders({ orders, onCancel }: OpenOrdersProps) {
                             Sent
                         </th>
                         <th className="open-orders__col-side">Side</th>
+                        <th className="open-orders__col-tif">TIF</th>
                         <th className="open-orders__col-price">Price</th>
                         <th className="open-orders__col-qty">Filled</th>
                         <th className="open-orders__col-status">Status</th>
@@ -99,6 +105,9 @@ export function OpenOrders({ orders, onCancel }: OpenOrdersProps) {
                                 {formatClockNanos(order.sentAtNanos ?? 0)}
                             </td>
                             <td className="open-orders__side">{order.side}</td>
+                            <td className="open-orders__tif" data-testid={`tif-${order.clOrdId}`}>
+                                {order.tif}
+                            </td>
                             <td className="open-orders__price">{formatPrice(order.pricePx)}</td>
                             <td className="open-orders__qty" data-testid={`filled-${order.clOrdId}`}>
                                 {filledOf(order)} / {order.originalQty}

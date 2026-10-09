@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { OpenOrders } from "../src/components/OpenOrders";
 import type { MyOrder, OrderStatus } from "../src/state/reducer";
-import type { Side } from "../src/protocol/messages";
+import type { Side, TimeInForce } from "../src/protocol/messages";
 import { EMPTY_PRICE } from "../src/format";
 
 afterEach(cleanup);
@@ -16,6 +16,7 @@ function makeOrder(
     remainingQty = 10,
     originalQty = 10,
     sentAtNanos?: number,
+    tif: TimeInForce = "GTC",
 ): MyOrder {
     return {
         clOrdId,
@@ -24,6 +25,9 @@ function makeOrder(
         originalQty,
         remainingQty,
         status,
+        ordType: "LIMIT",
+        tif,
+        displayQty: 0,
         ...(sentAtNanos !== undefined ? { sentAtNanos } : {}),
     };
 }
@@ -40,6 +44,24 @@ describe("<OpenOrders />", () => {
         expect(text).toContain("150.25");
         expect(text).toContain("2 / 10"); // filled 2 of original 10 (remaining 8)
         expect(text).toContain("OPEN");
+    });
+
+    it("renders the TIF column from the order's time in force (P14-6)", () => {
+        render(
+            <OpenOrders
+                orders={[makeOrder(7, "OPEN", "BUY", 1500000, 10, 10, undefined, "IOC")]}
+                onCancel={vi.fn()}
+            />,
+        );
+        expect(screen.getByTestId("tif-7").textContent).toBe("IOC");
+        expect(screen.getByTestId("open-orders-row").textContent).toContain("IOC");
+    });
+
+    it("shows EXPIRED as a terminal, non-cancellable status (P14-6)", () => {
+        render(<OpenOrders orders={[makeOrder(8, "EXPIRED")]} onCancel={vi.fn()} />);
+        const row = screen.getByTestId("open-orders-row");
+        expect(row.textContent).toContain("EXPIRED");
+        expect(screen.queryByTestId("cancel-8")).toBeNull();
     });
 
     it("shows filled / total derived from original minus remaining", () => {
@@ -78,6 +100,7 @@ describe("<OpenOrders />", () => {
                     makeOrder(4, "FILLED"),
                     makeOrder(5, "CANCELLED"),
                     makeOrder(6, "REJECTED"),
+                    makeOrder(7, "EXPIRED"),
                 ]}
                 onCancel={vi.fn()}
             />,
@@ -89,6 +112,7 @@ describe("<OpenOrders />", () => {
         expect(screen.queryByTestId("cancel-4")).toBeNull();
         expect(screen.queryByTestId("cancel-5")).toBeNull();
         expect(screen.queryByTestId("cancel-6")).toBeNull();
+        expect(screen.queryByTestId("cancel-7")).toBeNull();
     });
 
     it("calls onCancel with the row's own clOrdId (the origClOrdId to cancel)", () => {

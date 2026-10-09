@@ -44,7 +44,7 @@ describe("validateOrderInput", () => {
 });
 
 describe("<OrderEntry />", () => {
-    it("submits a valid order exactly once with side, integer units, and int qty", () => {
+    it("submits a valid order exactly once with the resolved intent", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
 
@@ -53,7 +53,14 @@ describe("<OrderEntry />", () => {
         fireEvent.click(screen.getByTestId("order-submit"));
 
         expect(onSubmit).toHaveBeenCalledTimes(1);
-        expect(onSubmit).toHaveBeenCalledWith("BUY", 1502500, 10);
+        expect(onSubmit).toHaveBeenCalledWith({
+            side: "BUY",
+            ordType: "LIMIT",
+            tif: "GTC",
+            pricePx: 1502500,
+            qty: 10,
+            displayQty: 0,
+        });
     });
 
     it("emits SELL after toggling side", () => {
@@ -65,7 +72,14 @@ describe("<OrderEntry />", () => {
         fireEvent.change(qty(), { target: { value: "2" } });
         fireEvent.click(screen.getByTestId("order-submit"));
 
-        expect(onSubmit).toHaveBeenCalledWith("SELL", 10000, 2);
+        expect(onSubmit).toHaveBeenCalledWith({
+            side: "SELL",
+            ordType: "LIMIT",
+            tif: "GTC",
+            pricePx: 10000,
+            qty: 2,
+            displayQty: 0,
+        });
     });
 
     it("blocks invalid input: shows a reason and does not call onSubmit", () => {
@@ -113,6 +127,57 @@ describe("<OrderEntry />", () => {
     });
 });
 
+describe("<OrderEntry /> time in force (P14-6)", () => {
+    const fillValidOrder = () => {
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "5" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+    };
+
+    it("defaults to GTC and carries it in the intent", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        expect(screen.getByTestId("tif-gtc").getAttribute("aria-pressed")).toBe("true");
+        fillValidOrder();
+        expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ tif: "GTC" }));
+    });
+
+    it("sends the selected time in force in the intent", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        fireEvent.click(screen.getByTestId("tif-ioc"));
+        expect(screen.getByTestId("tif-ioc").getAttribute("aria-pressed")).toBe("true");
+        fillValidOrder();
+        expect(onSubmit).toHaveBeenLastCalledWith(
+            expect.objectContaining({ tif: "IOC", ordType: "LIMIT", displayQty: 0 }),
+        );
+
+        fireEvent.click(screen.getByTestId("tif-fok"));
+        fillValidOrder();
+        expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ tif: "FOK" }));
+    });
+
+    it("keeps the chosen time in force across a successful submit", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+
+        fireEvent.click(screen.getByTestId("tif-fok"));
+        fillValidOrder();
+        // Only price and qty clear; side and time in force persist for repeat fires.
+        expect(screen.getByTestId("tif-fok").getAttribute("aria-pressed")).toBe("true");
+        expect(price().value).toBe("");
+    });
+
+    it("disables the time-in-force control when the ticket is disabled", () => {
+        render(<OrderEntry onSubmit={vi.fn()} disabled />);
+        expect((screen.getByTestId("tif-gtc") as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId("tif-ioc") as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId("tif-fok") as HTMLButtonElement).disabled).toBe(true);
+    });
+});
+
 describe("<OrderEntry /> reference chips (P7-7)", () => {
     it("populates exactly the current best bid / mid / ask in dollars", () => {
         render(<OrderEntry onSubmit={vi.fn()} bestBidPx={1500000} bestAskPx={1502500} />);
@@ -135,7 +200,14 @@ describe("<OrderEntry /> reference chips (P7-7)", () => {
         fireEvent.click(screen.getByTestId("chip-mid")); // even tick -> exact 1502500
         fireEvent.click(screen.getByTestId("order-submit"));
 
-        expect(onSubmit).toHaveBeenCalledWith("BUY", 1502500, 10);
+        expect(onSubmit).toHaveBeenCalledWith({
+            side: "BUY",
+            ordType: "LIMIT",
+            tif: "GTC",
+            pricePx: 1502500,
+            qty: 10,
+            displayQty: 0,
+        });
     });
 
     it("disables a chip when its side is absent, and all chips with no book", () => {

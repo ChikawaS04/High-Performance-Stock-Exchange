@@ -31,6 +31,9 @@ function order(over: Partial<MyOrder>): MyOrder {
         originalQty: 0,
         remainingQty: 0,
         status: "OPEN",
+        ordType: "LIMIT",
+        tif: "GTC",
+        displayQty: 0,
         ...over,
     };
 }
@@ -188,7 +191,8 @@ describe("sessionFilledQty / sessionWorkingQty (pure)", () => {
             order({ clOrdId: 1, status: "FILLED", originalQty: 10, remainingQty: 0 }),
             order({ clOrdId: 2, status: "CANCELLED", originalQty: 10, remainingQty: 6 }),
             order({ clOrdId: 3, status: "REJECTED", originalQty: 10, remainingQty: 10 }),
-            order({ clOrdId: 4, status: "OPEN", originalQty: 10, remainingQty: 10 }),
+            order({ clOrdId: 4, status: "EXPIRED", originalQty: 10, remainingQty: 4 }),
+            order({ clOrdId: 5, status: "OPEN", originalQty: 10, remainingQty: 10 }),
         ];
         expect(sessionWorkingQty(orders)).toBe(10);
     });

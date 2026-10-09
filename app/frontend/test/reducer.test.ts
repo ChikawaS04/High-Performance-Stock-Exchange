@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { newOrderFrame, cancelOrderFrame } from "../src/protocol/encode";
-import type { BookFrame, ExecFrame, ExecType, ServerFrame } from "../src/protocol/messages";
+import type {
+    BookFrame,
+    ExecFrame,
+    ExecType,
+    ServerFrame,
+    Side,
+    TimeInForce,
+} from "../src/protocol/messages";
 import {
     initialState,
     isCancellable,
@@ -20,6 +27,13 @@ function book(
     timestamp = 1,
 ): BookFrame {
     return { type: "BOOK", bestBid, bestAsk, bids, asks, timestamp };
+}
+
+// P14-6: newOrderFrame now takes an OrderIntent. This wrapper keeps the old
+// positional call shape the fixtures below use, defaulting to a GTC LIMIT, so a
+// test that cares about time in force passes it as the last argument.
+function nf(clOrdId: number, side: Side, pricePx: number, qty: number, tif: TimeInForce = "GTC") {
+    return newOrderFrame(clOrdId, { side, ordType: "LIMIT", tif, pricePx, qty, displayQty: 0 });
 }
 
 function exec(execType: ExecType, orderId: number, overrides: Partial<ExecFrame> = {}): ExecFrame {
@@ -99,6 +113,7 @@ describe("EXEC never touches the book", () => {
             frame(fill("ORDER_FILLED", 2, 1, { tradeId: 1, price: 1500000, filled: 4, remaining: 0 })),
             frame(exec("ORDER_CANCELLED", 1)),
             frame(exec("ORDER_REJECTED", 3)),
+            frame(exec("ORDER_EXPIRED", 4, { remainingQuantity: 5 })),
         );
         expect(after.book).toBe(withBook.book);
     });
@@ -140,7 +155,7 @@ describe("trade tape", () => {
     });
 
     it("flags a trade as mine when either side is one of my orders", () => {
-        const mine = run(initialState, sent(newOrderFrame(1, "BUY", 1500000, 10)));
+        const mine = run(initialState, sent(nf(1, "BUY", 1500000, 10)));
 
         const asAggressor = reducer(
             mine,
@@ -164,7 +179,7 @@ describe("trade tape", () => {
     it("never flags a -1 NA counterparty id as mine", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             frame(
                 exec("ORDER_FILLED", 5, {
                     tradeId: 1,
@@ -183,8 +198,8 @@ describe("trade tape", () => {
 // --- myOrders ---------------------------------------------------------------
 
 describe("myOrders registration at send time", () => {
-    it("registers a NEW order as PENDING with side and price from the send", () => {
-        const state = run(initialState, sent(newOrderFrame(1, "SELL", 1502500, 10)));
+    it("registers a NEW order as PENDING with side, price and order attributes from the send", () => {
+        const state = run(initialState, sent(nf(1, "SELL", 1502500, 10)));
         expect(state.myOrders).toHaveLength(1);
         expect(state.myOrders[0]).toEqual({
             clOrdId: 1,
@@ -193,11 +208,14 @@ describe("myOrders registration at send time", () => {
             originalQty: 10,
             remainingQty: 10,
             status: "PENDING",
+            ordType: "LIMIT",
+            tif: "GTC",
+            displayQty: 0,
         });
     });
 
     it("records nothing for a CANCEL send — EXEC stays the authority", () => {
-        const before = run(initialState, sent(newOrderFrame(1, "BUY", 1500000, 10)), open);
+        const before = run(initialState, sent(nf(1, "BUY", 1500000, 10)), open);
         const after = reducer(before, sent(cancelOrderFrame(2, 1)));
         expect(after.myOrders).toBe(before.myOrders);
         expect(after.myOrders[0].status).toBe("PENDING");
@@ -206,9 +224,9 @@ describe("myOrders registration at send time", () => {
     it("keeps newest first and ignores a duplicate clOrdId", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
-            sent(newOrderFrame(2, "SELL", 1502500, 5)),
-            sent(newOrderFrame(2, "SELL", 1502500, 5)),
+            sent(nf(1, "BUY", 1500000, 10)),
+            sent(nf(2, "SELL", 1502500, 5)),
+            sent(nf(2, "SELL", 1502500, 5)),
         );
         expect(state.myOrders.map((o) => o.clOrdId)).toEqual([2, 1]);
     });
@@ -218,7 +236,7 @@ describe("myOrders lifecycle", () => {
     it("PENDING -> OPEN on ORDER_ACCEPTED", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             frame(exec("ORDER_ACCEPTED", 1, { price: 1500000, remainingQuantity: 10 })),
         );
         expect(state.myOrders[0].status).toBe("OPEN");
@@ -229,7 +247,7 @@ describe("myOrders lifecycle", () => {
     it("ACCEPTED -> PARTIALLY_FILLED -> FILLED", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(2, "BUY", 1500000, 10)),
+            sent(nf(2, "BUY", 1500000, 10)),
             frame(exec("ORDER_ACCEPTED", 2, { price: 1500000, remainingQuantity: 10 })),
             frame(fill("ORDER_PARTIALLY_FILLED", 2, 1, { tradeId: 1, price: 1500000, filled: 4, remaining: 6 })),
             frame(fill("ORDER_FILLED", 2, 1, { tradeId: 2, price: 1500000, filled: 6, remaining: 0 })),
@@ -243,7 +261,7 @@ describe("myOrders lifecycle", () => {
     it("a trailing ACCEPTED after a partial updates remaining but keeps the PARTIALLY_FILLED label", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(2, "BUY", 1500000, 80)),
+            sent(nf(2, "BUY", 1500000, 80)),
             frame(fill("ORDER_PARTIALLY_FILLED", 2, 1, { tradeId: 1, price: 1500000, filled: 50, remaining: 30 })),
             frame(exec("ORDER_ACCEPTED", 2, { price: 1500000, remainingQuantity: 30 })),
         );
@@ -255,7 +273,7 @@ describe("myOrders lifecycle", () => {
     it("OPEN -> CANCELLED, keyed on the cancelled order's id, not the request's", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             frame(exec("ORDER_ACCEPTED", 1, { price: 1500000, remainingQuantity: 10 })),
             sent(cancelOrderFrame(3, 1)),
             // ORDER_CANCELLED carries orderId == OrigClOrdID (1), never the request's clOrdId (3).
@@ -269,7 +287,7 @@ describe("myOrders lifecycle", () => {
     it("marks a known order REJECTED and ignores a rejection for an unknown id", () => {
         const known = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             frame(exec("ORDER_REJECTED", 1)),
         );
         expect(known.myOrders[0].status).toBe("REJECTED");
@@ -282,7 +300,7 @@ describe("myOrders lifecycle", () => {
     it("never resurrects a terminal row", () => {
         const state = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             frame(exec("ORDER_CANCELLED", 1)),
             frame(exec("ORDER_ACCEPTED", 1, { price: 1500000, remainingQuantity: 10 })),
         );
@@ -290,11 +308,84 @@ describe("myOrders lifecycle", () => {
     });
 });
 
+describe("IOC / FOK expiry (P14-6)", () => {
+    it("captures ordType, tif and displayQty at send time", () => {
+        const state = run(initialState, sent(nf(1, "BUY", 1500000, 10, "IOC")));
+        expect(state.myOrders[0]).toEqual({
+            clOrdId: 1,
+            side: "BUY",
+            pricePx: 1500000,
+            originalQty: 10,
+            remainingQty: 10,
+            status: "PENDING",
+            ordType: "LIMIT",
+            tif: "IOC",
+            displayQty: 0,
+        });
+    });
+
+    it("an IOC partial fill then ORDER_EXPIRED ends EXPIRED with the unfilled remainder, terminal and non-cancellable", () => {
+        const state = run(
+            initialState,
+            sent(nf(1, "BUY", 1500000, 100, "IOC")),
+            frame(fill("ORDER_PARTIALLY_FILLED", 1, 9, { tradeId: 1, price: 1500000, filled: 30, remaining: 70 })),
+            frame(exec("ORDER_EXPIRED", 1, { remainingQuantity: 70 })),
+        );
+        const row = state.myOrders[0];
+        expect(row.status).toBe("EXPIRED");
+        expect(row.remainingQty).toBe(70);
+        expect(isCancellable(row.status)).toBe(false);
+        // One fill printed; the expiry is not a trade and adds no tape row.
+        expect(state.tape).toHaveLength(1);
+    });
+
+    it("expires a never-filled order in full, carrying its time in force", () => {
+        const state = run(
+            initialState,
+            sent(nf(1, "SELL", 1502500, 25, "FOK")),
+            frame(exec("ORDER_EXPIRED", 1, { remainingQuantity: 25 })),
+        );
+        expect(state.myOrders[0].status).toBe("EXPIRED");
+        expect(state.myOrders[0].remainingQty).toBe(25);
+        expect(state.myOrders[0].tif).toBe("FOK");
+    });
+
+    it("ignores a stray EXEC after an order has expired (terminal guard)", () => {
+        const expired = run(
+            initialState,
+            sent(nf(1, "BUY", 1500000, 100, "IOC")),
+            frame(exec("ORDER_EXPIRED", 1, { remainingQuantity: 100 })),
+        );
+        expect(expired.myOrders[0].status).toBe("EXPIRED");
+
+        const after = reducer(
+            expired,
+            frame(exec("ORDER_ACCEPTED", 1, { price: 1500000, remainingQuantity: 100 })),
+        );
+        expect(after.myOrders[0].status).toBe("EXPIRED");
+        expect(after.myOrders[0].remainingQty).toBe(100);
+        // The terminal row is untouched, so the slice keeps its reference.
+        expect(after.myOrders).toBe(expired.myOrders);
+    });
+
+    it("moves neither the tape nor the session accumulators, but is a received frame", () => {
+        const state = run(
+            initialState,
+            sent(nf(1, "BUY", 1500000, 10, "IOC")),
+            frame(exec("ORDER_EXPIRED", 1, { remainingQuantity: 10, timestamp: 42 })),
+        );
+        expect(state.tape).toHaveLength(0);
+        expect(state.sessionVolume).toBe(0);
+        expect(state.sessionTradeCount).toBe(0);
+        expect(state.lastFrameNanos).toBe(42);
+    });
+});
+
 describe("passive fills decrement the resting row locally (P7-8)", () => {
     it("decrements my resting order locally when someone else's aggressor hits it", () => {
         const resting = run(
             initialState,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             frame(exec("ORDER_ACCEPTED", 1, { price: 1500000, remainingQuantity: 10 })),
         );
 
@@ -314,7 +405,7 @@ describe("passive fills decrement the resting row locally (P7-8)", () => {
     });
 
     it("ignores a fill between two foreign orders entirely, except for the tape", () => {
-        const mine = run(initialState, sent(newOrderFrame(1, "BUY", 1500000, 10)));
+        const mine = run(initialState, sent(nf(1, "BUY", 1500000, 10)));
         const after = reducer(
             mine,
             frame(fill("ORDER_FILLED", 98, 99, { tradeId: 1, price: 1500000, filled: 4, remaining: 0 })),
@@ -331,7 +422,7 @@ describe("connection transitions", () => {
         const live = run(
             initialState,
             open,
-            sent(newOrderFrame(1, "BUY", 1500000, 10)),
+            sent(nf(1, "BUY", 1500000, 10)),
             frame(exec("ORDER_ACCEPTED", 1, { price: 1500000, remainingQuantity: 10 })),
             frame(fill("ORDER_FILLED", 99, 1, { tradeId: 1, price: 1500000, filled: 4, remaining: 0 })),
             frame(book(1500000, -1, [[1500000, 6]], [])),

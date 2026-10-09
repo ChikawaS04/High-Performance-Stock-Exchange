@@ -33,7 +33,7 @@
  * No encoder import and no ClOrdId minting here either: App stays the sole call
  * site of nextClOrdId and the frame builders (the P10 D3 invariant), passing down
  * the bound handler and the display-only preview. The only protocol import this
- * page gains is the Side type in the handler signature.
+ * page gains is the OrderIntent type in the handler signature (P14-6).
  *
  * An order submitted here goes through App's one handleSubmit, so it is the same
  * wire path as the Trading page: it appears in the blotter and open orders when
@@ -46,7 +46,7 @@
  */
 
 import type { AppState } from "../state/reducer";
-import type { Side } from "../protocol/messages";
+import type { OrderIntent } from "../protocol/messages";
 
 import { PriceChart } from "../components/PriceChart";
 import { SessionStats } from "../components/SessionStats";
@@ -55,7 +55,7 @@ import { OrderEntry } from "../components/OrderEntry";
 export interface PriceChartPageProps {
     readonly state: AppState;
     readonly openPx?: number;
-    readonly onSubmitOrder: (side: Side, pricePx: number, qty: number) => void;
+    readonly onSubmitOrder: (intent: OrderIntent) => void;
     readonly clOrdIdPreview: number;
 }
 

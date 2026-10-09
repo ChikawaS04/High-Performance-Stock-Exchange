@@ -42,10 +42,24 @@
  * would drift as old prints age out. No notional accumulator and no VWAP this
  * phase (P13 D1): VWAP's only input would be dead state until an indicator phase
  * consumes it, and adding it then is one more line in this same block.
+ *
+ * P14-6 adds the EXPIRED terminal status (the IOC/FOK outcome, SRS §3.4) and the
+ * three order-attribute fields captured at send time (ordType, tif, displayQty).
+ * ORDER_EXPIRED is not a fill, so it moves none of the tape or session
+ * accumulators; it only transitions the named row to its terminal state.
  */
 
 import { isFill } from "../protocol/messages";
-import type { ClientFrame, ExecFrame, FixFrame, Level, ServerFrame, Side } from "../protocol/messages";
+import type {
+    ClientFrame,
+    ExecFrame,
+    FixFrame,
+    Level,
+    OrdType,
+    ServerFrame,
+    Side,
+    TimeInForce,
+} from "../protocol/messages";
 
 /** Newest-first fill history cap. */
 export const TAPE_CAP = 200;
@@ -74,9 +88,10 @@ export type OrderStatus =
     | "PARTIALLY_FILLED"
     | "FILLED"
     | "CANCELLED"
-    | "REJECTED";
+    | "REJECTED"
+    | "EXPIRED";
 
-const TERMINAL: readonly OrderStatus[] = ["FILLED", "CANCELLED", "REJECTED"];
+const TERMINAL: readonly OrderStatus[] = ["FILLED", "CANCELLED", "REJECTED", "EXPIRED"];
 
 export function isTerminal(status: OrderStatus): boolean {
     return TERMINAL.includes(status);
@@ -116,9 +131,10 @@ export interface TapeEntry {
 }
 
 /**
- * A locally originated order. Side and price are captured at SEND time: no EXEC
- * frame carries a side, so they cannot come from the wire. Status and remaining
- * quantity come only from EXEC (plus the P7-8 passive decrement).
+ * A locally originated order. Side, price, and the P14-6 order attributes
+ * (ordType, tif, displayQty) are captured at SEND time: no EXEC frame carries
+ * any of them, so they cannot come from the wire. Status and remaining quantity
+ * come only from EXEC (plus the P7-8 passive decrement).
  */
 export interface MyOrder {
     readonly clOrdId: number;
@@ -127,6 +143,18 @@ export interface MyOrder {
     readonly originalQty: number;
     readonly remainingQty: number;
     readonly status: OrderStatus;
+    /**
+     * Order type (P14-6). "LIMIT" for every order the ticket sends today; P14-10
+     * adds "PEG_MID". Captured at send time, never a server value.
+     */
+    readonly ordType: OrdType;
+    /** Time in force (P14-6), captured at send time. GTC / IOC / FOK. */
+    readonly tif: TimeInForce;
+    /**
+     * Iceberg display quantity (P14-6), captured at send time. 0 for a
+     * non-iceberg order; P14-8 lets the ticket set it.
+     */
+    readonly displayQty: number;
     /**
      * Client-assigned wall-clock send time in epoch nanoseconds (P7-8). Captured at
      * dispatch by useOrderBook (Date.now lifted into the P7-1 epoch-nanos domain),
@@ -276,6 +304,11 @@ function nextOrder(order: MyOrder, frame: ExecFrame): MyOrder {
             return { ...order, status: "CANCELLED" };
         case "ORDER_REJECTED":
             return { ...order, status: "REJECTED" };
+        case "ORDER_EXPIRED":
+            // IOC/FOK terminal (SRS §3.4): remainingQuantity is the quantity that
+            // expired unexecuted, which is exactly this row's current remaining, so
+            // adopting it keeps filled/total consistent after zero or more fills.
+            return { ...order, status: "EXPIRED", remainingQty: frame.remainingQuantity };
     }
 }
 
@@ -355,7 +388,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     }
 
     // Aggressor path: EXEC orderId names the aggressor on fills, and the
-    // cancelled/rejected order otherwise. Authoritative for that row.
+    // cancelled/rejected/expired order otherwise. Authoritative for that row.
     const aggIndex = state.myOrders.findIndex((o) => o.clOrdId === frame.orderId);
 
     // Passive path (P7-8): a fill's passiveOrderId names our resting order, which
@@ -435,6 +468,11 @@ function applySent(state: AppState, frame: ClientFrame, sentAtNanos?: number): A
             originalQty: frame.qty,
             remainingQty: frame.qty,
             status: "PENDING",
+            // Order attributes captured at send time (P14-6): no EXEC frame carries
+            // any of them, so the blotter reads them from the row, not the wire.
+            ordType: frame.ordType,
+            tif: frame.tif,
+            displayQty: frame.maxFloor,
             // Client-assigned send time (P7-8), included only when the dispatch supplied
             // it, so a row built without one is byte-identical to the pre-P7-8 shape.
             ...(sentAtNanos !== undefined ? { sentAtNanos } : {}),

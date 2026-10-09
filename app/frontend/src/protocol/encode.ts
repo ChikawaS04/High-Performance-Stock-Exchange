@@ -11,10 +11,15 @@
  * the id the next send will use WITHOUT advancing the sequence. Only a call to
  * the generator itself consumes an id; peek() never does. Generation stays here;
  * the ticket only reads and displays the peeked value.
+ *
+ * P14-6 changes newOrderFrame to take the resolved OrderIntent (decision H): the
+ * order type, time in force and display quantity all travel in one object, so the
+ * builder emits the SRS §3.6 NEW frame without the signature growing again at
+ * P14-8 / P14-10.
  */
 
 import { SYMBOL } from "./messages";
-import type { CancelOrderFrame, ClientFrame, NewOrderFrame, Side } from "./messages";
+import type { CancelOrderFrame, ClientFrame, NewOrderFrame, OrderIntent } from "./messages";
 
 function requirePositiveInt(value: number, label: string): void {
     if (!Number.isSafeInteger(value) || value <= 0) {
@@ -52,17 +57,28 @@ export function createClOrdIdGenerator(seed: number = Date.now()): ClOrdIdGenera
 /** App-wide ClOrdID source. Generated in exactly one place; never derived from server data. */
 export const nextClOrdId: ClOrdIdGenerator = createClOrdIdGenerator();
 
-/** `price` is integer units of $0.0001 — the server converts to FIX decimal dollars. */
-export function newOrderFrame(
-    clOrdId: number,
-    side: Side,
-    pricePx: number,
-    qty: number,
-): NewOrderFrame {
+/**
+ * Builds the NEW frame from the resolved intent. `pricePx` is integer units of
+ * $0.0001 — the server converts to FIX decimal dollars. The positive-price check
+ * holds for LIMIT (P14-6), the only order type the ticket sends today; P14-10
+ * makes it conditional once PEG_MID sends `price: -1`. `ordType`, `tif` and
+ * `maxFloor` ride through verbatim from the intent, in the SRS §3.6 field order.
+ */
+export function newOrderFrame(clOrdId: number, intent: OrderIntent): NewOrderFrame {
     requirePositiveInt(clOrdId, "clOrdId");
-    requirePositiveInt(pricePx, "pricePx");
-    requirePositiveInt(qty, "qty");
-    return { type: "NEW", clOrdId, side, price: pricePx, qty, symbol: SYMBOL };
+    requirePositiveInt(intent.pricePx, "pricePx");
+    requirePositiveInt(intent.qty, "qty");
+    return {
+        type: "NEW",
+        clOrdId,
+        side: intent.side,
+        ordType: intent.ordType,
+        tif: intent.tif,
+        price: intent.pricePx,
+        qty: intent.qty,
+        maxFloor: intent.displayQty,
+        symbol: SYMBOL,
+    };
 }
 
 /**

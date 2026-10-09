@@ -26,6 +26,11 @@
  * call site, which is the point: the second ticket adds a second CONSUMER of the
  * encoder seam, never a second owner of it. This is App's only P13 change.
  *
+ * P14-6: handleSubmit takes the ticket's resolved OrderIntent (decision H) and
+ * hands it to newOrderFrame with a freshly minted clOrdId. The intent carries the
+ * order type and time in force; App neither inspects nor defaults them, so it needs
+ * no further change at P14-8 / P14-10.
+ *
  * The Header strip and Navbar render above <Routes> so both persist across pages;
  * the connection badge stays inside the Header, visible on every route.
  */
@@ -35,7 +40,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useOrderBook } from "./state/useOrderBook";
 import { useIgnitionPrice } from "./state/useIgnitionPrice";
 import { cancelOrderFrame, newOrderFrame, nextClOrdId } from "./protocol/encode";
-import type { Side } from "./protocol/messages";
+import type { OrderIntent } from "./protocol/messages";
 
 import { Header } from "./components/Header";
 import { Navbar } from "./components/Navbar";
@@ -48,8 +53,8 @@ export default function App() {
     const { state, send } = useOrderBook();
     const { openPx } = useIgnitionPrice();
 
-    const handleSubmit = (side: Side, pricePx: number, qty: number): void => {
-        send(newOrderFrame(nextClOrdId(), side, pricePx, qty));
+    const handleSubmit = (intent: OrderIntent): void => {
+        send(newOrderFrame(nextClOrdId(), intent));
     };
 
     const handleCancel = (origClOrdId: number): void => {

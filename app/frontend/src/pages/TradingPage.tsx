@@ -16,12 +16,15 @@
  * bearing routing guarantee), but this page's own local UI state resets, which is
  * within the P10 decision. That covers the inspector open flag here and any state
  * held inside the panels (the depth selector, tape filters, a half-typed ticket).
+ *
+ * P14-6: onSubmitOrder now carries the ticket's resolved OrderIntent (decision H).
+ * The page only forwards it to OrderEntry, so the change is a pure type widening.
  */
 
 import { useRef, useState } from "react";
 
 import type { AppState } from "../state/reducer";
-import type { Side } from "../protocol/messages";
+import type { OrderIntent } from "../protocol/messages";
 
 import { DepthLadder } from "../components/DepthLadder";
 import { DepthCurve } from "../components/DepthCurve";
@@ -34,7 +37,7 @@ import { FixInspector } from "../components/FixInspector";
 
 export interface TradingPageProps {
     readonly state: AppState;
-    readonly onSubmitOrder: (side: Side, pricePx: number, qty: number) => void;
+    readonly onSubmitOrder: (intent: OrderIntent) => void;
     readonly onCancelOrder: (origClOrdId: number) => void;
     readonly clOrdIdPreview: number;
 }

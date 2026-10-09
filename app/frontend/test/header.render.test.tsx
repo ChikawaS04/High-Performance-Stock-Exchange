@@ -22,8 +22,28 @@ const TAPE: TapeEntry[] = [
 ];
 
 const ORDERS: MyOrder[] = [
-    { clOrdId: 1, side: "BUY", pricePx: 1500000, originalQty: 10, remainingQty: 4, status: "PARTIALLY_FILLED" },
-    { clOrdId: 2, side: "SELL", pricePx: 1502500, originalQty: 5, remainingQty: 5, status: "OPEN" },
+    {
+        clOrdId: 1,
+        side: "BUY",
+        pricePx: 1500000,
+        originalQty: 10,
+        remainingQty: 4,
+        status: "PARTIALLY_FILLED",
+        ordType: "LIMIT",
+        tif: "GTC",
+        displayQty: 0,
+    },
+    {
+        clOrdId: 2,
+        side: "SELL",
+        pricePx: 1502500,
+        originalQty: 5,
+        remainingQty: 5,
+        status: "OPEN",
+        ordType: "LIMIT",
+        tif: "GTC",
+        displayQty: 0,
+    },
 ];
 
 function renderHeader(over: Partial<HeaderProps> = {}) {

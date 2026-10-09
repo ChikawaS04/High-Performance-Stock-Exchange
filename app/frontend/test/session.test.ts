@@ -3,10 +3,16 @@ import { describe, expect, it } from "vitest";
 import { initialState, reducer, SESSION_OPEN_UNSET, TAPE_CAP } from "../src/state/reducer";
 import type { Action, AppState } from "../src/state/reducer";
 import { cancelOrderFrame, newOrderFrame } from "../src/protocol/encode";
-import type { ExecFrame } from "../src/protocol/messages";
+import type { ExecFrame, Side } from "../src/protocol/messages";
 
 function run(state: AppState, ...actions: Action[]): AppState {
     return actions.reduce(reducer, state);
+}
+
+// P14-6: newOrderFrame takes an OrderIntent. This wrapper keeps the positional
+// call shape these fixtures use; every order here is a GTC LIMIT.
+function nf(clOrdId: number, side: Side, pricePx: number, qty: number) {
+    return newOrderFrame(clOrdId, { side, ordType: "LIMIT", tif: "GTC", pricePx, qty, displayQty: 0 });
 }
 
 function fillExec(orderId: number, over: Partial<ExecFrame> = {}): Action {
@@ -177,14 +183,15 @@ describe("session high, low and trade count (P13-1)", () => {
             acceptedExec(1),
             acceptedExec(2, { execType: "ORDER_CANCELLED" }),
             acceptedExec(3, { execType: "ORDER_REJECTED" }),
+            acceptedExec(4, { execType: "ORDER_EXPIRED", remainingQuantity: 7 }),
         );
         expect(fresh.sessionHighPx).toBe(SESSION_OPEN_UNSET);
         expect(fresh.sessionLowPx).toBe(SESSION_OPEN_UNSET);
         expect(fresh.sessionTradeCount).toBe(0);
 
         // And once seeded, a non-fill EXEC still moves none of the three.
-        const traded = reducer(fresh, fillExec(4, { tradeId: 1, price: 1500000 }));
-        const afterAccept = reducer(traded, acceptedExec(5, { price: 9999900 }));
+        const traded = reducer(fresh, fillExec(5, { tradeId: 1, price: 1500000 }));
+        const afterAccept = reducer(traded, acceptedExec(6, { price: 9999900 }));
         expect(afterAccept.sessionHighPx).toBe(1500000);
         expect(afterAccept.sessionLowPx).toBe(1500000);
         expect(afterAccept.sessionTradeCount).toBe(1);
@@ -217,8 +224,8 @@ describe("client MsgSeqNum", () => {
     it("increments once per SENT, including CANCEL, and adds no row for CANCEL", () => {
         const state = run(
             initialState,
-            { type: "SENT", frame: newOrderFrame(1, "BUY", 1500000, 10) },
-            { type: "SENT", frame: newOrderFrame(2, "SELL", 1502500, 5) },
+            { type: "SENT", frame: nf(1, "BUY", 1500000, 10) },
+            { type: "SENT", frame: nf(2, "SELL", 1502500, 5) },
             { type: "SENT", frame: cancelOrderFrame(3, 1) },
         );
         expect(state.msgSeqNum).toBe(3);
@@ -227,7 +234,7 @@ describe("client MsgSeqNum", () => {
     });
 
     it("advances on CANCEL while keeping the order rows by reference", () => {
-        const before = run(initialState, { type: "SENT", frame: newOrderFrame(1, "BUY", 1500000, 10) });
+        const before = run(initialState, { type: "SENT", frame: nf(1, "BUY", 1500000, 10) });
         const after = reducer(before, { type: "SENT", frame: cancelOrderFrame(2, 1) });
         expect(after.msgSeqNum).toBe(2);
         expect(after.myOrders).toBe(before.myOrders);
@@ -237,8 +244,8 @@ describe("client MsgSeqNum", () => {
     it("advances on a duplicate clOrdId without inserting a second row", () => {
         const state = run(
             initialState,
-            { type: "SENT", frame: newOrderFrame(1, "BUY", 1500000, 10) },
-            { type: "SENT", frame: newOrderFrame(1, "BUY", 1500000, 10) },
+            { type: "SENT", frame: nf(1, "BUY", 1500000, 10) },
+            { type: "SENT", frame: nf(1, "BUY", 1500000, 10) },
         );
         expect(state.msgSeqNum).toBe(2);
         expect(state.myOrders).toHaveLength(1);
@@ -263,7 +270,7 @@ describe("session state across a disconnect", () => {
     it("retains the book (stale) and preserves the aggregates, counter, and last-frame marker", () => {
         const live = run(
             initialState,
-            { type: "SENT", frame: newOrderFrame(1, "BUY", 1500000, 10) },
+            { type: "SENT", frame: nf(1, "BUY", 1500000, 10) },
             fillExec(1, { tradeId: 1, price: 1500000, filledQuantity: 4, timestamp: 300 }),
             bookFrame(350),
         );

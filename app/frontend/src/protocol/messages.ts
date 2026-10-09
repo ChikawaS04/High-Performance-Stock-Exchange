@@ -15,13 +15,31 @@ export const SYMBOL = "ASML" as const;
 
 export type Side = "BUY" | "SELL";
 
-/** Full Java enum names, via ExecutionEventType.name(). */
+/**
+ * Time in force (P14-4). Wire codes live in the gateway/encoder (FIX 59: 1 = GTC,
+ * 3 = IOC, 4 = FOK), mirroring how Side keeps its codes out of the enum. The
+ * client always sends one; a missing tag 59 means GTC server-side (SRS §3.1).
+ */
+export type TimeInForce = "GTC" | "IOC" | "FOK";
+
+/**
+ * Order type (P14-9 introduces PEG_MID; P14-6 only ever sends LIMIT). Carried on
+ * the frame now so the later peg step extends the value set, not the frame shape.
+ */
+export type OrdType = "LIMIT" | "PEG_MID";
+
+/**
+ * Full Java enum names, via ExecutionEventType.name(). ORDER_EXPIRED (P14-5) is an
+ * IOC/FOK terminal report: zero or more fills then exactly one ORDER_EXPIRED, never
+ * an ORDER_ACCEPTED (SRS §3.4).
+ */
 export type ExecType =
     | "ORDER_ACCEPTED"
     | "ORDER_FILLED"
     | "ORDER_PARTIALLY_FILLED"
     | "ORDER_CANCELLED"
-    | "ORDER_REJECTED";
+    | "ORDER_REJECTED"
+    | "ORDER_EXPIRED";
 
 /** One depth level: [pricePx, aggregatedQty]. */
 export type Level = readonly [price: number, qty: number];
@@ -49,6 +67,11 @@ export interface BookFrame {
  * `remainingQuantity` is the AGGRESSOR's remaining size. A passive resting order
  * that is hit receives no EXEC of its own (confirmed against MatchingEngine's
  * match loops) — see reducer.ts for how that gap is modelled.
+ *
+ * On ORDER_EXPIRED (P14-5), `orderId` names the expired order and
+ * `remainingQuantity` is the quantity that expired unexecuted; every other field
+ * is the `-1` NA sentinel (SRS §3.4). It parses through the same path as any other
+ * EXEC because `-1` is a valid integer.
  */
 export interface ExecFrame {
     readonly type: "EXEC";
@@ -90,13 +113,24 @@ export interface FixFrame {
 
 export type ServerFrame = BookFrame | ExecFrame | FixFrame;
 
+/**
+ * The outbound NEW order. P14-6 widens it with the three order-attribute fields
+ * the gateway now reads (SRS §3.6): `ordType`, `tif`, and `maxFloor` (the iceberg
+ * display size, 0 when not an iceberg). All three are always sent; the server
+ * defaults a missing one but the client never omits them. `maxFloor` stays 0 and
+ * `ordType` stays "LIMIT" until P14-7/P14-10 populate them from the ticket.
+ */
 export interface NewOrderFrame {
     readonly type: "NEW";
     readonly clOrdId: number;
     readonly side: Side;
+    readonly ordType: OrdType;
+    readonly tif: TimeInForce;
     /** Integer units of $0.0001. JsonToFix.formatPrice does units -> FIX decimal server-side. */
     readonly price: number;
     readonly qty: number;
+    /** Iceberg display quantity (FIX 111). 0 for a non-iceberg order. */
+    readonly maxFloor: number;
     readonly symbol: typeof SYMBOL;
 }
 
@@ -108,6 +142,22 @@ export interface CancelOrderFrame {
 
 export type ClientFrame = NewOrderFrame | CancelOrderFrame;
 
+/**
+ * The resolved, units-internal order the ticket emits on submit (P14-6, decision
+ * H). A single object rather than a growing positional argument list, so P14-8
+ * (iceberg display) and P14-10 (peg) add meaning to `displayQty` / `ordType`
+ * without reshaping the submit seam or rippling through App and both pages. For
+ * P14-6 `ordType` is always "LIMIT" and `displayQty` is always 0.
+ */
+export interface OrderIntent {
+    readonly side: Side;
+    readonly ordType: OrdType;
+    readonly tif: TimeInForce;
+    readonly pricePx: number;
+    readonly qty: number;
+    readonly displayQty: number;
+}
+
 /** The NA sentinel used by every optional numeric field on the wire. */
 export const NA = -1;
 
@@ -117,6 +167,7 @@ const EXEC_TYPES: readonly string[] = [
     "ORDER_PARTIALLY_FILLED",
     "ORDER_CANCELLED",
     "ORDER_REJECTED",
+    "ORDER_EXPIRED",
 ];
 
 export function isExecType(value: unknown): value is ExecType {
