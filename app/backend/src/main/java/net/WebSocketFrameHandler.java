@@ -12,6 +12,7 @@ import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import model.Side;
+import model.TimeInForce;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -160,12 +161,22 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                     log.warn("Dropping NEW order with invalid/missing side: {}", json);
                     return;
                 }
+                // Time in force: a missing or null tif defaults to GTC; an unknown value is dropped
+                // at the boundary with a warning, exactly as an invalid side is (§3.6).
+                JsonNode tifNode = node.path("tif");
+                String tifStr = (tifNode.isMissingNode() || tifNode.isNull()) ? "GTC" : tifNode.asText();
+                TimeInForce tif = mapTif(tifStr);
+                if (tif == null) {
+                    log.warn("Dropping NEW order with unknown tif '{}': {}", tifStr, json);
+                    return;
+                }
                 fix = JsonToFix.newOrderSingle(
                         node.get("clOrdId").asLong(),
                         side,
                         node.get("price").asLong(),
                         node.get("qty").asLong(),
-                        node.get("symbol").asText());
+                        node.get("symbol").asText(),
+                        tif);
             } else if ("CANCEL".equals(type)) {
                 fix = JsonToFix.orderCancelRequest(
                         node.get("clOrdId").asLong(),
@@ -207,6 +218,14 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
     private static Side mapSide(String s) {
         if ("BUY".equals(s)) return Side.BUY;
         if ("SELL".equals(s)) return Side.SELL;
+        return null;
+    }
+
+    /** JSON tif string -> enum. "GTC"/"IOC"/"FOK" map through; anything else -> null (dropped). */
+    private static TimeInForce mapTif(String s) {
+        if ("GTC".equals(s)) return TimeInForce.GTC;
+        if ("IOC".equals(s)) return TimeInForce.IOC;
+        if ("FOK".equals(s)) return TimeInForce.FOK;
         return null;
     }
 }

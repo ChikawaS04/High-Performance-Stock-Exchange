@@ -9,8 +9,22 @@ public class Order {
     private long price;
     private Status status;
     private long participantID;
+    private TimeInForce tif;
 
+    /**
+     * Legacy constructor (pre-Phase-14). Kept so no existing caller or test changes
+     * meaning; defaults the time in force to GTC (Phase 14 decision J).
+     */
     public Order(long orderID, long timeStamp, Side side, int quantity, long price, long participantID) {
+        this(orderID, timeStamp, side, quantity, price, participantID, TimeInForce.GTC);
+    }
+
+    /**
+     * Canonical constructor (Phase 14). Carries an explicit time in force. The constructor
+     * is where domain validation fires (the gateway builds Orders here), so a null tif is
+     * rejected exactly as a null side is.
+     */
+    public Order(long orderID, long timeStamp, Side side, int quantity, long price, long participantID, TimeInForce tif) {
 
         if (orderID <= 0) { throw new IllegalArgumentException("model.Order ID must be positive"); }
         if (timeStamp <= 0) { throw new IllegalArgumentException("Timestamp must be positive"); }
@@ -19,6 +33,7 @@ public class Order {
         if (price <= 0) { throw new IllegalArgumentException("Price must be positive"); }
         if (!Prices.isOnTick(price)) { throw new IllegalArgumentException("Price must be on the one-cent tick"); }
         if (side == null) { throw new IllegalArgumentException("model.Side cannot be null"); }
+        if (tif == null) { throw new IllegalArgumentException("Time in force cannot be null"); }
 
         this.orderID = orderID;
         this.timeStamp = timeStamp;
@@ -27,6 +42,7 @@ public class Order {
         this.price = price;
         this.status = Status.OPEN;
         this.participantID = participantID;
+        this.tif = tif;
     }
 
     public void fill(int fillQty) {
@@ -48,6 +64,7 @@ public class Order {
     public long getPrice() { return price; }
     public Status getStatus() { return status; }
     public long getParticipantID() { return participantID; }
+    public TimeInForce getTimeInForce() { return tif; }
 
     @Override
     public String toString() {
@@ -59,6 +76,7 @@ public class Order {
                 ", price=" + price +
                 ", status='" + status + '\'' +
                 ", participantID=" + participantID +
+                ", tif=" + tif +
                 '}';
     }
 }

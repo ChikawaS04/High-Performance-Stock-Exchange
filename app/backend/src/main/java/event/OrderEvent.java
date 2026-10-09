@@ -1,6 +1,7 @@
 package event;
 
 import model.Side;
+import model.TimeInForce;
 
 /**
  * Mutable carrier for the inbound ring buffer (gateway -> matching engine).
@@ -19,6 +20,7 @@ public final class OrderEvent {
     public OrderEventType eventType;       // NEW_ORDER or CANCEL_ORDER
     public long           orderId;         // ClOrdID (tag 11), numeric
     public Side           side;            // BUY / SELL for new orders; null for cancels
+    public TimeInForce    tif;             // GTC / IOC / FOK for new orders (tag 59); null for cancels
     public long           price;           // limit price in units of $0.0001; -1 for cancels
     public long           quantity;        // order qty; -1 for cancels
     public long           timestamp;       // gateway receipt time (epoch nanos), stamped at Step 7

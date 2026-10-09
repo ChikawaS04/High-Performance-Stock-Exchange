@@ -8,6 +8,7 @@ import event.ExecutionEventType;
 import event.OrderEvent;
 import event.OrderEventType;
 import model.Order;
+import model.TimeInForce;
 
 import java.util.function.LongSupplier;
 
@@ -93,6 +94,10 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
         }
 
         // NEW_ORDER: domain validation fires here, in the Order constructor.
+        // A null tif reaching the engine means the slot carried no tag 59, which the wire
+        // maps to GTC; coalesce here so the canonical constructor's non-null guard stays a
+        // guard for direct callers rather than a reject path for the live pipeline.
+        TimeInForce tif = (event.tif == null) ? TimeInForce.GTC : event.tif;
         Order order;
         try {
             order = new Order(
@@ -101,7 +106,8 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
                     event.side,
                     (int) event.quantity,
                     event.price,
-                    GATEWAY_PARTICIPANT_ID
+                    GATEWAY_PARTICIPANT_ID,
+                    tif
             );
         } catch (IllegalArgumentException rejected) {
             publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA);

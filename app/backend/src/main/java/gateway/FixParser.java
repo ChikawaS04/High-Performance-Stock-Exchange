@@ -4,6 +4,7 @@ import event.OrderEvent;
 import event.OrderEventType;
 import model.Prices;
 import model.Side;
+import model.TimeInForce;
 
 /**
  * Hand-rolled FIX tag-value parser. Steps 1–5 assemble here.
@@ -226,7 +227,7 @@ final class FixParser {
         }
     }
 
-    /** NewOrderSingle (35=D): requires tags 11, 54, 44, 38, 55. */
+    /** NewOrderSingle (35=D): requires tags 11, 54, 44, 38, 55. Tag 59 optional (GTC default). */
     private boolean parseNewOrder(byte[] buf, int count, OrderEvent target) {
         int iId = findTag(FixConstants.CL_ORD_ID, count);
         int iSide = findTag(FixConstants.SIDE, count);
@@ -251,10 +252,22 @@ final class FixParser {
         long qty = FixConstants.parseLong(buf, valStarts[iQty], valEnds[iQty]);
         if (qty <= 0) return false;                        // 38=0 and non-numeric
 
+        // Time in force (tag 59): absent -> GTC (documented Day deviation); 1/3/4 -> enum;
+        // anything else, including 0 (Day) and 6 (GTD), is a reject (Phase 14 decision C).
+        int iTif = findTag(FixConstants.TIME_IN_FORCE, count);
+        TimeInForce tif;
+        if (iTif < 0) {
+            tif = TimeInForce.GTC;
+        } else {
+            tif = mapTif(buf, valStarts[iTif], valEnds[iTif]);
+            if (tif == null) return false;                 // 59=0, 59=6, non-numeric 59
+        }
+
         // All checks passed — populate the slot. Timestamp is the gateway's job.
         target.eventType       = OrderEventType.NEW_ORDER;
         target.orderId         = orderId;
         target.side            = side;
+        target.tif             = tif;
         target.price           = price;
         target.quantity        = qty;
         target.originalOrderId = -1L;                      // unused by D; clear stale
@@ -278,6 +291,7 @@ final class FixParser {
         target.orderId         = orderId;
         target.originalOrderId = origId;
         target.side            = null;                     // unused by F; clear stale
+        target.tif             = null;                     // unused by F; clear stale
         target.price           = -1L;
         target.quantity        = -1L;
         return true;
@@ -309,6 +323,17 @@ final class FixParser {
         switch (buf[start]) {
             case '1': return Side.BUY;
             case '2': return Side.SELL;
+            default:  return null;
+        }
+    }
+
+    /** FIX TimeInForce (tag 59) -> enum. '1' = GTC, '3' = IOC, '4' = FOK; anything else -> null. */
+    private TimeInForce mapTif(byte[] buf, int start, int end) {
+        if (end - start != 1) return null;
+        switch (buf[start]) {
+            case '1': return TimeInForce.GTC;
+            case '3': return TimeInForce.IOC;
+            case '4': return TimeInForce.FOK;
             default:  return null;
         }
     }

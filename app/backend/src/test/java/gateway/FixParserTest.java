@@ -3,6 +3,7 @@ package gateway;
 import event.OrderEvent;
 import event.OrderEventType;
 import model.Side;
+import model.TimeInForce;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -130,5 +131,72 @@ class FixParserTest {
     void unknownMessageType() {
         byte[] m = msg("35=X", "11=123", "54=1", "44=150.25", "38=100", "55=ASML");
         assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    // --- Time in force (tag 59), Phase 14 -----------------------------------
+
+    @Test
+    @DisplayName("tag 59=1 parses to GTC")
+    void tifGtc() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "59=1");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(TimeInForce.GTC, event.tif);
+    }
+
+    @Test
+    @DisplayName("tag 59=3 parses to IOC")
+    void tifIoc() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "59=3");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(TimeInForce.IOC, event.tif);
+    }
+
+    @Test
+    @DisplayName("tag 59=4 parses to FOK")
+    void tifFok() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "59=4");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(TimeInForce.FOK, event.tif);
+    }
+
+    @Test
+    @DisplayName("a missing tag 59 defaults to GTC (documented Day deviation)")
+    void tifAbsentDefaultsGtc() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(TimeInForce.GTC, event.tif);
+    }
+
+    @Test
+    @DisplayName("tag 59=0 (Day) is rejected (decision C)")
+    void tifDayRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "59=0");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("tag 59=6 (GTD) is rejected (decision C)")
+    void tifGtdRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "59=6");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("non-numeric tag 59 is rejected")
+    void tifNonNumericRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "59=X");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("a cancel after an IOC new order leaves tif cleared on the reused slot")
+    void tifClearedOnReusedSlotByCancel() {
+        byte[] neu = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "59=3");
+        assertTrue(parser.parse(neu, 0, neu.length, event));
+        assertEquals(TimeInForce.IOC, event.tif);
+
+        byte[] can = msg("35=F", "11=2", "41=1");
+        assertTrue(parser.parse(can, 0, can.length, event));
+        assertNull(event.tif, "cancel must clear the stale IOC from the reused slot");
     }
 }

@@ -15,6 +15,7 @@ import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import model.Side;
+import model.TimeInForce;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -140,6 +141,55 @@ class WebSocketFrameHandlerTest {
         channel.writeInbound(new TextWebSocketFrame(
                 "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\",\"price\":15000,\"qty\":10,\"symbol\":\"MSFT\"}"));
         assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS), "wrong symbol rejected by parser");
+    }
+
+    // --- time in force on the inbound edge (Phase 14) ---
+
+    @Test
+    void missingTifDefaultsToGtcOnTheWire() throws Exception {
+        // NEW_JSON carries no tif; the handler must default it to GTC and emit 59=1. The echoed
+        // raw FIX is byte-identical to the GTC encoding, which is also what the 5-arg form emits.
+        channel.writeInbound(new TextWebSocketFrame(NEW_JSON));
+
+        CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        assertNotNull(obs, "a NEW order with no tif should still reach the inbound ring");
+
+        JsonNode echo = readEcho();
+        assertNotNull(echo, "the defaulted order should echo its raw FIX");
+        String expected = new String(
+                JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, 100L, "ASML", TimeInForce.GTC),
+                StandardCharsets.ISO_8859_1);
+        assertEquals(expected, echo.path("raw").asText(), "missing tif must encode as 59=1 (GTC)");
+    }
+
+    @Test
+    void explicitIocTifReachesTheWire() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"BUY\",\"tif\":\"IOC\",\"price\":1502500,\"qty\":100,\"symbol\":\"ASML\"}"));
+
+        CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        assertNotNull(obs, "an IOC order should reach the inbound ring");
+
+        JsonNode echo = readEcho();
+        assertNotNull(echo, "the IOC order should echo its raw FIX");
+        String expected = new String(
+                JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, 100L, "ASML", TimeInForce.IOC),
+                StandardCharsets.ISO_8859_1);
+        assertEquals(expected, echo.path("raw").asText(), "tif IOC must encode as 59=3");
+    }
+
+    @Test
+    void unknownTifPublishesNothing() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\",\"tif\":\"DAY\",\"price\":1502500,\"qty\":100,\"symbol\":\"ASML\"}"));
+        assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS), "unknown tif dropped at the edge");
+    }
+
+    @Test
+    void unknownTifProducesNoEcho() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\",\"tif\":\"DAY\",\"price\":1502500,\"qty\":100,\"symbol\":\"ASML\"}"));
+        assertNull(channel.readOutbound(), "unknown tif must not echo");
     }
 
     // --- raw inbound FIX echo (P7-2) ---

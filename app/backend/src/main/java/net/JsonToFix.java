@@ -3,6 +3,7 @@ package net;
 import gateway.FixConstants;
 import model.Prices;
 import model.Side;
+import model.TimeInForce;
 
 import java.nio.charset.StandardCharsets;
 
@@ -24,15 +25,29 @@ public final class JsonToFix {
 
     private JsonToFix() { }
 
-    /** NewOrderSingle (35=D): tags 11, 55, 54, 38, 44 — the set parseNewOrder requires. */
+    /**
+     * NewOrderSingle (35=D), legacy 5-arg form. Kept so existing callers and tests are unchanged;
+     * delegates with GTC time in force (Phase 14 decision J). Because it delegates, it now also
+     * emits tag 59=1, so a frame it produces is correct FIX whichever default the reader applies.
+     */
     public static byte[] newOrderSingle(long clOrdId, Side side, long priceUnits, long qty, String symbol) {
+        return newOrderSingle(clOrdId, side, priceUnits, qty, symbol, TimeInForce.GTC);
+    }
+
+    /**
+     * NewOrderSingle (35=D) with an explicit time in force: tags 11, 55, 54, 38, 44, 59 — the set
+     * parseNewOrder requires plus tag 59. The terminal always sends tag 59 (§3.1/§3.6).
+     */
+    public static byte[] newOrderSingle(long clOrdId, Side side, long priceUnits, long qty, String symbol,
+                                        TimeInForce tif) {
         return assemble(
                 "35=D",
                 "11=" + clOrdId,
                 "55=" + symbol,
                 "54=" + sideCode(side),
                 "38=" + qty,
-                "44=" + formatPrice(priceUnits));
+                "44=" + formatPrice(priceUnits),
+                "59=" + tifCode(tif));
     }
 
     /** OrderCancelRequest (35=F): tags 11, 41 — the set parseCancel requires. */
@@ -46,6 +61,16 @@ public final class JsonToFix {
     /** FIX side code: 1 = buy, 2 = sell (mirrors FixParser.mapSide). */
     private static char sideCode(Side side) {
         return side == Side.BUY ? '1' : '2';
+    }
+
+    /** FIX TimeInForce code: 1 = GTC, 3 = IOC, 4 = FOK (mirrors FixParser.mapTif). */
+    private static char tifCode(TimeInForce tif) {
+        switch (tif) {
+            case IOC: return '3';
+            case FOK: return '4';
+            case GTC:
+            default:  return '1';
+        }
     }
 
     /**

@@ -3,6 +3,7 @@ package gateway;
 import event.OrderEvent;
 import event.OrderEventType;
 import model.Side;
+import model.TimeInForce;
 import net.JsonToFix;
 import org.junit.jupiter.api.Test;
 
@@ -77,5 +78,32 @@ class JsonToFixParseTest {
         byte[] fix = JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "MSFT");
         assertFalse(new FixParser().parse(fix, 0, fix.length, new OrderEvent()),
                 "parser rejects a symbol that isn't the configured instrument");
+    }
+
+    // --- Time in force (tag 59), Phase 14 -----------------------------------
+
+    @Test
+    void tifGtcRoundTrips() {
+        OrderEvent ev = parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML", TimeInForce.GTC));
+        assertEquals(TimeInForce.GTC, ev.tif);
+    }
+
+    @Test
+    void tifIocRoundTrips() {
+        OrderEvent ev = parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML", TimeInForce.IOC));
+        assertEquals(TimeInForce.IOC, ev.tif);
+    }
+
+    @Test
+    void tifFokRoundTrips() {
+        OrderEvent ev = parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML", TimeInForce.FOK));
+        assertEquals(TimeInForce.FOK, ev.tif);
+    }
+
+    @Test
+    void fiveArgFormDefaultsToGtc() {
+        // The legacy 5-arg form delegates with GTC, so it must now encode tag 59=1.
+        OrderEvent ev = parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML"));
+        assertEquals(TimeInForce.GTC, ev.tif);
     }
 }
