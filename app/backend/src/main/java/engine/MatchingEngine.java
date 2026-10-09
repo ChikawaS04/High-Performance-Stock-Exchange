@@ -49,7 +49,7 @@ public class MatchingEngine implements BookView {
             Deque<Order> bestAskQueue = bestAskEntry.getValue();
             Order askOrder = bestAskQueue.getFirst();
 
-            int quantityMatched = Math.min(buyOrder.getQuantity(), askOrder.getQuantity());
+            int quantityMatched = Math.min(buyOrder.getQuantity(), askOrder.getVisibleQty());
             buyOrder.fill(quantityMatched);
             askOrder.fill(quantityMatched);
 
@@ -79,6 +79,12 @@ public class MatchingEngine implements BookView {
                 if (bestAskQueue.isEmpty()) {
                     asks.pollFirstEntry();
                 }
+            } else if (askOrder.getVisibleQty() == 0) {
+                // iceberg tip exhausted with reserve remaining: reload a fresh slice at the back of
+                // the level's queue, losing time priority (Phase 14 D7, SRS 3.3).
+                bestAskQueue.pollFirst();
+                askOrder.refreshDisplay();
+                bestAskQueue.addLast(askOrder);
             }
         }
     }
@@ -93,7 +99,7 @@ public class MatchingEngine implements BookView {
             Deque<Order> bestBidQueue = bestBidEntry.getValue();
             Order bidOrder = bestBidQueue.getFirst();
 
-            int quantityMatched = Math.min(sellOrder.getQuantity(), bidOrder.getQuantity());
+            int quantityMatched = Math.min(sellOrder.getQuantity(), bidOrder.getVisibleQty());
             sellOrder.fill(quantityMatched);
             bidOrder.fill(quantityMatched);
 
@@ -123,6 +129,12 @@ public class MatchingEngine implements BookView {
                 if (bestBidQueue.isEmpty()) {
                     bids.pollFirstEntry();
                 }
+            } else if (bidOrder.getVisibleQty() == 0) {
+                // iceberg tip exhausted with reserve remaining: reload a fresh slice at the back of
+                // the level's queue, losing time priority (Phase 14 D7, SRS 3.3).
+                bestBidQueue.pollFirst();
+                bidOrder.refreshDisplay();
+                bestBidQueue.addLast(bidOrder);
             }
         }
     }
@@ -204,6 +216,7 @@ public class MatchingEngine implements BookView {
     }
 
     private void addToBook(TreeMap<Long, Deque<Order>> book, Order order) {
+        order.refreshDisplay();   // set the visible slice for the resting order (iceberg tip); no-op for a plain order
         book.computeIfAbsent(order.getPrice(), k -> new ArrayDeque<>()).addLast(order);
         openOrders.put(order.getOrderID(), order);   // register resting order for O(1) cancel
     }
@@ -237,7 +250,7 @@ public class MatchingEngine implements BookView {
 
         // Asks: highest at top, lowest nearest to spread
         for (Map.Entry<Long, Deque<Order>> entry : asks.descendingMap().entrySet()) {
-            int totalQty = entry.getValue().stream().mapToInt(Order::getQuantity).sum();
+            int totalQty = entry.getValue().stream().mapToInt(Order::getVisibleQty).sum();
             System.out.printf("  ASK  %10s   %6d%n", formatPrice(entry.getKey()), totalQty);
         }
 
@@ -255,7 +268,7 @@ public class MatchingEngine implements BookView {
 
         // Bids: highest first (natural iteration of reverse-ordered TreeMap)
         for (Map.Entry<Long, Deque<Order>> entry : bids.entrySet()) {
-            int totalQty = entry.getValue().stream().mapToInt(Order::getQuantity).sum();
+            int totalQty = entry.getValue().stream().mapToInt(Order::getVisibleQty).sum();
             System.out.printf("  BID  %10s   %6d%n", formatPrice(entry.getKey()), totalQty);
         }
 
@@ -288,7 +301,7 @@ public class MatchingEngine implements BookView {
      * this at the end of each onEvent and publishes the slot on the snapshot ring.
      *
      * <p>Both sides are walked best-first (bids reverse-ordered, asks natural, so each map's
-     * iteration order is already best→worst), aggregating total resting quantity per price
+     * iteration order is already best→worst), aggregating visible resting quantity per price
      * level, truncated at {@code min(maxLevels, MAX_DEPTH_LEVELS)}. {@code bestBid}/
      * {@code bestAsk} carry the {@code -1L} empty-side sentinel. Fills all scalar fields and
      * the valid array prefix every call; array tails beyond the level counts are left as-is
@@ -312,7 +325,7 @@ public class MatchingEngine implements BookView {
 
     /**
      * Fills {@code prices}/{@code qtys} with up to {@code maxLevels} best-first levels from
-     * {@code book}, aggregating resting quantity per price level.
+     * {@code book}, aggregating visible resting quantity per price level (an iceberg contributes only its tip).
      *
      * @return the number of levels written (the authoritative count for this side)
      */
@@ -323,7 +336,7 @@ public class MatchingEngine implements BookView {
             if (i == maxLevels) break;
             long levelQty = 0;
             for (Order o : entry.getValue()) {
-                levelQty += o.getQuantity();
+                levelQty += o.getVisibleQty();
             }
             prices[i] = entry.getKey();
             qtys[i] = levelQty;

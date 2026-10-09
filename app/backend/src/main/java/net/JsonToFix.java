@@ -35,11 +35,35 @@ public final class JsonToFix {
     }
 
     /**
-     * NewOrderSingle (35=D) with an explicit time in force: tags 11, 55, 54, 38, 44, 59 — the set
-     * parseNewOrder requires plus tag 59. The terminal always sends tag 59 (§3.1/§3.6).
+     * NewOrderSingle (35=D) with an explicit time in force (legacy 6-arg form). Kept as a
+     * delegating overload so existing callers are unchanged; delegates with max floor 0, a
+     * non-iceberg order (Phase 14 decision J).
      */
     public static byte[] newOrderSingle(long clOrdId, Side side, long priceUnits, long qty, String symbol,
                                         TimeInForce tif) {
+        return newOrderSingle(clOrdId, side, priceUnits, qty, symbol, tif, 0L);
+    }
+
+    /**
+     * NewOrderSingle (35=D) with an explicit time in force and iceberg display size: tags 11, 55,
+     * 54, 38, 44, 59, plus 111 only when {@code maxFloor > 0} (an order that hides nothing omits
+     * it). The terminal always sends tag 59 (§3.1/§3.6). The tag order leaves room for 40 (OrdType)
+     * to land between 38 and 44 at P14-9; the parser is tag-order-agnostic, so appending 111 last
+     * is valid FIX now and reorders cleanly then.
+     */
+    public static byte[] newOrderSingle(long clOrdId, Side side, long priceUnits, long qty, String symbol,
+                                        TimeInForce tif, long maxFloor) {
+        if (maxFloor > 0) {
+            return assemble(
+                    "35=D",
+                    "11=" + clOrdId,
+                    "55=" + symbol,
+                    "54=" + sideCode(side),
+                    "38=" + qty,
+                    "44=" + formatPrice(priceUnits),
+                    "59=" + tifCode(tif),
+                    "111=" + maxFloor);
+        }
         return assemble(
                 "35=D",
                 "11=" + clOrdId,

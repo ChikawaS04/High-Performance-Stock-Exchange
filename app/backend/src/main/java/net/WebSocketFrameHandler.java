@@ -170,13 +170,19 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                     log.warn("Dropping NEW order with unknown tif '{}': {}", tifStr, json);
                     return;
                 }
+                // Max floor (iceberg display size): a missing or null maxFloor defaults to 0 (not an
+                // iceberg). Structural and domain validation of the value is the FIX parser's and the
+                // Order constructor's job downstream (§3.1), as for price and qty.
+                JsonNode maxFloorNode = node.path("maxFloor");
+                long maxFloor = (maxFloorNode.isMissingNode() || maxFloorNode.isNull()) ? 0L : maxFloorNode.asLong();
                 fix = JsonToFix.newOrderSingle(
                         node.get("clOrdId").asLong(),
                         side,
                         node.get("price").asLong(),
                         node.get("qty").asLong(),
                         node.get("symbol").asText(),
-                        tif);
+                        tif,
+                        maxFloor);
             } else if ("CANCEL".equals(type)) {
                 fix = JsonToFix.orderCancelRequest(
                         node.get("clOrdId").asLong(),

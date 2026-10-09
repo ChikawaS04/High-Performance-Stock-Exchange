@@ -227,7 +227,7 @@ final class FixParser {
         }
     }
 
-    /** NewOrderSingle (35=D): requires tags 11, 54, 44, 38, 55. Tag 59 optional (GTC default). */
+    /** NewOrderSingle (35=D): requires tags 11, 54, 44, 38, 55. Tags 59 and 111 optional. */
     private boolean parseNewOrder(byte[] buf, int count, OrderEvent target) {
         int iId = findTag(FixConstants.CL_ORD_ID, count);
         int iSide = findTag(FixConstants.SIDE, count);
@@ -263,6 +263,22 @@ final class FixParser {
             if (tif == null) return false;                 // 59=0, 59=6, non-numeric 59
         }
 
+        // Max floor (tag 111): absent -> 0 (not an iceberg). When present it must be a positive
+        // integer no greater than the order quantity; a malformed or out-of-range 111 is a
+        // STRUCTURAL reject, dropped at the gateway (Phase 14 D8, SRS 3.1). The iceberg
+        // combination rule (an iceberg must be GTC) is a DOMAIN rule enforced in the Order
+        // constructor, so it is not checked here; tif and maxFloor pass through to surface as
+        // ORDER_REJECTED.
+        long maxFloor;
+        int iMaxFloor = findTag(FixConstants.MAX_FLOOR, count);
+        if (iMaxFloor < 0) {
+            maxFloor = 0L;
+        } else {
+            maxFloor = FixConstants.parseLong(buf, valStarts[iMaxFloor], valEnds[iMaxFloor]);
+            if (maxFloor <= 0) return false;               // 111=0, negative or non-numeric
+            if (maxFloor > qty) return false;              // display cannot exceed order quantity
+        }
+
         // All checks passed — populate the slot. Timestamp is the gateway's job.
         target.eventType       = OrderEventType.NEW_ORDER;
         target.orderId         = orderId;
@@ -270,6 +286,7 @@ final class FixParser {
         target.tif             = tif;
         target.price           = price;
         target.quantity        = qty;
+        target.maxFloor        = maxFloor;
         target.originalOrderId = -1L;                      // unused by D; clear stale
 
         return true;
@@ -294,6 +311,7 @@ final class FixParser {
         target.tif             = null;                     // unused by F; clear stale
         target.price           = -1L;
         target.quantity        = -1L;
+        target.maxFloor        = 0L;                       // unused by F; clear stale
         return true;
     }
 

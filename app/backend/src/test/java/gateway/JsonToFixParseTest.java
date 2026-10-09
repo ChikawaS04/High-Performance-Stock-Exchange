@@ -106,4 +106,28 @@ class JsonToFixParseTest {
         OrderEvent ev = parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML"));
         assertEquals(TimeInForce.GTC, ev.tif);
     }
+
+    // --- Max floor / iceberg (tag 111), Phase 14-7 --------------------------
+
+    @Test
+    void icebergEmits111AndRoundTrips() {
+        OrderEvent ev = parseOk(
+                JsonToFix.newOrderSingle(1L, Side.SELL, 1_500_000L, 1000L, "ASML", TimeInForce.GTC, 100L));
+        assertEquals(100L, ev.maxFloor);
+    }
+
+    @Test
+    void zeroMaxFloorOmits111() {
+        // 111=0 would be rejected by the parser, so a successful round-trip to maxFloor 0 proves
+        // tag 111 was omitted, not emitted as zero.
+        OrderEvent ev = parseOk(
+                JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 100L, "ASML", TimeInForce.GTC, 0L));
+        assertEquals(0L, ev.maxFloor);
+    }
+
+    @Test
+    void legacyFormsCarryNoMaxFloor() {
+        assertEquals(0L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML")).maxFloor);
+        assertEquals(0L, parseOk(JsonToFix.newOrderSingle(1L, Side.BUY, 1_500_000L, 1L, "ASML", TimeInForce.IOC)).maxFloor);
+    }
 }

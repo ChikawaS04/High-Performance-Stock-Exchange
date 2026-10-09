@@ -5,15 +5,41 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/engine/ExecutionListener.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/engine/ExecutionListener.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngine.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngine.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngineHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/engine/MatchingEngineHandler.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/ExecutionEventType.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/ExecutionEventType.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/event/OrderEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/event/OrderEvent.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixConstants.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixConstants.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixParser.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/gateway/FixParser.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/gateway/OrderGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/gateway/OrderGateway.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/model/Order.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/model/Order.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/model/Status.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/model/Status.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/net/JsonToFix.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/main/java/net/WebSocketFrameHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/main/java/net/WebSocketFrameHandler.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineHandlerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineHandlerTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineSnapshotTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/engine/MatchingEngineSnapshotTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/gateway/FixParserTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/gateway/FixParserTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/gateway/JsonToFixParseTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/gateway/JsonToFixParseTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/integration/EndToEndPipelineTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/integration/EndToEndPipelineTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/publisher/TradeLoggerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/publisher/TradeLoggerTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/net/WebSocketFrameHandlerTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/net/WebSocketFrameHandlerTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/messages.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/messages.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/state/reducer.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.render.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/header.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/header.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/passiveFill.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/passiveFill.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/reducer.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/reducer.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/session.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/session.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/tapeSide.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tapeSide.test.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -21,7 +47,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="75" />
+    <option name="cachedIndexableFilesCount" value="78" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
@@ -55,23 +81,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.4037034178316596" />
-      <entry key="MS500" value="4.225521036726729" />
-      <entry key="S2" value="12.36145945356022" />
-      <entry key="S5" value="20.51769147044625" />
-      <entry key="S10" value="25.841623812940917" />
-      <entry key="S30" value="30.878368606134373" />
-      <entry key="S60" value="33.18545469592586" />
-      <entry key="M2" value="39.153877334411774" />
-      <entry key="M5" value="53.47220832708268" />
-      <entry key="M10" value="63.35338218563006" />
-      <entry key="M15" value="67.62232996496813" />
-      <entry key="M30" value="73.90236379714811" />
-      <entry key="H1" value="95.21862700080224" />
-      <entry key="H2" value="180.2684986655901" />
-      <entry key="H4" value="382.6408559784627" />
-      <entry key="D1" value="1137.9600336035714" />
-      <entry key="W1" value="1616.2790391578399" />
+      <entry key="MS100" value="1.7386959320880335" />
+      <entry key="MS500" value="2.656470501324235" />
+      <entry key="S2" value="5.027576525411483" />
+      <entry key="S5" value="10.19032024981139" />
+      <entry key="S10" value="15.788166944894272" />
+      <entry key="S30" value="23.19507844074443" />
+      <entry key="S60" value="25.867708614076914" />
+      <entry key="M2" value="27.371212169070592" />
+      <entry key="M5" value="28.59284265621738" />
+      <entry key="M10" value="33.89880141605116" />
+      <entry key="M15" value="43.12137297079627" />
+      <entry key="M30" value="68.89590893557545" />
+      <entry key="H1" value="106.88909894812605" />
+      <entry key="H2" value="194.98870925990155" />
+      <entry key="H4" value="395.65672167609927" />
+      <entry key="D1" value="1174.7070900867138" />
+      <entry key="W1" value="1671.5576282023817" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -93,23 +119,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.3115645235207554" />
-      <entry key="MS500" value="4.17063723109352" />
-      <entry key="S2" value="12.32174452702327" />
-      <entry key="S5" value="20.491258334387528" />
-      <entry key="S10" value="25.824933964634507" />
-      <entry key="S30" value="30.871704813701708" />
-      <entry key="S60" value="33.181864463994934" />
-      <entry key="M2" value="39.151736234281856" />
-      <entry key="M5" value="53.47101737728414" />
-      <entry key="M10" value="63.352671085544515" />
-      <entry key="M15" value="67.6218225365696" />
-      <entry key="M30" value="73.90208334954109" />
-      <entry key="H1" value="95.21843130392145" />
-      <entry key="H2" value="180.2682863171973" />
-      <entry key="H4" value="382.6406127857663" />
-      <entry key="D1" value="1137.9599093641577" />
-      <entry key="W1" value="1616.2790140274913" />
+      <entry key="MS100" value="1.6381895699905653" />
+      <entry key="MS500" value="2.6238740634525883" />
+      <entry key="S2" value="5.012744290977398" />
+      <entry key="S5" value="10.178543029483425" />
+      <entry key="S10" value="15.779045643609987" />
+      <entry key="S30" value="23.190598180726305" />
+      <entry key="S60" value="25.865207617234493" />
+      <entry key="M2" value="27.36988820202333" />
+      <entry key="M5" value="28.592288619945528" />
+      <entry key="M10" value="33.89846671685134" />
+      <entry key="M15" value="43.12108233951943" />
+      <entry key="M30" value="68.89566794749166" />
+      <entry key="H1" value="106.88889835136283" />
+      <entry key="H2" value="194.98849799578065" />
+      <entry key="H4" value="395.6564825464962" />
+      <entry key="D1" value="1174.7069641832372" />
+      <entry key="W1" value="1671.5576025478674" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -392,7 +418,9 @@
       <workItem from="1791434284994" duration="1000" />
       <workItem from="1791441070057" duration="2588000" />
       <workItem from="1791487400820" duration="973000" />
-      <workItem from="1791506708867" duration="1592000" />
+      <workItem from="1791506708867" duration="3673000" />
+      <workItem from="1791512774057" duration="461000" />
+      <workItem from="1791565920438" duration="897000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

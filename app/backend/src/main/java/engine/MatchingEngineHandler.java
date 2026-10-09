@@ -107,7 +107,8 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
                     (int) event.quantity,
                     event.price,
                     GATEWAY_PARTICIPANT_ID,
-                    tif
+                    tif,
+                    (int) event.maxFloor   // iceberg display size (tag 111); 0 means a plain order
             );
         } catch (IllegalArgumentException rejected) {
             publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA);

@@ -61,6 +61,13 @@ class MatchingEngineHandlerTest {
         return e;
     }
 
+    private static OrderEvent newOrder(long orderId, Side side, long price, long qty,
+                                       TimeInForce tif, long maxFloor) {
+        OrderEvent e = newOrder(orderId, side, price, qty, tif);
+        e.maxFloor = maxFloor;
+        return e;
+    }
+
     private static OrderEvent cancel(long clOrdId, long origId) {
         OrderEvent e = new OrderEvent();
         e.eventType = OrderEventType.CANCEL_ORDER;
@@ -214,5 +221,17 @@ class MatchingEngineHandlerTest {
         assertEquals(-1, expired.filledQuantity());
         assertEquals(-1, expired.aggressorOrderId());
         assertEquals(-1, expired.passiveOrderId());
+    }
+
+    @Test
+    void icebergWithIoc_isRejectedByTheDomainConstructor() {
+        // peak > 0 with a non-GTC tif violates the Order constructor's iceberg rule, so the
+        // handler's IllegalArgumentException path reports ORDER_REJECTED (D8).
+        submit(newOrder(1, Side.BUY, 1_000_000, 1000, TimeInForce.IOC, 100), 0);
+
+        List<Observed> obs = captured.awaitAtLeast(1, 1000);
+        assertEquals(1, obs.size());
+        assertEquals(ExecutionEventType.ORDER_REJECTED, obs.get(0).eventType());
+        assertEquals(1, obs.get(0).orderId());
     }
 }

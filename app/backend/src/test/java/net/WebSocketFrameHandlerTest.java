@@ -273,6 +273,40 @@ class WebSocketFrameHandlerTest {
         }
     }
 
+    // --- iceberg max floor on the inbound edge (Phase 14-7) ---
+
+    @Test
+    void missingMaxFloorEmitsNo111() throws Exception {
+        // NEW_JSON carries no maxFloor; the echoed raw FIX must equal the GTC encoding with no 111.
+        channel.writeInbound(new TextWebSocketFrame(NEW_JSON));
+
+        CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        assertNotNull(obs);
+
+        JsonNode echo = readEcho();
+        assertNotNull(echo);
+        String expected = new String(
+                JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, 100L, "ASML", TimeInForce.GTC, 0L),
+                StandardCharsets.ISO_8859_1);
+        assertEquals(expected, echo.path("raw").asText(), "no maxFloor must encode without tag 111");
+    }
+
+    @Test
+    void maxFloorCarriedToTheWireAs111() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"SELL\",\"tif\":\"GTC\",\"price\":1502500,\"qty\":1000,\"maxFloor\":100,\"symbol\":\"ASML\"}"));
+
+        CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        assertNotNull(obs, "an iceberg order should reach the inbound ring");
+
+        JsonNode echo = readEcho();
+        assertNotNull(echo);
+        String expected = new String(
+                JsonToFix.newOrderSingle(7L, Side.SELL, 1_502_500L, 1000L, "ASML", TimeInForce.GTC, 100L),
+                StandardCharsets.ISO_8859_1);
+        assertEquals(expected, echo.path("raw").asText(), "maxFloor must encode as tag 111=100");
+    }
+
     /** Read one outbound text frame as parsed JSON, releasing it. Null when none is queued. */
     private JsonNode readEcho() throws Exception {
         Object out = channel.readOutbound();

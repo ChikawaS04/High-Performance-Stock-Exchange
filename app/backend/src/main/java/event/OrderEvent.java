@@ -23,6 +23,7 @@ public final class OrderEvent {
     public TimeInForce    tif;             // GTC / IOC / FOK for new orders (tag 59); null for cancels
     public long           price;           // limit price in units of $0.0001; -1 for cancels
     public long           quantity;        // order qty; -1 for cancels
+    public long           maxFloor;        // iceberg display size (tag 111); 0 when not an iceberg; 0 for cancels (Phase 14)
     public long           timestamp;       // gateway receipt time (epoch nanos), stamped at Step 7
     public long           originalOrderId; // OrigClOrdID (tag 41) for cancels; -1 for new orders
 }

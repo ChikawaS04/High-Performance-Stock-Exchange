@@ -199,4 +199,55 @@ class FixParserTest {
         assertTrue(parser.parse(can, 0, can.length, event));
         assertNull(event.tif, "cancel must clear the stale IOC from the reused slot");
     }
+
+    // --- Max floor (tag 111), Phase 14-7 ------------------------------------
+
+    @Test
+    @DisplayName("tag 111 present parses as the iceberg display size")
+    void maxFloorPresent() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=1000", "55=ASML", "111=100");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(100L, event.maxFloor);
+    }
+
+    @Test
+    @DisplayName("a missing tag 111 defaults to 0 (not an iceberg)")
+    void maxFloorAbsentDefaultsZero() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=1000", "55=ASML");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(0L, event.maxFloor);
+    }
+
+    @Test
+    @DisplayName("tag 111=0 is rejected")
+    void maxFloorZeroRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=1000", "55=ASML", "111=0");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("non-numeric tag 111 is rejected")
+    void maxFloorNonNumericRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=1000", "55=ASML", "111=X");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("tag 111 greater than the order quantity is rejected")
+    void maxFloorGreaterThanQtyRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML", "111=150");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    @DisplayName("a cancel after an iceberg new order clears maxFloor on the reused slot")
+    void maxFloorClearedOnReusedSlotByCancel() {
+        byte[] neu = msg("35=D", "11=1", "54=1", "44=150.25", "38=1000", "55=ASML", "111=100");
+        assertTrue(parser.parse(neu, 0, neu.length, event));
+        assertEquals(100L, event.maxFloor);
+
+        byte[] can = msg("35=F", "11=2", "41=1");
+        assertTrue(parser.parse(can, 0, can.length, event));
+        assertEquals(0L, event.maxFloor, "cancel must clear the stale maxFloor from the reused slot");
+    }
 }

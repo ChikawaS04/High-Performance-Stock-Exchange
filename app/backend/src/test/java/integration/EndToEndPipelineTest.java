@@ -249,6 +249,35 @@ class EndToEndPipelineTest {
         assertEquals(100, expired.remainingQuantity());
     }
 
+    @Test
+    void icebergOrder_fromWire_restsReserve_tipHitReloadsAcrossTwoFills() {
+        // SELL iceberg 1000 with a 100 tip, then a BUY 150 aggressor. If maxFloor survives the
+        // gateway COPY_INTO_SLOT translator, the 150 fills across the tip and one reload (two
+        // fills). If it were dropped, the order would be a plain 1000 and the 150 would be a
+        // single fill, so this guards exactly the P14-5 class of translator gap.
+        send(newOrderIceberg(900, '2', "150.00", 1000, 100));   // iceberg sell rests -> ACCEPTED
+        send(newOrder(901, '1', "150.00", 150));                // BUY 150 crosses
+
+        List<Observed> obs = captured.awaitAtLeast(3, 1000);
+        assertEquals(3, obs.size());
+
+        assertEquals(ExecutionEventType.ORDER_ACCEPTED, obs.get(0).eventType());
+        assertEquals(900, obs.get(0).orderId());
+        assertEquals(1000, obs.get(0).remainingQuantity());     // ACCEPTED carries the total; the tip is a BOOK concern
+
+        Observed partial = obs.get(1);
+        assertEquals(ExecutionEventType.ORDER_PARTIALLY_FILLED, partial.eventType());
+        assertEquals(901, partial.orderId());
+        assertEquals(100, partial.filledQuantity());            // first slice = the tip
+        assertEquals(50, partial.remainingQuantity());
+
+        Observed filled = obs.get(2);
+        assertEquals(ExecutionEventType.ORDER_FILLED, filled.eventType());
+        assertEquals(901, filled.orderId());
+        assertEquals(50, filled.filledQuantity());              // second slice, after the reload
+        assertEquals(0, filled.remainingQuantity());
+    }
+
     // --- FIX message builders (54=1 BUY, 54=2 SELL; price in dollars, symbol ASML) ---
 
     private static byte[] newOrder(long clOrdId, char side, String price, long qty) {
@@ -259,6 +288,11 @@ class EndToEndPipelineTest {
     private static byte[] newOrder(long clOrdId, char side, String price, long qty, char tif) {
         return msg("35=D", "11=" + clOrdId, "54=" + side,
                 "44=" + price, "38=" + qty, "55=ASML", "59=" + tif);
+    }
+
+    private static byte[] newOrderIceberg(long clOrdId, char side, String price, long qty, long maxFloor) {
+        return msg("35=D", "11=" + clOrdId, "54=" + side,
+                "44=" + price, "38=" + qty, "55=ASML", "111=" + maxFloor);
     }
 
     private static byte[] cancel(long clOrdId, long origClOrdId) {

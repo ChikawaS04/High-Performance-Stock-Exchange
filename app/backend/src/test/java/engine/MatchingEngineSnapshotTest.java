@@ -3,6 +3,7 @@ package engine;
 import event.BookSnapshotEvent;
 import model.Order;
 import model.Side;
+import model.TimeInForce;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +27,11 @@ class MatchingEngineSnapshotTest {
     /** As-built ctor arg order: (orderID, timeStamp, side, quantity, price, participantID). */
     private static Order order(long id, Side side, int qty, long priceUnits) {
         return new Order(id, System.nanoTime(), side, qty, priceUnits, 1L);
+    }
+
+    /** Iceberg via the canonical 8-arg ctor: GTC with a display size (Phase 14-7). */
+    private static Order iceberg(long id, Side side, int qty, long priceUnits, int peak) {
+        return new Order(id, System.nanoTime(), side, qty, priceUnits, 1L, TimeInForce.GTC, peak);
     }
 
     @Test
@@ -158,5 +164,17 @@ class MatchingEngineSnapshotTest {
 
         assertEquals(snap.bidPrices[0], snap.bestBid);
         assertEquals(snap.askPrices[0], snap.bestAsk);
+    }
+
+    @Test
+    void icebergLevelReportsOnlyItsVisibleTip() {
+        engine.addOrder(iceberg(1L, Side.SELL, 1000, 1_000_000L, 100));
+
+        engine.snapshotInto(snap, BookSnapshotEvent.MAX_DEPTH_LEVELS);
+
+        assertEquals(1, snap.askLevelCount);
+        assertEquals(1_000_000L, snap.askPrices[0]);
+        assertEquals(100L, snap.askQtys[0]);   // tip only; the 900 reserve is hidden
+        assertEquals(1_000_000L, snap.bestAsk);
     }
 }
