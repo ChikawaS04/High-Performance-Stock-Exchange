@@ -86,13 +86,20 @@ class TradeLoggerTest {
     }
 
     @Test
+    void silentOnExpired() {
+        assertTrue(drive(
+                exec(ExecutionEventType.ORDER_EXPIRED, -1L, -1L, -1L, 30L, 3L, -1L, 1L)).isEmpty());
+    }
+
+    @Test
     void mixedStreamCapturesOnlyFillsInOrder() {
         List<Captured> out = drive(
                 exec(ExecutionEventType.ORDER_ACCEPTED, -1L, 1_500_000L, -1L, 100L, 3L, -1L, 1L),
                 exec(ExecutionEventType.ORDER_PARTIALLY_FILLED, 8L, 1_500_000L, 40L, 60L, 4L, 3L, 2L),
                 exec(ExecutionEventType.ORDER_CANCELLED, -1L, -1L, -1L, -1L, 5L, -1L, 3L),
                 exec(ExecutionEventType.ORDER_FILLED, 9L, 1_500_500L, 60L, 0L, 4L, 3L, 4L),
-                exec(ExecutionEventType.ORDER_REJECTED, -1L, -1L, -1L, -1L, 6L, -1L, 5L));
+                exec(ExecutionEventType.ORDER_EXPIRED, -1L, -1L, -1L, 20L, 6L, -1L, 5L),
+                exec(ExecutionEventType.ORDER_REJECTED, -1L, -1L, -1L, -1L, 7L, -1L, 6L));
         assertEquals(2, out.size());
         assertEquals(8L, out.get(0).tradeId());
         assertEquals(9L, out.get(1).tradeId());

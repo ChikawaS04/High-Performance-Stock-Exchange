@@ -7,6 +7,7 @@ import event.OrderEvent;
 import event.OrderEventType;
 import event.OutboundPipeline;
 import model.Side;
+import model.TimeInForce;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,12 @@ class MatchingEngineHandlerTest {
         e.quantity = qty;
         e.timestamp = 1L;
         e.originalOrderId = -1L;
+        return e;
+    }
+
+    private static OrderEvent newOrder(long orderId, Side side, long price, long qty, TimeInForce tif) {
+        OrderEvent e = newOrder(orderId, side, price, qty);
+        e.tif = tif;
         return e;
     }
 
@@ -159,5 +166,53 @@ class MatchingEngineHandlerTest {
         Observed r = obs.get(0);
         assertEquals(ExecutionEventType.ORDER_REJECTED, r.eventType());
         assertEquals(1, r.orderId());
+    }
+
+    @Test
+    void iocPartialFill_publishesPartialThenExpiredForRemainder() {
+        submit(newOrder(1, Side.SELL, 1_000_000, 50), 0);              // rests -> ACCEPTED
+        submit(newOrder(2, Side.BUY, 1_000_000, 80, TimeInForce.IOC), 1);
+
+        List<Observed> obs = captured.awaitAtLeast(3, 1000);
+        assertEquals(3, obs.size());
+
+        assertEquals(ExecutionEventType.ORDER_ACCEPTED, obs.get(0).eventType());
+
+        Observed partial = obs.get(1);
+        assertEquals(ExecutionEventType.ORDER_PARTIALLY_FILLED, partial.eventType());
+        assertEquals(2, partial.orderId());
+        assertEquals(50, partial.filledQuantity());
+        assertEquals(30, partial.remainingQuantity());
+
+        Observed expired = obs.get(2);
+        assertEquals(ExecutionEventType.ORDER_EXPIRED, expired.eventType());
+        assertEquals(2, expired.orderId());
+        assertEquals(30, expired.remainingQuantity());   // D5: expired quantity carried here
+        assertEquals(-1, expired.tradeId());
+        assertEquals(-1, expired.price());
+        assertEquals(-1, expired.filledQuantity());
+        assertEquals(-1, expired.aggressorOrderId());
+        assertEquals(-1, expired.passiveOrderId());
+    }
+
+    @Test
+    void fokInsufficientLiquidity_publishesExpiredForFullQuantity() {
+        submit(newOrder(1, Side.SELL, 1_000_000, 50), 0);              // rests -> ACCEPTED
+        submit(newOrder(2, Side.BUY, 1_000_000, 100, TimeInForce.FOK), 1);
+
+        List<Observed> obs = captured.awaitAtLeast(2, 1000);
+        assertEquals(2, obs.size());
+
+        assertEquals(ExecutionEventType.ORDER_ACCEPTED, obs.get(0).eventType());
+
+        Observed expired = obs.get(1);
+        assertEquals(ExecutionEventType.ORDER_EXPIRED, expired.eventType());
+        assertEquals(2, expired.orderId());
+        assertEquals(100, expired.remainingQuantity());  // full quantity expired
+        assertEquals(-1, expired.tradeId());
+        assertEquals(-1, expired.price());
+        assertEquals(-1, expired.filledQuantity());
+        assertEquals(-1, expired.aggressorOrderId());
+        assertEquals(-1, expired.passiveOrderId());
     }
 }

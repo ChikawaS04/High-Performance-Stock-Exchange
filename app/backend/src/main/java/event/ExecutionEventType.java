@@ -9,5 +9,6 @@ public enum ExecutionEventType {
     ORDER_FILLED,
     ORDER_PARTIALLY_FILLED,
     ORDER_CANCELLED,
-    ORDER_REJECTED
+    ORDER_REJECTED,
+    ORDER_EXPIRED
 }

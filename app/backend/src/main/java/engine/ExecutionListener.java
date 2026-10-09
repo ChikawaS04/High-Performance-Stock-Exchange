@@ -9,7 +9,8 @@ package engine;
  *
  * Cancels are NOT reported here: cancelOrder is a top-level call whose result
  * is returned as a boolean. Only the matching path (fills + the rested
- * acknowledgment), which is buried inside the match loops, needs a callback.
+ * acknowledgment + the time-in-force expiry), which is buried inside addOrder,
+ * needs a callback.
  */
 public interface ExecutionListener {
 
@@ -23,9 +24,19 @@ public interface ExecutionListener {
     /** Fired when an order (or its unfilled remainder) rests on the book. */
     void onAccepted(long orderId, long price, long remainingQuantity);
 
+    /**
+     * Fired when an order (or an unfilled remainder) expires by time in force rather
+     * than resting: a full or partial IOC remainder, or a FOK that cannot fill
+     * completely. expiredQuantity is the quantity that expired unexecuted. An expired
+     * order is never acknowledged with onAccepted and never rests on the book
+     * (Phase 14, SRS §3.3/§3.4).
+     */
+    void onExpired(long orderId, long expiredQuantity);
+
     /** No-op default so existing callers (Main, prior tests) need no listener. */
     ExecutionListener NO_OP = new ExecutionListener() {
         @Override public void onFill(long a, long p, long t, long pr, long f, long r) { }
         @Override public void onAccepted(long o, long pr, long r) { }
+        @Override public void onExpired(long o, long q) { }
     };
 }

@@ -57,6 +57,16 @@ public class Order {
         this.status = Status.CANCELLED;
     }
 
+    /**
+     * Marks an unfilled (or partially filled) remainder as expired by time in force
+     * (IOC/FOK, Phase 14). Mirrors {@link #cancel()}: a terminal status change only,
+     * leaving {@code quantity} as the amount that expired unexecuted. Distinct from
+     * CANCELLED so a trader can tell "you cancelled it" from "its time in force ended it".
+     */
+    public void expire() {
+        this.status = Status.EXPIRED;
+    }
+
     public long getOrderID() { return orderID; }
     public long getTimeStamp() { return timeStamp; }
     public Side getSide() { return side; }

@@ -134,6 +134,13 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
         publish(ExecutionEventType.ORDER_ACCEPTED, orderId, NA, price, NA, remainingQuantity, NA, NA);
     }
 
+    @Override
+    public void onExpired(long orderId, long expiredQuantity) {
+        // ORDER_EXPIRED carries the order id and the quantity that expired unexecuted in
+        // remainingQuantity; every other field is the NA sentinel (Phase 14 D5, SRS §3.4).
+        publish(ExecutionEventType.ORDER_EXPIRED, orderId, NA, NA, NA, expiredQuantity, NA, NA);
+    }
+
     // --- single outbound publish point: writes EVERY field (slot-reuse discipline) ---
 
     private void publish(ExecutionEventType type, long orderId, long tradeId, long price,

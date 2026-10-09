@@ -4,6 +4,7 @@ import event.BookSnapshotEvent;
 import model.Order;
 import model.Prices;
 import model.Side;
+import model.TimeInForce;
 import model.Trade;
 import util.IDGenerator;
 
@@ -26,12 +27,24 @@ public class MatchingEngine implements BookView {
         this.executionListener = (listener == null) ? ExecutionListener.NO_OP : listener;
     }
 
+    /**
+     * Price-time-priority eligibility: can an incoming order of {@code aggressorSide}
+     * with limit {@code limit} trade against resting liquidity priced at {@code contraPrice}?
+     * A buy is marketable against an ask at or below its limit; a sell against a bid at or
+     * above it. Extracted (Phase 14 D6) from the former inline break tests so the match
+     * loops and the FOK availability check share ONE rule and cannot disagree — the single
+     * outcome FOK forbids is a partial fill, which a divergence here would cause.
+     */
+    private static boolean marketable(Side aggressorSide, long limit, long contraPrice) {
+        return (aggressorSide == Side.BUY) ? contraPrice <= limit : contraPrice >= limit;
+    }
+
     private void matchBuy(Order buyOrder) {
         while (buyOrder.getQuantity() > 0 && !asks.isEmpty()) {
             Map.Entry<Long, Deque<Order>> bestAskEntry  = asks.firstEntry();
             long askPrice = bestAskEntry.getKey();
 
-            if (askPrice > buyOrder.getPrice()) break;
+            if (!marketable(Side.BUY, buyOrder.getPrice(), askPrice)) break;
 
             Deque<Order> bestAskQueue = bestAskEntry.getValue();
             Order askOrder = bestAskQueue.getFirst();
@@ -75,7 +88,7 @@ public class MatchingEngine implements BookView {
             Map.Entry<Long, Deque<Order>> bestBidEntry = bids.firstEntry();
             long bidPrice = bestBidEntry.getKey();
 
-            if (bidPrice < sellOrder.getPrice()) break;
+            if (!marketable(Side.SELL, sellOrder.getPrice(), bidPrice)) break;
 
             Deque<Order> bestBidQueue = bestBidEntry.getValue();
             Order bidOrder = bestBidQueue.getFirst();
@@ -114,18 +127,78 @@ public class MatchingEngine implements BookView {
         }
     }
 
+    /**
+     * FOK pre-trade availability check (SRS §3.3, Phase 14 D6). Walks the opposite side
+     * best-first, summing the total resting quantity at every level eligible under the same
+     * {@link #marketable} predicate the match loops use, and reports whether that covers the
+     * order. Reads only — it never calls fill() or touches a deque — so a failing probe
+     * leaves every level, quantity and queue position byte-for-byte unchanged.
+     *
+     * <p>At this phase the eligible liquidity is the lit book only. Iceberg reserve needs no
+     * special handling here: getQuantity() is already an order's TOTAL remaining size, so a
+     * resting iceberg's hidden reserve is counted once that type exists. The midpoint peg pool
+     * term is added in a later phase by extending this method, not rewriting it.
+     *
+     * <p>Allocation: the enhanced-for loops allocate map/deque iterators that do not escape,
+     * the same already-documented book-structure allocation as snapshotInto; measured, not
+     * assumed away, at the Phase 14 benchmark re-measure.
+     */
+    private boolean canFillCompletely(Order order) {
+        long needed = order.getQuantity();
+        TreeMap<Long, Deque<Order>> contra = (order.getSide() == Side.BUY) ? asks : bids;
+
+        long available = 0;
+        for (Map.Entry<Long, Deque<Order>> level : contra.entrySet()) {
+            if (!marketable(order.getSide(), order.getPrice(), level.getKey())) break;
+            for (Order resting : level.getValue()) {
+                available += resting.getQuantity();
+                if (available >= needed) return true;
+            }
+        }
+        return available >= needed;
+    }
+
+    /**
+     * Admits one order: match against the resting book, then dispose of any unfilled
+     * remainder by its time in force (Phase 14 D4-D6, SRS §3.3).
+     *
+     * <ul>
+     *   <li><b>FOK</b> runs a pre-trade probe BEFORE any book change. If the eligible
+     *       resting liquidity cannot cover the whole order, it expires in full and the book
+     *       is left untouched. A passing probe guarantees the subsequent match fills it
+     *       completely, so the remainder below is zero.</li>
+     *   <li><b>GTC</b> rests any remainder and is acknowledged with onAccepted (unchanged
+     *       pre-Phase-14 behaviour).</li>
+     *   <li><b>IOC</b> never rests: any remainder expires. A fully filled IOC emits only its
+     *       fills; one that finds nothing emits only the expiry.</li>
+     * </ul>
+     *
+     * An IOC or FOK order is therefore never registered in openOrders and never acknowledged
+     * with onAccepted. The FOK branch of the remainder handling is reached only if the shared
+     * {@link #marketable} invariant were ever violated; expiring there is the safe outcome,
+     * since FOK must never partially rest.
+     */
     public void addOrder(Order order) {
+        TimeInForce tif = order.getTimeInForce();
+
+        if (tif == TimeInForce.FOK && !canFillCompletely(order)) {
+            executionListener.onExpired(order.getOrderID(), order.getQuantity());
+            return;
+        }
+
         if (order.getSide() == Side.BUY) {
             matchBuy(order);
-            if (order.getQuantity() > 0) {
-                addToBook(bids, order);
-                executionListener.onAccepted(order.getOrderID(), order.getPrice(), order.getQuantity());
-            }
         } else {
             matchSell(order);
-            if (order.getQuantity() > 0) {
-                addToBook(asks, order);
+        }
+
+        if (order.getQuantity() > 0) {
+            if (tif == TimeInForce.GTC) {
+                addToBook((order.getSide() == Side.BUY) ? bids : asks, order);
                 executionListener.onAccepted(order.getOrderID(), order.getPrice(), order.getQuantity());
+            } else {
+                order.expire();
+                executionListener.onExpired(order.getOrderID(), order.getQuantity());
             }
         }
     }

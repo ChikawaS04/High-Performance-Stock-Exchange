@@ -209,11 +209,56 @@ class EndToEndPipelineTest {
                 "a checksum-invalid frame must not produce any execution event");
     }
 
+    @Test
+    void iocOrder_fromWire_partiallyFills_publishesPartialThenExpired() {
+        send(newOrder(700, '2', "150.00", 50));              // SELL 50 rests -> ACCEPTED
+        send(newOrder(701, '1', "150.00", 80, '3'));         // IOC BUY 80: fills 50, expires 30
+
+        List<Observed> obs = captured.awaitAtLeast(3, 1000);
+        assertEquals(3, obs.size());
+
+        assertEquals(ExecutionEventType.ORDER_ACCEPTED, obs.get(0).eventType());
+        assertEquals(700, obs.get(0).orderId());
+
+        Observed partial = obs.get(1);
+        assertEquals(ExecutionEventType.ORDER_PARTIALLY_FILLED, partial.eventType());
+        assertEquals(701, partial.orderId());
+        assertEquals(50, partial.filledQuantity());
+        assertEquals(30, partial.remainingQuantity());
+
+        Observed expired = obs.get(2);
+        assertEquals(ExecutionEventType.ORDER_EXPIRED, expired.eventType());
+        assertEquals(701, expired.orderId());
+        assertEquals(30, expired.remainingQuantity());
+    }
+
+    @Test
+    void fokOrder_fromWire_insufficientLiquidity_publishesExpired() {
+        send(newOrder(800, '2', "150.00", 50));              // SELL 50 rests -> ACCEPTED
+        send(newOrder(801, '1', "150.00", 100, '4'));        // FOK BUY 100: 50 < 100 -> expires
+
+        List<Observed> obs = captured.awaitAtLeast(2, 1000);
+        assertEquals(2, obs.size());
+
+        assertEquals(ExecutionEventType.ORDER_ACCEPTED, obs.get(0).eventType());
+        assertEquals(800, obs.get(0).orderId());
+
+        Observed expired = obs.get(1);
+        assertEquals(ExecutionEventType.ORDER_EXPIRED, expired.eventType());
+        assertEquals(801, expired.orderId());
+        assertEquals(100, expired.remainingQuantity());
+    }
+
     // --- FIX message builders (54=1 BUY, 54=2 SELL; price in dollars, symbol ASML) ---
 
     private static byte[] newOrder(long clOrdId, char side, String price, long qty) {
         return msg("35=D", "11=" + clOrdId, "54=" + side,
                 "44=" + price, "38=" + qty, "55=ASML");
+    }
+
+    private static byte[] newOrder(long clOrdId, char side, String price, long qty, char tif) {
+        return msg("35=D", "11=" + clOrdId, "54=" + side,
+                "44=" + price, "38=" + qty, "55=ASML", "59=" + tif);
     }
 
     private static byte[] cancel(long clOrdId, long origClOrdId) {
