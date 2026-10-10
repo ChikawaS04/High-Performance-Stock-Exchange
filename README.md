@@ -6,8 +6,8 @@ dissemination layer, and a direct-access participant terminal.
 
 ![Java](https://img.shields.io/badge/Java-21%20LTS-orange)
 ![Build](https://img.shields.io/badge/build-Maven-blue)
-![Backend tests](https://img.shields.io/badge/backend%20tests-163%20passing-brightgreen)
-![Frontend tests](https://img.shields.io/badge/frontend%20tests-339%20passing-brightgreen)
+![Backend tests](https://img.shields.io/badge/backend%20tests-257%20passing-brightgreen)
+![Frontend tests](https://img.shields.io/badge/frontend%20tests-388%20passing-brightgreen)
 ![Disruptor](https://img.shields.io/badge/transport-LMAX%20Disruptor-lightgrey)
 ![Bench](https://img.shields.io/badge/benchmarks-JMH%201.37-informational)
 ![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-61dafb)
@@ -110,11 +110,24 @@ engine reads them out, and the slot is recycled. Single producer, single consume
 matching on a single thread as the sole consumer of the inbound ring. No locks, no synchronization,
 no contention. The book is a `TreeMap<Long, Deque<Order>>` per side (natural ordering for asks,
 reverse ordering for bids), with an `ArrayDeque` at each price level for FIFO time priority and a
-`HashMap<Long, Order>` for O(1) cancel lookup. Fills use the passive price convention, meaning the
-resting order's price. The engine has no knowledge of FIX, JSON, or WebSocket.
+`HashMap<Long, Order>` for O(1) cancel lookup, plus two `ArrayDeque` peg pools (one per side) that
+hold resting midpoint-peg orders outside the price map. Fills use the passive price convention,
+meaning the resting order's price. The engine has no knowledge of FIX, JSON, or WebSocket.
+
+Every order carries a time in force and an order type. Time in force is GTC (an unfilled remainder
+rests), IOC (the remainder expires rather than resting) or FOK (the order fills completely or
+expires with the book untouched, decided by a pre-trade availability check that shares its
+eligibility rule with the match loop). An unfilled IOC or FOK remainder is reported with the
+`ORDER_EXPIRED` execution type, distinct from a cancel. Two non-plain order types sit on top of the
+limit book: an iceberg rests with a displayed tip over a hidden reserve, reloading to the back of
+its price-level queue each time the tip is consumed, so depth snapshots show only the tip; a
+midpoint peg is non-displayed, rests in a separate FIFO pool, and executes only at the exact
+midpoint of the venue's own lit book, inactive while either lit side is empty. Because limit prices
+are `long` units of $0.0001 on the one-cent tick, a midpoint can fall on a half-cent and a fill can
+print sub-penny.
 
 **Outbound and snapshot rings.** The engine is the single producer on two outbound Disruptor rings:
-one carrying `ExecutionEvent`s (accepted, filled, partially filled, cancelled, rejected) and one
+one carrying `ExecutionEvent`s (accepted, filled, partially filled, cancelled, rejected, expired) and one
 carrying `BookSnapshotEvent` depth snapshots bounded at 20 levels per side. Each consumer holds its
 own sequence counter, so a new subscriber is added by registering a consumer with no engine change.
 
@@ -152,6 +165,13 @@ The socket lives above the router, so navigation never drops the connection or r
 
 A persistent header strip renders on both pages: last, change, bid, ask, mid, spread in cents and
 basis points, volume and session open.
+
+**Order entry.** The ticket carries the full order menu: a side, a time in force (GTC, IOC, FOK), an
+order type (limit or midpoint peg), a price on the one-cent tick, a quantity, and, for a resting
+limit order, an optional display quantity that makes it an iceberg. Choosing a midpoint peg disables
+the price field and submits at the mid. The blotter labels each working order by type (LMT, ICE,
+MID) and time in force, and shows an order ended by its time in force as a terminal, non-cancellable
+EXPIRED row.
 
 **Depth ladder and depth curve.** The ladder shows asks above and bids below with a pinned spread and
 mid bar, fed only by `BOOK` snapshot frames. The curve is a cumulative step function per side on one
@@ -225,7 +245,7 @@ and is exactly what an interviewer probes.
   book depths from 1 to 10,000 levels, with no garbage collection triggered across the entire run.
 - **The matching engine's book structures do allocate.** A resting insert costs approximately 165
   B/op: a 56-byte `Order` plus approximately 109 bytes of collection-node and boxing overhead. The
-  dominant cost is `Long` boxing at the `TreeMap` and `HashMap` boundary, where the `long`-cents
+  dominant cost is `Long` boxing at the `TreeMap` and `HashMap` boundary, where the `long`-units
   discipline used everywhere else is undone. The known fix (primitive-keyed maps such as a
   `Long2ObjectRBTreeMap`) is a deliberate non-goal at this scale, and is documented as understood
   rather than as an outstanding task.
@@ -250,9 +270,11 @@ These are the invariants the implementation holds to, drawn from the system requ
    core pipeline operates on Java primitives and pre-allocated objects, and the engine has no
    knowledge of any wire format. `FixParser` never imports a Netty or Disruptor type: its boundary is
    a raw `byte[]`.
-6. **Integer money, integer time.** Prices are `long` cents and timestamps are `long` epoch
-   nanoseconds everywhere, backend and frontend. Floating point appears only at the render edge, when
-   a scale maps a domain value to a pixel. No `BigDecimal`, no `double` arithmetic on a price.
+6. **Integer money, integer time.** Prices are `long` units of $0.0001 (the one-cent tick is 100
+   units) and timestamps are `long` epoch nanoseconds everywhere, backend and frontend. Floating
+   point appears only at the render edge, when a scale maps a domain value to a pixel, or when a
+   sub-penny midpoint print is formatted for display. No `BigDecimal`, no `double` arithmetic on a
+   price.
 7. **Pure core, thin edge.** On both sides of the wire, the maths lives in a pure module with no I/O
    and no framework types, and the component or handler around it owns only the edge concern. This is
    what makes the engine testable with no ring buffer in the loop, and the depth curve, price series
@@ -317,8 +339,8 @@ app/backend/src/main/java/
 ├── model/
 │   ├── Order.java                              # Mutable order; domain validation in the constructor
 │   ├── Side.java                               # BUY / SELL
-│   ├── Status.java                             # OPEN, PARTIALLY_FILLED, FILLED, CANCELLED
-│   └── Trade.java                              # Immutable fill record (price in cents, both order ids)
+│   ├── Status.java                             # OPEN, PARTIALLY_FILLED, FILLED, CANCELLED, EXPIRED
+│   └── Trade.java                              # Immutable fill record (price in units of $0.0001, both order ids)
 ├── engine/
 │   ├── MatchingEngine.java                     # The book: price-time priority matching, single-threaded, framework-free
 │   ├── BookView.java                           # Read-only top-of-book seam (best bid / best ask)
@@ -335,7 +357,7 @@ app/backend/src/main/java/
 │   ├── OrderEventType.java                     # NEW_ORDER / CANCEL_ORDER discriminator
 │   ├── ExecutionEvent.java                     # Mutable outbound carrier (engine → subscribers)
 │   ├── ExecutionEventFactory.java              # Pre-allocates the outbound ring slots
-│   ├── ExecutionEventType.java                 # Accepted, filled, partially filled, cancelled, rejected
+│   ├── ExecutionEventType.java                 # Accepted, filled, partially filled, cancelled, rejected, expired
 │   ├── BookSnapshotEvent.java                  # Mutable bounded depth carrier (20 levels per side)
 │   ├── BookSnapshotEventFactory.java           # Pre-allocates the snapshot ring slots
 │   ├── InboundPipeline.java                    # Inbound Disruptor wiring: ring size and wait strategy
@@ -368,7 +390,7 @@ app/backend/src/test/java/
 ├── gateway/
 │   ├── FixParserTest.java                      # Valid messages, missing tags, malformed input, SOH handling
 │   ├── FixParserScanTest.java                  # Tag scanning over the raw byte buffer
-│   ├── FixParserPriceTest.java                 # Decimal price → integer cents, no floating point
+│   ├── FixParserPriceTest.java                 # Decimal price → integer units of $0.0001, no floating point
 │   ├── FixParserChecksumTest.java              # Trailer (10=) validation
 │   ├── FixFrameDecoderTest.java                # Framing: partial, split, and back-to-back messages
 │   ├── JsonToFixParseTest.java                 # JSON order → FIX bytes the parser accepts
@@ -406,7 +428,7 @@ app/backend/src/test/java/
 app/frontend/src/
 ├── main.tsx                                    # React entry point, mounts BrowserRouter
 ├── App.tsx                                     # Socket owner and sole frame sender; routes to the two pages
-├── format.ts                                   # Cents ↔ dollars and clock formatting as integer string math
+├── format.ts                                   # Units of $0.0001 ↔ dollars and clock formatting as integer string math
 ├── depth.ts                                    # Pure cumulative depth and depth-curve model
 ├── priceSeries.ts                              # Pure session price series for the chart
 ├── sessionStats.ts                             # Pure session high / low / count / last-print model
@@ -421,7 +443,7 @@ app/frontend/src/
 │   ├── TradeTape.tsx                           # Newest-first fill tape, capped at 200 prints
 │   ├── PriceChart.tsx                          # Session trade-print line with reference lines
 │   ├── SessionStats.tsx                        # High, low, trade count, last print
-│   ├── OrderEntry.tsx                          # Manual order entry: transient form state, emits cents
+│   ├── OrderEntry.tsx                          # Manual order entry: transient form state, emits a typed order intent
 │   ├── OpenOrders.tsx                          # Working orders and the per-row cancel intent
 │   ├── CancelTicket.tsx                        # Cancel by typed OrigClOrdID, including untracked orders
 │   ├── FixInspector.tsx                        # Raw inbound FIX bytes and outbound EXEC frames
@@ -435,7 +457,7 @@ app/frontend/src/
 │   ├── useOrderBook.ts                         # Socket lifecycle: capped-backoff reconnect, dispatches to the reducer
 │   └── useIgnitionPrice.ts                     # One-shot reference market-open fetch, isolated from the socket
 ├── market/
-│   ├── ignition.ts                             # Pure Alpaca snapshot → integer cents
+│   ├── ignition.ts                             # Pure Alpaca snapshot → integer units of $0.0001
 │   └── alpacaClient.ts                         # The one impure edge: same-origin fetch through the dev proxy
 └── styles/
     └── terminal.css                            # Terminal theme: IBM Plex, flat charcoal, tabular figures
@@ -541,20 +563,22 @@ publication span into a pre-allocated array and sorts for exact percentiles. Run
 
 ## Testing
 
-**Backend: 163 JUnit 5 tests across 20 classes.** They cover the matching engine (placement,
-price-time priority, partial and full fills, cancel, empty book, depth snapshots), the FIX parser
-(valid messages, missing tags, malformed input, decimal-to-cents conversion, checksum, framing across
-partial and back-to-back messages), the event carriers (correct field copying and reset across
-ring-buffer slot reuse), the WebSocket edge, the publishers and market data service, the shared
-epoch clock, and the full pipeline end to end from a FIX message at the gateway to an execution event
-at a subscriber.
+**Backend: 257 JUnit 5 tests across 25 classes.** They cover the matching engine (placement,
+price-time priority, partial and full fills, cancel, empty book, depth snapshots, time in force with
+IOC and FOK expiry and the FOK availability check, iceberg tip and reload, and midpoint-peg pools
+with exact-mid execution), the FIX parser (valid messages, missing tags, malformed input,
+decimal-to-units conversion, the order-type and time-in-force tags 40, 44, 18, 59 and 111, checksum,
+framing across partial and back-to-back messages), the event carriers (correct field copying and
+reset across ring-buffer slot reuse), the WebSocket edge, the publishers and market data service,
+the shared epoch clock, and the full pipeline end to end from a FIX message at the gateway to an
+execution event at a subscriber.
 
 ```bash
 cd app/backend
 mvn test
 ```
 
-**Frontend: 339 Vitest tests across 32 files.** Pure logic and render tests are kept in separate
+**Frontend: 388 Vitest tests across 32 files.** Pure logic and render tests are kept in separate
 files by convention (`X.test.ts` for logic, `X.render.test.tsx` for components), Vitest globals are
 deliberately off, and render tests use an explicit `afterEach(cleanup)` rather than a global.
 
@@ -573,11 +597,12 @@ build guide.
 
 ## Scope
 
-**In scope:** limit order matching with price-time priority, order submission and cancellation, a FIX
-tag-value protocol subset, a Disruptor-based event pipeline, bounded depth snapshots and derived
-market data, a server-side trade tape, WebSocket dissemination, a routed React participant terminal
-with depth, tape, charting, order entry, a blotter and a FIX stream inspector, and JMH latency and
-allocation benchmarking.
+**In scope:** limit order matching with price-time priority, time in force on every order (GTC, IOC,
+FOK), iceberg and midpoint-peg order types, order submission and cancellation, a FIX tag-value
+protocol subset, a Disruptor-based event pipeline, bounded depth snapshots and derived market data,
+a server-side trade tape, WebSocket dissemination, a routed React participant terminal with depth,
+tape, charting, order entry, a blotter and a FIX stream inspector, and JMH latency and allocation
+benchmarking.
 
 **Out of scope, deliberately:** Spring Boot or any dependency-injection framework, AI or LLM trading
 agents, persistence and crash recovery, multi-symbol and multi-venue routing, member accounts and
@@ -591,6 +616,14 @@ here rather than hidden.
 ## Known limitations
 
 Stated plainly, because each one is a thing an interviewer would find anyway.
+
+- **Non-displayed size leaks on the execution stream.** Depth snapshots stay honest: an iceberg
+  shows only its tip and a midpoint peg never appears. But execution reports are broadcast to every
+  connected client, not only to the session that owns the order, and `ORDER_ACCEPTED` and fill
+  events carry an order's total remaining quantity. So a client watching the execution stream can
+  reconstruct an iceberg's hidden reserve or a resting peg's size. A real venue routes execution
+  reports only to the owning session; closing this needs per-participant sessions and routing, which
+  is out of scope.
 
 - **Single instrument.** The engine holds one book. Multi-symbol support is a routing and
   partitioning problem that would change the threading model, which is why it is a non-goal rather

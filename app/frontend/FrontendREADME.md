@@ -15,18 +15,20 @@ a Netty WebSocket server); this app *consumes* its `BOOK`/`EXEC` frames and *pro
 ## Architecture
 
 The frontend is a pure protocol edge over one socket. Outbound, an order flows
-`React form → NEW/CANCEL JSON (integer cents) → WebSocket`; server-side that JSON is
-transcoded to FIX 4.2, framed onto the inbound Disruptor ring, matched by the single-threaded
-engine, and the results are published back onto the outbound and snapshot rings, reserialized
-to JSON, and pushed to every connected client. Inbound, the app narrows each raw frame in
-exactly one place (`protocol/messages.ts`), a pure reducer (`state/reducer.ts`) folds frames
-into book/tape/myOrders state plus session aggregates (`sessionVolume`, `sessionOpenCents`, the
-session high / low / trade-count accumulators, a client-assigned `msgSeqNum`) and a capped FIX/EXEC inspector log (`inspectorLog`), and a
+`React form → NEW/CANCEL JSON (integer units of $0.0001) → WebSocket`; server-side that JSON
+is transcoded to FIX 4.2, framed onto the inbound Disruptor ring, matched by the
+single-threaded engine, and the results are published back onto the outbound and snapshot
+rings, reserialized to JSON, and pushed to every connected client. Inbound, the app narrows
+each raw frame in exactly one place (`protocol/messages.ts`), a pure reducer
+(`state/reducer.ts`) folds frames into book/tape/myOrders state plus session aggregates
+(`sessionVolume`, `sessionOpenPx`, the session high / low / trade-count accumulators, a
+client-assigned `msgSeqNum`) and a capped FIX/EXEC inspector log (`inspectorLog`), and a
 single `useOrderBook` hook owns the socket lifecycle (connect, capped-backoff reconnect,
-dispatch). Every price is an integer number of cents internally and on the wire; dollars
-exist only at the render/parse edge, converted with string arithmetic so no floating-point
-error ever reaches a price. **`BOOK` frames are the sole authority on book state; `EXEC`
-frames are notifications only** — the two never cross-contaminate.
+dispatch). Every price is an integer number of units of $0.0001 internally and on the wire
+(the one-cent tick is 100 units); dollars exist only at the render/parse edge, converted with
+string arithmetic so no floating-point error ever reaches a price, and a sub-penny midpoint
+print renders with up to four decimal places. **`BOOK` frames are the sole authority on book
+state; `EXEC` frames are notifications only** — the two never cross-contaminate.
 
 ---
 
@@ -142,14 +144,21 @@ Without them the Open field shows the empty marker and everything else runs unch
 
 ## Wire contract
 
-Single instrument (`ASML`). **Integer cents in both directions — no floats on the wire.**
+Single instrument (`ASML`). **Integer units of $0.0001 in both directions; no floats on the wire.**
 No symbol/heartbeat/session fields on outbound server frames (no FIX session management).
 
 ### Client → server
 
 ```jsonc
-// NEW — price is integer cents; server transcodes cents → FIX decimal dollars
-{ "type": "NEW", "clOrdId": 1, "side": "BUY", "price": 15000, "qty": 10, "symbol": "ASML" }
+// NEW (limit): price is integer units of $0.0001 (150.00 = 1500000); the server
+// transcodes to FIX decimal dollars. ordType LIMIT|PEG_MID, tif GTC|IOC|FOK,
+// maxFloor is the iceberg display size (0 for a plain order).
+{ "type": "NEW", "clOrdId": 1, "side": "BUY", "ordType": "LIMIT", "tif": "GTC",
+  "price": 1500000, "qty": 10, "maxFloor": 0, "symbol": "ASML" }
+
+// NEW (midpoint peg): no price of its own, so price is -1 and maxFloor is 0.
+{ "type": "NEW", "clOrdId": 2, "side": "BUY", "ordType": "PEG_MID", "tif": "GTC",
+  "price": -1, "qty": 10, "maxFloor": 0, "symbol": "ASML" }
 
 // CANCEL — origClOrdId is the resting order being cancelled
 { "type": "CANCEL", "clOrdId": 3, "origClOrdId": 1 }
@@ -162,9 +171,9 @@ No symbol/heartbeat/session fields on outbound server frames (no FIX session man
 // -1 tops and empty arrays on an empty side. bids highest-first, asks lowest-first.
 {
   "type": "BOOK",
-  "bestBid": 15000,
+  "bestBid": 1500000,
   "bestAsk": -1,
-  "bids": [[15000, 10]],
+  "bids": [[1500000, 10]],
   "asks": [],
   "timestamp": 123456789
 }
@@ -176,7 +185,7 @@ No symbol/heartbeat/session fields on outbound server frames (no FIX session man
   "execType": "ORDER_FILLED",
   "orderId": 2,
   "tradeId": 1,
-  "price": 15000,
+  "price": 1500000,
   "filledQuantity": 4,
   "remainingQuantity": 0,
   "aggressorOrderId": 2,
@@ -186,7 +195,16 @@ No symbol/heartbeat/session fields on outbound server frames (no FIX session man
 ```
 
 `execType` is one of `ORDER_ACCEPTED`, `ORDER_FILLED`, `ORDER_PARTIALLY_FILLED`,
-`ORDER_CANCELLED`, `ORDER_REJECTED`.
+`ORDER_CANCELLED`, `ORDER_REJECTED`, `ORDER_EXPIRED`.
+
+`ORDER_EXPIRED` is the IOC/FOK terminal report: zero or more fills, then exactly one
+`ORDER_EXPIRED` carrying the unfilled quantity in `remainingQuantity`. An IOC or FOK order
+is never `ORDER_ACCEPTED`, so its remainder never appears as a resting row.
+
+The client always sends `ordType`, `tif` and `maxFloor`; the server defaults a missing
+`ordType` to `LIMIT`, `tif` to `GTC` and `maxFloor` to `0`, and drops a frame whose value is
+unknown. A price on the one-cent tick renders at two decimal places; a sub-penny price,
+which only a midpoint execution produces, renders at up to four (for example `100.005`).
 
 ### Correlation facts (confirmed against the backend, not assumed)
 
@@ -204,6 +222,32 @@ No symbol/heartbeat/session fields on outbound server frames (no FIX session man
 ## Behaviour you should know (honest caveats)
 
 These are real properties of the running system, documented rather than glossed:
+
+- **Order entry carries the full order menu.** The ticket has a side, a time in force (GTC,
+  IOC, FOK), an order type (Limit or Mid peg), a price on the one-cent tick, a quantity,
+  and, for a resting GTC limit order only, an optional Display quantity that makes it an
+  iceberg (shown only then, and normalised away when it equals the full quantity). Choosing
+  Mid peg disables the price field, its chips and its nudges, shows `MID`, and submits with
+  no price of its own. Local validation mirrors the venue's combination rules, so the ticket
+  cannot send a combination the server would reject (an iceberg is GTC-only; a peg takes no
+  price and no display size). The blotter adds a Type column (`LMT`, `ICE`, `MID`) and a TIF
+  column, and shows `MID` in the price column for a peg.
+
+- **An IOC or FOK order ends in `EXPIRED`, never rests, and cannot be cancelled.** A GTC
+  order rests and shows in Open Orders; an IOC order fills what it can at once and its
+  remainder expires; a FOK order fills completely or expires with the book untouched. Either
+  way the terminal report is `ORDER_EXPIRED` (distinct from a cancel), and the blotter
+  renders `EXPIRED` as a terminal, non-cancellable status. An expired order is never
+  `ORDER_ACCEPTED`, so its unfilled remainder never appears as a resting Open Orders row.
+
+- **Hidden size is honest on the ladder but not on the execution stream.** `BOOK` frames
+  never reveal an iceberg's reserve or a midpoint peg, so the ladder shows only an iceberg's
+  tip and no peg at all. But `EXEC` frames are pushed to every connected client, not just
+  the session that placed the order, and an `ORDER_ACCEPTED` or a fill carries the order's
+  total remaining quantity, so any client reading the stream can infer an iceberg's reserve
+  or a resting peg's size. This is a venue-side limitation (a real exchange sends execution
+  reports only to the owning session) and needs per-participant routing, which is out of
+  scope.
 
 - **`BOOK` is authoritative; `EXEC` is a notification.** EXEC and BOOK arrive on independent
   Disruptor consumers with separate sequence counters, so **they can interleave out of order**
@@ -244,15 +288,15 @@ These are real properties of the running system, documented rather than glossed:
   WebSocket direction, where both arrive as inbound WebSocket messages. Inbound entries show
   the real echoed FIX bytes the server parsed (P7-2); outbound entries show the actual EXEC
   JSON, labelled as such, never a fabricated FIX message.
-- **The Open field is the instrument's official daily open, pulled once from Alpaca.**
-  On app load a dedicated hook fetches the snapshot open (`dailyBar.o`) once, converts it
-  to integer cents at the edge (reusing `dollarsToCents`), and shows it in the header Open
-  field. It is a distinct quantity from Chg: Chg is the session change against the engine's
-  first trade and is not re-anchored to the market open, so the header never conflates the
-  two opens. If Alpaca is unreachable, the credentials are missing, or the value is
-  unusable, Open shows the empty marker and Chg is unaffected. The fetch is off the socket
-  entirely and never runs on the hot path, and it is fetched once per app open (it does not
-  roll across a trading-day boundary without a reload).
+- **The Open field is the instrument's official daily open, pulled once from Alpaca.** On app
+  load a dedicated hook fetches the snapshot open (`dailyBar.o`) once, converts it to integer
+  units of $0.0001 at the edge (reusing `parsePrice`), and shows it in the header Open field.
+  It is a distinct quantity from Chg: Chg is the session change against the engine's first
+  trade and is not re-anchored to the market open, so the header never conflates the two
+  opens. If Alpaca is unreachable, the credentials are missing, or the value is unusable, Open
+  shows the empty marker and Chg is unaffected. The fetch is off the socket entirely and never
+  runs on the hot path, and it is fetched once per app open (it does not roll across a
+  trading-day boundary without a reload).
 - **No server reject feedback for malformed input.** Bad orders are logged and dropped
   server-side with no message back to the client, so the UI validates price/quantity locally
   before sending (`> 0`, `≤ 2` decimal places, positive integer qty). `ORDER_REJECTED` can
@@ -372,7 +416,7 @@ app/frontend/
 ├── src/
 │   ├── main.tsx                  # createRoot + BrowserRouter
 │   ├── App.tsx                   # composition root: socket, header strip, navbar, routes
-│   ├── format.ts                 # cents <-> dollars, qty, clock, midpoint (render/parse edge)
+│   ├── format.ts                 # units of $0.0001 <-> dollars, qty, clock, midpoint (render/parse edge)
 │   ├── depth.ts                  # pure depth ladder + depth curve maths
 │   ├── priceSeries.ts            # pure price-series domain for the chart (P12)
 │   ├── sessionStats.ts           # pure session-stat display strings for the panel (P13)

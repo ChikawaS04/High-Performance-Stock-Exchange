@@ -6,19 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/backend/src/test/java/benchmark/MatchingEngineFillWalkBenchmark.java" beforeDir="false" afterPath="$PROJECT_DIR$/app/backend/src/test/java/benchmark/MatchingEngineFillWalkBenchmark.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OpenOrders.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/encode.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/protocol/fix.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/protocol/fix.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/fix.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/fix.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/format.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/format.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.logic.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/openOrders.test.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderTicket.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderTicket.logic.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/protocol.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/FrontendREADME.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/FrontendREADME.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -405,7 +394,7 @@
       <workItem from="1791574629753" duration="1703000" />
       <workItem from="1791611071374" duration="449000" />
       <workItem from="1791612135225" duration="298000" />
-      <workItem from="1791613938884" duration="1302000" />
+      <workItem from="1791613938884" duration="3895000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />
