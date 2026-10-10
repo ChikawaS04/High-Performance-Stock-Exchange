@@ -1,16 +1,20 @@
 package benchmark;
 
+import engine.ExecutionListener;
 import engine.MatchingEngine;
 import model.Order;
 import model.Side;
+import model.TimeInForce;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 
@@ -57,6 +61,30 @@ import java.util.concurrent.TimeUnit;
  * at level N, so nothing rests. Ids come from a method-local counter, never {@code util.IDGenerator}
  * (its {@code AtomicLong}s are JVM-global). No {@code ExecutionListener} is attached — the engine
  * defaults to {@code NO_OP}, so no execution escapes.
+ *
+ * <h2>FOK availability probe (Phase 14 P14-11)</h2>
+ * {@link #fokProbeAcrossLevels()} measures {@code canFillCompletely} (SRS §3.3, D6): the
+ * pre-trade walk a FOK order makes over the opposite side, summing eligible resting quantity
+ * under the shared {@code marketable} predicate. It is driven through the only public entry,
+ * {@code addOrder}, with a FOK aggressor deliberately sized one unit beyond the book's total
+ * resting quantity, so the probe walks all {@code restingLevels} levels, finds the liquidity
+ * short, and the order expires with the book, the peg pools and {@code openOrders} left
+ * untouched — the FOK-fail path is read-only: it reports {@code onExpired} and returns before
+ * any match, rest or {@code expire()}. Because nothing is mutated, the book and the aggressor
+ * are built once in {@code @Setup(Level.Trial)} and reused on every invocation, the read-only
+ * steady-state pattern {@code MatchingEngineSnapshotBenchmark} uses, so no per-invocation
+ * rebuild or per-op allocation enters the timed region and {@code gc.alloc.rate.norm} under
+ * {@code -Djmh.prof=gc} is a direct read of the probe's own iterator allocation (the
+ * {@code TreeMap} entrySet and {@code ArrayDeque} iterators the enhanced-for loops create): the
+ * scalar-replacement question, answered directly rather than by subtraction. Dead-code
+ * elimination is defended by a counting listener whose {@code onExpired} increments a counter
+ * the benchmark returns, because {@code addOrder} is void and returning the reused order would
+ * not protect the call. The aggressor BUY is priced at the top ask so it is marketable at every
+ * level, and its reused {@code OPEN} status is never changed (the fail path does not call
+ * {@code expire()}), so it is safely re-submittable. The probe book has an empty bid side, so
+ * {@code mid()} is {@code Prices.NA} and the peg-pool branch is skipped: this is the pure lit
+ * walk. The timing slope and the allocation across {@code restingLevels} are the findings; no
+ * Phase 6 baseline exists for the probe, so it is a first measurement.
  */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
@@ -84,6 +112,24 @@ public class MatchingEngineFillWalkBenchmark {
     /** Levels the aggressor walks. Mirrors P6-1's sweep so insert- and fill-walk-scaling line up. */
     @Param({"1", "10", "100", "1000", "10000"})
     public int restingLevels;
+
+    /**
+     * The probe's fixed book, built once per trial and probed read-only on every invocation
+     * (see the FOK-probe section of the class javadoc). Separate from the fresh local engines
+     * the walk benchmarks build, so the two measurements never share state.
+     */
+    private MatchingEngine probeEngine;
+
+    /**
+     * A FOK BUY sized one unit beyond the book's total resting quantity and priced at the top
+     * ask so it is marketable at every level. Reused across invocations: the FOK-fail path is
+     * read-only and never calls {@code expire()}, so its status stays OPEN and it stays
+     * re-submittable.
+     */
+    private Order probeOrder;
+
+    /** Counts {@code onExpired} callbacks; its running value is returned to defeat DCE. */
+    private CountingExpiryListener probeListener;
 
     /**
      * Builds a fresh engine with {@code levels} single-order ask levels, non-crossing (empty
@@ -124,5 +170,53 @@ public class MatchingEngineFillWalkBenchmark {
         engine.addOrder(new Order(
                 AGGRESSOR_ID, AGGRESSOR_ID, Side.BUY, restingLevels, aggressorPrice, PARTICIPANT_ID));
         return engine;
+    }
+
+    /**
+     * Builds the probe's fixed book once per trial: {@code restingLevels} single-order ask
+     * levels with an empty bid side (so {@code mid()} is {@code Prices.NA} and the probe is the
+     * pure lit walk), a counting listener, and the reused FOK aggressor. {@code Level.Trial},
+     * not per-invocation, is correct precisely because a failing FOK mutates nothing, so the
+     * same book is measured on every invocation with no rebuild in the timed region.
+     */
+    @Setup(Level.Trial)
+    public void buildProbeBook() {
+        probeEngine = buildBook(restingLevels);
+        probeListener = new CountingExpiryListener();
+        probeEngine.setExecutionListener(probeListener);
+
+        long topAsk = BASE_PRICE + (restingLevels - 1) * 100L;   // marketable at every level
+        // Quantity one beyond the book's total resting (restingLevels * RESTING_QTY) forces the
+        // probe to walk every level, come up one unit short, and expire the order untouched.
+        probeOrder = new Order(
+                AGGRESSOR_ID, AGGRESSOR_ID, Side.BUY, restingLevels + 1, topAsk, PARTICIPANT_ID,
+                TimeInForce.FOK);
+    }
+
+    /**
+     * The measured operation: one FOK {@code addOrder} whose pre-trade probe walks all
+     * {@code restingLevels} levels and then expires the order, leaving the book, the peg pools
+     * and {@code openOrders} unchanged. The reused engine is therefore identical on every
+     * invocation. Returns the listener's running expiry count so JMH consumes a real data
+     * dependency and cannot eliminate the void call.
+     */
+    @Benchmark
+    public long fokProbeAcrossLevels() {
+        probeEngine.addOrder(probeOrder);
+        return probeListener.expiries;
+    }
+
+    /**
+     * Minimal {@link ExecutionListener} for the probe benchmark: counts {@code onExpired} and
+     * does nothing else. Allocation-free per call, and {@code onFill}/{@code onAccepted} never
+     * fire on the FOK-fail path, so it adds one trivial increment per op and nothing to the gc
+     * profile.
+     */
+    private static final class CountingExpiryListener implements ExecutionListener {
+        long expiries;
+        @Override public void onFill(long aggressorOrderId, long passiveOrderId, long tradeId,
+                                     long price, long filledQuantity, long aggressorRemainingQuantity) { }
+        @Override public void onAccepted(long orderId, long price, long remainingQuantity) { }
+        @Override public void onExpired(long orderId, long expiredQuantity) { expiries++; }
     }
 }
