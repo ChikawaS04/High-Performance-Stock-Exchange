@@ -190,3 +190,11 @@ describe('parsePrice', () => {
         expect(parsePrice('1,000')).toBeNull()
     })
 })
+
+describe('formatPrice — midpoint peg tape print (P14-10)', () => {
+    it('renders a sub-penny midpoint execution price through formatPrice', () => {
+        // An odd-tick spread midpoints to a half-cent; a peg fill prints it on the tape.
+        expect(formatPrice(1_000_050)).toBe('100.005')
+        expect(formatPrice(1_501_250)).toBe('150.125')
+    })
+})

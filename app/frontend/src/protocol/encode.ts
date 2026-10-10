@@ -18,7 +18,7 @@
  * P14-8 / P14-10.
  */
 
-import { SYMBOL } from "./messages";
+import { NA, SYMBOL } from "./messages";
 import type { CancelOrderFrame, ClientFrame, NewOrderFrame, OrderIntent } from "./messages";
 
 function requirePositiveInt(value: number, label: string): void {
@@ -60,13 +60,17 @@ export const nextClOrdId: ClOrdIdGenerator = createClOrdIdGenerator();
 /**
  * Builds the NEW frame from the resolved intent. `pricePx` is integer units of
  * $0.0001 — the server converts to FIX decimal dollars. The positive-price check
- * holds for LIMIT (P14-6), the only order type the ticket sends today; P14-10
- * makes it conditional once PEG_MID sends `price: -1`. `ordType`, `tif` and
- * `maxFloor` ride through verbatim from the intent, in the SRS §3.6 field order.
+ * is conditional on order type (P14-10): a LIMIT must carry a positive on-tick
+ * price, while a PEG_MID carries no price and the frame sends the `-1` NA
+ * sentinel (SRS §3.6), which the server does not read for a peg. `ordType`, `tif`
+ * and `maxFloor` ride through verbatim from the intent, in the SRS §3.6 field order.
  */
 export function newOrderFrame(clOrdId: number, intent: OrderIntent): NewOrderFrame {
     requirePositiveInt(clOrdId, "clOrdId");
-    requirePositiveInt(intent.pricePx, "pricePx");
+    const isPeg = intent.ordType === "PEG_MID";
+    if (!isPeg) {
+        requirePositiveInt(intent.pricePx, "pricePx");
+    }
     requirePositiveInt(intent.qty, "qty");
     return {
         type: "NEW",
@@ -74,7 +78,7 @@ export function newOrderFrame(clOrdId: number, intent: OrderIntent): NewOrderFra
         side: intent.side,
         ordType: intent.ordType,
         tif: intent.tif,
-        price: intent.pricePx,
+        price: isPeg ? NA : intent.pricePx,
         qty: intent.qty,
         maxFloor: intent.displayQty,
         symbol: SYMBOL,

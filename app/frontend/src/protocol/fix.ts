@@ -3,11 +3,13 @@
  * module knows only about FIX strings, never about AppState or InspectorEntry,
  * so the direction of dependency stays state -> protocol, never the reverse.
  *
- * The tag set is exactly the produced-and-parsed subset confirmed in P7-0/Q7-4:
- * 8 (BeginString), 9 (BodyLength), 10 (CheckSum), 11 (ClOrdID), 35 (MsgType),
- * 38 (OrderQty), 41 (OrigClOrdID), 44 (Price), 54 (Side), 55 (Symbol). Tags
- * 34/49/56/52 are absent from the wire and never appear here because this module
- * only reflects what a raw packet actually contains; it never synthesizes a tag.
+ * The tag set is the produced-and-parsed subset confirmed in P7-0/Q7-4, plus the
+ * Phase 14 order-attribute tags (P14-10): 8 (BeginString), 9 (BodyLength),
+ * 10 (CheckSum), 11 (ClOrdID), 18 (ExecInst), 35 (MsgType), 38 (OrderQty),
+ * 40 (OrdType), 41 (OrigClOrdID), 44 (Price), 54 (Side), 55 (Symbol),
+ * 59 (TimeInForce), 111 (MaxFloor). Tags 34/49/56/52 are absent from the wire and
+ * never appear here because this module only reflects what a raw packet actually
+ * contains; it never synthesizes a tag.
  *
  * Enum values (35=D, 54=1) render as their literal wire value here, not decoded
  * to a meaning: this table maps tag NUMBER to NAME, not value to semantics,
@@ -19,12 +21,16 @@ export const FIX_TAG_NAMES: Readonly<Record<string, string>> = {
     "9": "BodyLength",
     "10": "CheckSum",
     "11": "ClOrdID",
+    "18": "ExecInst",
     "35": "MsgType",
     "38": "OrderQty",
+    "40": "OrdType",
     "41": "OrigClOrdID",
     "44": "Price",
     "54": "Side",
     "55": "Symbol",
+    "59": "TimeInForce",
+    "111": "MaxFloor",
 };
 
 export interface FixTagRow {

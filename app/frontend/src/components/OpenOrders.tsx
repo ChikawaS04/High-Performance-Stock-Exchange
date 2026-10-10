@@ -48,6 +48,10 @@
  * shaped so P14-10 adds only a PEG_MID -> "MID" branch ahead of the displayQty
  * check, with no change to the table itself. displayQty is already captured at
  * send time (P14-6); nothing new is read from the wire.
+ *
+ * P14-10: the Type column shows MID for a midpoint peg (orderTypeLabel checks
+ * ordType first, ahead of displayQty), and the price column shows MID for a peg
+ * in place of a formatted price, so the peg's -1 NA price never surfaces.
  */
 
 import { isCancellable } from "../state/reducer";
@@ -67,12 +71,12 @@ export function filledOf(order: MyOrder): number {
 
 /**
  * The blotter Type code for a row. Pure and exported (mirrors filledOf) so the
- * label is unit-tested without a DOM. ICE when an iceberg display quantity is set
- * (captured at send time, P14-6), LMT otherwise. P14-10 adds a
- * `order.ordType === "PEG_MID" -> "MID"` branch AHEAD of this displayQty check;
- * the column is shaped for it now, so that step touches only this helper.
+ * label is unit-tested without a DOM. MID for a midpoint peg (P14-10, checked
+ * first since a peg is never an iceberg), ICE when an iceberg display quantity is
+ * set (captured at send time, P14-6), LMT otherwise.
  */
 export function orderTypeLabel(order: MyOrder): string {
+    if (order.ordType === "PEG_MID") return "MID";
     return order.displayQty > 0 ? "ICE" : "LMT";
 }
 
@@ -129,7 +133,9 @@ export function OpenOrders({ orders, onCancel }: OpenOrdersProps) {
                             <td className="open-orders__tif" data-testid={`tif-${order.clOrdId}`}>
                                 {order.tif}
                             </td>
-                            <td className="open-orders__price">{formatPrice(order.pricePx)}</td>
+                            <td className="open-orders__price">
+                                {order.ordType === "PEG_MID" ? "MID" : formatPrice(order.pricePx)}
+                            </td>
                             <td className="open-orders__qty" data-testid={`filled-${order.clOrdId}`}>
                                 {filledOf(order)} / {order.originalQty}
                             </td>

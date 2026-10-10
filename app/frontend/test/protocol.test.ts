@@ -259,6 +259,26 @@ describe("outbound encoders", () => {
         expect(frame.maxFloor).toBe(10);
     });
 
+    it("builds a peg frame with the NA price and no display, without throwing (P14-10)", () => {
+        const frame = newOrderFrame(11, intent("BUY", -1, 100, { ordType: "PEG_MID" }));
+        expect(frame.ordType).toBe("PEG_MID");
+        expect(frame.price).toBe(-1);
+        expect(frame.maxFloor).toBe(0);
+        expect(frame.tif).toBe("GTC");
+    });
+
+    it("forces the peg frame price to -1 even if the intent carries another value", () => {
+        const frame = newOrderFrame(12, intent("SELL", 1502500, 50, { ordType: "PEG_MID" }));
+        expect(frame.price).toBe(-1);
+        expect(frame.ordType).toBe("PEG_MID");
+    });
+
+    it("serializes a peg NEW frame in SRS §3.6 field order", () => {
+        expect(serializeClientFrame(newOrderFrame(7, intent("BUY", -1, 100, { ordType: "PEG_MID" })))).toBe(
+            '{"type":"NEW","clOrdId":7,"side":"BUY","ordType":"PEG_MID","tif":"GTC","price":-1,"qty":100,"maxFloor":0,"symbol":"ASML"}',
+        );
+    });
+
     it("emits the exact CANCEL shape", () => {
         expect(cancelOrderFrame(9, 1)).toEqual({ type: "CANCEL", clOrdId: 9, origClOrdId: 1 });
     });

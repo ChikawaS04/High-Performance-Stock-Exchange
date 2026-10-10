@@ -2226,3 +2226,42 @@ body {
     font-size: 11px;
     color: var(--text-dim);
 }
+
+
+/* --------------------------------------------------------------------------
+   P14-10: midpoint-peg order-type control. A two-option segmented control
+   mirroring the P14-6 time-in-force control (Limit / Mid peg), using existing
+   tokens only (as P13 D8). Selecting Mid peg disables the price input, chips and
+   nudges through the shared :disabled styling, which already dims them.
+   -------------------------------------------------------------------------- */
+
+.order-entry__ordtype {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+}
+
+.order-entry__ordtype-btn {
+    padding: 6px 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+.order-entry__ordtype-btn--active {
+    border-color: var(--focus);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.order-entry__ordtype-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}

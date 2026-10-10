@@ -401,3 +401,88 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         expect(display().value).toBe("");
     });
 });
+
+
+describe("<OrderEntry /> midpoint peg (P14-10)", () => {
+    const pegQty = () => screen.getByTestId("qty-input") as HTMLInputElement;
+
+    it("defaults the order type to Limit", () => {
+        render(<OrderEntry onSubmit={vi.fn()} />);
+        expect(screen.getByTestId("ordtype-limit").getAttribute("aria-pressed")).toBe("true");
+        expect(screen.getByTestId("ordtype-mid").getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("disables the price input, chips and nudges and shows MID when Mid peg is selected", () => {
+        render(<OrderEntry onSubmit={vi.fn()} bestBidPx={1500000} bestAskPx={1502500} />);
+        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        expect(price().disabled).toBe(true);
+        expect(price().value).toBe("MID");
+        expect((screen.getByTestId("chip-bid") as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId("chip-mid") as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId("chip-ask") as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId("nudge-up") as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId("nudge-down") as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("hides the Display field for a peg even under GTC", () => {
+        render(<OrderEntry onSubmit={vi.fn()} />);
+        expect(screen.queryByTestId("display-input")).not.toBeNull(); // Limit GTC
+        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        expect(screen.queryByTestId("display-input")).toBeNull();
+    });
+
+    it("submits a peg with the NA price and no display, no price typed", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        fireEvent.change(pegQty(), { target: { value: "100" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+        expect(onSubmit).toHaveBeenCalledWith({
+            side: "BUY",
+            ordType: "PEG_MID",
+            tif: "GTC",
+            pricePx: -1,
+            qty: 100,
+            displayQty: 0,
+        });
+    });
+
+    it("carries the selected time in force on a peg", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        fireEvent.click(screen.getByTestId("tif-ioc"));
+        fireEvent.change(pegQty(), { target: { value: "5" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+        expect(onSubmit).toHaveBeenCalledWith(
+            expect.objectContaining({ ordType: "PEG_MID", tif: "IOC", pricePx: -1, displayQty: 0 }),
+        );
+    });
+
+    it("blocks a peg submit on an invalid quantity", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        fireEvent.change(pegQty(), { target: { value: "0" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(screen.getByTestId("order-entry-error").textContent).toMatch(/quantity/i);
+    });
+
+    it("restores a typed limit price when switching back to Limit", () => {
+        render(<OrderEntry onSubmit={vi.fn()} />);
+        fireEvent.change(price(), { target: { value: "150.25" } });
+        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        expect(price().value).toBe("MID");
+        fireEvent.click(screen.getByTestId("ordtype-limit"));
+        expect(price().disabled).toBe(false);
+        expect(price().value).toBe("150.25");
+    });
+
+    it("disables the order-type control when the ticket is disabled", () => {
+        render(<OrderEntry onSubmit={vi.fn()} disabled />);
+        expect((screen.getByTestId("ordtype-limit") as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByTestId("ordtype-mid") as HTMLButtonElement).disabled).toBe(true);
+    });
+});

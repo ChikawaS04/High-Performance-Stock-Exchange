@@ -42,7 +42,8 @@
 import { forwardRef, useImperativeHandle, useState } from "react";
 
 import { formatPrice, parsePrice, EMPTY_PRICE } from "../format";
-import type { OrderIntent, Side, TimeInForce } from "../protocol/messages";
+import { NA } from "../protocol/messages";
+import type { OrderIntent, OrdType, Side, TimeInForce } from "../protocol/messages";
 
 export type ValidationResult =
     | { readonly ok: true; readonly pricePx: number; readonly qty: number }
@@ -57,12 +58,17 @@ const QTY_REASON = "Quantity must be a positive whole number";
  * backend `parsePrice` policy exactly; quantity must be a positive whole number
  * (no decimals, no sign, no exponent).
  */
-export function validateOrderInput(priceInput: string, qtyInput: string): ValidationResult {
-    const pricePx = parsePrice(priceInput);
-    if (pricePx === null) {
-        return { ok: false, reason: PRICE_REASON };
-    }
+export type QtyResult =
+    | { readonly ok: true; readonly qty: number }
+    | { readonly ok: false; readonly reason: string };
 
+/**
+ * Pure quantity validation, exported for direct unit testing. Reused by both the
+ * limit path (via validateOrderInput) and the midpoint-peg path (P14-10), which
+ * has no price to validate. A quantity must be a positive whole number (no
+ * decimals, no sign, no exponent).
+ */
+export function validateQtyInput(qtyInput: string): QtyResult {
     const qtyTrimmed = qtyInput.trim();
     if (!/^\d+$/.test(qtyTrimmed)) {
         return { ok: false, reason: QTY_REASON };
@@ -71,8 +77,19 @@ export function validateOrderInput(priceInput: string, qtyInput: string): Valida
     if (!Number.isSafeInteger(qty) || qty <= 0) {
         return { ok: false, reason: QTY_REASON };
     }
+    return { ok: true, qty };
+}
 
-    return { ok: true, pricePx, qty };
+export function validateOrderInput(priceInput: string, qtyInput: string): ValidationResult {
+    const pricePx = parsePrice(priceInput);
+    if (pricePx === null) {
+        return { ok: false, reason: PRICE_REASON };
+    }
+    const qtyResult = validateQtyInput(qtyInput);
+    if (!qtyResult.ok) {
+        return qtyResult;
+    }
+    return { ok: true, pricePx, qty: qtyResult.qty };
 }
 
 /**
@@ -115,6 +132,12 @@ export const QTY_PRESETS = [10, 50, 100, 500] as const;
 
 /** The time-in-force options, in the order the segmented control renders them. */
 export const TIF_OPTIONS = ["GTC", "IOC", "FOK"] as const satisfies readonly TimeInForce[];
+
+/** The order-type options, in the order the segmented control renders them. */
+export const ORD_TYPE_OPTIONS = [
+    { value: "LIMIT", label: "Limit", id: "limit" },
+    { value: "PEG_MID", label: "Mid peg", id: "mid" },
+] as const satisfies readonly { value: OrdType; label: string; id: string }[];
 
 /**
  * The mid resolved to a valid on-tick limit, integer math only, for the mid chip.
@@ -173,6 +196,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
 ) {
     const [side, setSide] = useState<Side>("BUY");
     const [tif, setTif] = useState<TimeInForce>("GTC");
+    const [ordType, setOrdType] = useState<OrdType>("LIMIT");
     const [priceInput, setPriceInput] = useState("");
     const [qtyInput, setQtyInput] = useState("");
     const [displayInput, setDisplayInput] = useState("");
@@ -189,14 +213,39 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
 
     const submit = (): void => {
         if (disabled) return;
+        // P14-10: a midpoint peg carries no price. Validate the quantity only, and
+        // send ordType PEG_MID with the NA price sentinel and displayQty 0 (a peg is
+        // non-displayed, so an iceberg display has no meaning, D8). The typed limit
+        // price and display stay in state, ignored while the peg hides them, so
+        // switching back to Limit restores them (the P14-8 across-toggle rule).
+        if (ordType === "PEG_MID") {
+            const qtyResult = validateQtyInput(qtyInput);
+            if (!qtyResult.ok) {
+                setError(qtyResult.reason);
+                return;
+            }
+            setError(null);
+            onSubmit({
+                side,
+                ordType: "PEG_MID",
+                tif,
+                pricePx: NA,
+                qty: qtyResult.qty,
+                displayQty: 0,
+            });
+            // Clear only the quantity; keep side, time in force, order type, and the
+            // stashed limit price / display for the next order.
+            setQtyInput("");
+            return;
+        }
         const result = validateOrderInput(priceInput, qtyInput);
         if (!result.ok) {
             setError(result.reason);
             return;
         }
         // P14-8: the Display quantity is an iceberg's visible slice, meaningful only
-        // for a resting (GTC) order. IOC and FOK hide the field, so no display is
-        // resolved or validated for them and the frame carries displayQty 0. For
+        // for a resting (GTC) limit order. IOC and FOK hide the field, so no display
+        // is resolved or validated for them and the frame carries displayQty 0. For
         // GTC an empty field is a plain order, and display == qty normalises to 0.
         let displayQty = 0;
         if (tif === "GTC") {
@@ -208,8 +257,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             displayQty = display.displayQty;
         }
         setError(null);
-        // A single resolved intent (P14-6, decision H). ordType stays LIMIT until
-        // P14-10; displayQty now carries the iceberg size (P14-8).
+        // A single resolved intent (P14-6, decision H).
         onSubmit({
             side,
             ordType: "LIMIT",
@@ -237,6 +285,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
         setQtyInput((q) => applyPreset(q, value));
     };
 
+    const isPeg = ordType === "PEG_MID";
     const midPx = midChipPx(bestBidPx, bestAskPx);
 
     return (
@@ -280,12 +329,28 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 ))}
             </div>
 
+            <div className="order-entry__ordtype" role="group" aria-label="Order type">
+                {ORD_TYPE_OPTIONS.map((option) => (
+                    <button
+                        key={option.value}
+                        type="button"
+                        className={`order-entry__ordtype-btn${ordType === option.value ? " order-entry__ordtype-btn--active" : ""}`}
+                        aria-pressed={ordType === option.value}
+                        data-testid={`ordtype-${option.id}`}
+                        disabled={disabled}
+                        onClick={() => setOrdType(option.value)}
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
+
             <div className="order-entry__chips" role="group" aria-label="Reference prices">
                 <button
                     type="button"
                     className="order-entry__chip order-entry__chip--bid"
                     data-testid="chip-bid"
-                    disabled={disabled || bestBidPx <= 0}
+                    disabled={disabled || isPeg || bestBidPx <= 0}
                     onClick={() => applyPrice(bestBidPx)}
                 >
                     <span className="order-entry__chip-label">Bid</span>
@@ -297,7 +362,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                     type="button"
                     className="order-entry__chip order-entry__chip--mid"
                     data-testid="chip-mid"
-                    disabled={disabled || midPx === null}
+                    disabled={disabled || isPeg || midPx === null}
                     onClick={() => {
                         if (midPx !== null) applyPrice(midPx);
                     }}
@@ -311,7 +376,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                     type="button"
                     className="order-entry__chip order-entry__chip--ask"
                     data-testid="chip-ask"
-                    disabled={disabled || bestAskPx <= 0}
+                    disabled={disabled || isPeg || bestAskPx <= 0}
                     onClick={() => applyPrice(bestAskPx)}
                 >
                     <span className="order-entry__chip-label">Ask</span>
@@ -331,7 +396,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                         className="order-entry__nudge"
                         data-testid="nudge-down"
                         aria-label="Decrease price one tick"
-                        disabled={disabled}
+                        disabled={disabled || isPeg}
                         onClick={() => nudge(-1)}
                     >
                         −
@@ -341,10 +406,10 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                         type="text"
                         inputMode="decimal"
                         placeholder="0.00"
-                        value={priceInput}
+                        value={isPeg ? "MID" : priceInput}
                         data-testid="price-input"
                         aria-label="Price"
-                        disabled={disabled}
+                        disabled={disabled || isPeg}
                         onChange={(e) => setPriceInput(e.target.value)}
                     />
                     <button
@@ -352,7 +417,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                         className="order-entry__nudge"
                         data-testid="nudge-up"
                         aria-label="Increase price one tick"
-                        disabled={disabled}
+                        disabled={disabled || isPeg}
                         onClick={() => nudge(1)}
                     >
                         +
@@ -391,7 +456,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 </div>
             </div>
 
-            {tif === "GTC" ? (
+            {ordType === "LIMIT" && tif === "GTC" ? (
                 <div className="order-entry__field order-entry__field--display">
                     <div className="order-entry__field-head">
                         <span className="order-entry__label">Display</span>

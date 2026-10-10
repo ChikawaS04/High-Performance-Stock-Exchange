@@ -54,4 +54,19 @@ describe("orderTypeLabel", () => {
     it("is LMT when there is no display quantity", () => {
         expect(orderTypeLabel(withDisplay(0))).toBe("LMT");
     });
+
+    it("is MID for a midpoint peg, ahead of the display check", () => {
+        const peg: MyOrder = {
+            clOrdId: 1,
+            side: "BUY",
+            pricePx: -1,
+            originalQty: 100,
+            remainingQty: 100,
+            status: "OPEN",
+            ordType: "PEG_MID",
+            tif: "GTC",
+            displayQty: 0,
+        };
+        expect(orderTypeLabel(peg)).toBe("MID");
+    });
 });

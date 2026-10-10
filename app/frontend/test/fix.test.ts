@@ -47,8 +47,15 @@ describe("parseFixTags", () => {
 
     it("exposes the exact tag set named in the guide", () => {
         expect(Object.keys(FIX_TAG_NAMES).sort()).toEqual(
-            ["10", "11", "35", "38", "41", "44", "54", "55", "8", "9"].sort(),
+            ["10", "11", "18", "35", "38", "40", "41", "44", "54", "55", "59", "111", "8", "9"].sort(),
         );
+    });
+
+    it("names the Phase 14 order-attribute tags (P14-10)", () => {
+        expect(FIX_TAG_NAMES["18"]).toBe("ExecInst");
+        expect(FIX_TAG_NAMES["40"]).toBe("OrdType");
+        expect(FIX_TAG_NAMES["59"]).toBe("TimeInForce");
+        expect(FIX_TAG_NAMES["111"]).toBe("MaxFloor");
     });
 });
 

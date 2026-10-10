@@ -7,6 +7,7 @@ import {
     QTY_PRESETS,
     TICK_PX,
     validateDisplayQty,
+    validateQtyInput,
 } from "../src/components/OrderEntry";
 
 describe("midChipPx", () => {
@@ -102,6 +103,22 @@ describe("validateDisplayQty", () => {
             const r = validateDisplayQty(d, 100);
             expect(r.ok).toBe(false);
             if (!r.ok) expect(r.reason).toMatch(/display/i);
+        }
+    });
+});
+
+
+describe("validateQtyInput", () => {
+    it("accepts a positive whole number, returning the integer qty", () => {
+        expect(validateQtyInput("10")).toEqual({ ok: true, qty: 10 });
+        expect(validateQtyInput("  250 ")).toEqual({ ok: true, qty: 250 });
+    });
+
+    it("rejects zero, negative, fractional, non-numeric, and empty quantities", () => {
+        for (const q of ["0", "-1", "1.5", "abc", "1e2", "1,0", "", "   "]) {
+            const r = validateQtyInput(q);
+            expect(r.ok).toBe(false);
+            if (!r.ok) expect(r.reason).toMatch(/quantity/i);
         }
     });
 });

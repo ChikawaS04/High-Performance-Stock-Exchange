@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { OpenOrders } from "../src/components/OpenOrders";
 import type { MyOrder, OrderStatus } from "../src/state/reducer";
-import type { Side, TimeInForce } from "../src/protocol/messages";
+import type { OrdType, Side, TimeInForce } from "../src/protocol/messages";
 import { EMPTY_PRICE } from "../src/format";
 
 afterEach(cleanup);
@@ -18,6 +18,7 @@ function makeOrder(
     sentAtNanos?: number,
     tif: TimeInForce = "GTC",
     displayQty = 0,
+    ordType: OrdType = "LIMIT",
 ): MyOrder {
     return {
         clOrdId,
@@ -26,7 +27,7 @@ function makeOrder(
         originalQty,
         remainingQty,
         status,
-        ordType: "LIMIT",
+        ordType,
         tif,
         displayQty,
         ...(sentAtNanos !== undefined ? { sentAtNanos } : {}),
@@ -70,6 +71,18 @@ describe("<OpenOrders />", () => {
         );
         expect(screen.getByTestId("type-7").textContent).toBe("ICE");
         expect(screen.getByTestId("type-8").textContent).toBe("LMT");
+    });
+
+    it("renders MID in the Type and Price columns for a midpoint peg (P14-10)", () => {
+        render(
+            <OpenOrders
+                orders={[makeOrder(9, "OPEN", "BUY", -1, 100, 100, undefined, "GTC", 0, "PEG_MID")]}
+                onCancel={vi.fn()}
+            />,
+        );
+        expect(screen.getByTestId("type-9").textContent).toBe("MID");
+        const priceCell = screen.getByTestId("open-orders-row").querySelector(".open-orders__price");
+        expect(priceCell?.textContent?.trim()).toBe("MID");
     });
 
     it("shows EXPIRED as a terminal, non-cancellable status (P14-6)", () => {
