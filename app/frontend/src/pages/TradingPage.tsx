@@ -3,8 +3,9 @@
  *
  * A presentational consumer of the shared reducer state and the order / cancel
  * handlers owned by App. No encoder or ClOrdId logic lives here: App remains the
- * sole call site of nextClOrdId and the frame builders, and passes down only the
- * display-only clOrdIdPreview the ticket needs.
+ * sole call site of nextClOrdId and the frame builders. The ticket redesign dropped
+ * its Order ID readout, so the page no longer receives or forwards the display-only
+ * clOrdIdPreview.
  *
  * The entryRef seam (OrderEntryHandle via forwardRef / useImperativeHandle) and the
  * click-to-ticket prefill relocate here verbatim from the pre-P10 App: a depth-curve
@@ -39,14 +40,12 @@ export interface TradingPageProps {
     readonly state: AppState;
     readonly onSubmitOrder: (intent: OrderIntent) => void;
     readonly onCancelOrder: (origClOrdId: number) => void;
-    readonly clOrdIdPreview: number;
 }
 
 export function TradingPage({
     state,
     onSubmitOrder,
     onCancelOrder,
-    clOrdIdPreview,
 }: TradingPageProps) {
     const connected = state.connection === "open";
     const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -89,14 +88,12 @@ export function TradingPage({
 
                 <div className="workspace__col">
                     <section className="panel panel--entry" aria-label="Order entry">
-                        <h2 className="panel__title">Order entry</h2>
                         <OrderEntry
                             ref={entryRef}
                             onSubmit={onSubmitOrder}
                             disabled={!connected}
                             bestBidPx={state.book.bestBid}
                             bestAskPx={state.book.bestAsk}
-                            clOrdIdPreview={clOrdIdPreview}
                         />
                     </section>
 

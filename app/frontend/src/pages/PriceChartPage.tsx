@@ -56,14 +56,12 @@ export interface PriceChartPageProps {
     readonly state: AppState;
     readonly openPx?: number;
     readonly onSubmitOrder: (intent: OrderIntent) => void;
-    readonly clOrdIdPreview: number;
 }
 
 export function PriceChartPage({
                                    state,
                                    openPx,
                                    onSubmitOrder,
-                                   clOrdIdPreview,
                                }: PriceChartPageProps) {
     const connected = state.connection === "open";
 
@@ -87,13 +85,11 @@ export function PriceChartPage({
                     sessionTradeCount={state.sessionTradeCount}
                 />
 
-                <h2 className="panel__title panel__title--spaced">Order entry</h2>
                 <OrderEntry
                     onSubmit={onSubmitOrder}
                     disabled={!connected}
                     bestBidPx={state.book.bestBid}
                     bestAskPx={state.book.bestAsk}
-                    clOrdIdPreview={clOrdIdPreview}
                 />
             </section>
         </main>

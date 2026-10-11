@@ -31,6 +31,17 @@
  * combination can leave the ticket. The resolved displayQty rides the existing
  * intent -> maxFloor wiring (P14-6); ordType stays "LIMIT" until P14-10.
  *
+ * Ticket redesign (this step) is layout-only and changes nothing the ticket
+ * sends. The time-in-force and order-type controls become compact <select>
+ * dropdowns (GTC default, Limit default) in place of the segmented button rows;
+ * the price stepper collapses from a −/+ pair flanking the input into a single
+ * up/down control on the right edge of the price field; the client-assigned
+ * Order ID readout is removed from the ticket (it is display-only and lives in
+ * the FIX inspector / blotter), so the clOrdIdPreview prop is gone. The side,
+ * reference-chip, price, quantity and display seams and all validation are
+ * unchanged, and every test id the logic relied on (tif/ordtype values via the
+ * selects, nudge-up / nudge-down, the chips, presets, and the inputs) is kept.
+ *
  * Controlled-price seam. The chips and nudges write the SAME uncontrolled
  * `priceInput` the user types, so there is one source of truth and the P5-4
  * validation is byte-identical. The external seam for the P7-5 depth curve
@@ -130,13 +141,13 @@ export const TICK_PX = 100;
 /** Round-lot quantity presets. */
 export const QTY_PRESETS = [10, 50, 100, 500] as const;
 
-/** The time-in-force options, in the order the segmented control renders them. */
+/** The time-in-force options, in the order the dropdown renders them. */
 export const TIF_OPTIONS = ["GTC", "IOC", "FOK"] as const satisfies readonly TimeInForce[];
 
-/** The order-type options, in the order the segmented control renders them. */
+/** The order-type options, in the order the dropdown renders them. */
 export const ORD_TYPE_OPTIONS = [
-    { value: "LIMIT", label: "Limit", id: "limit" },
-    { value: "PEG_MID", label: "Mid peg", id: "mid" },
+    { value: "LIMIT", label: "LIMIT", id: "limit" },
+    { value: "PEG_MID", label: "MIDPOINT PEG", id: "mid" },
 ] as const satisfies readonly { value: OrdType; label: string; id: string }[];
 
 /**
@@ -186,12 +197,10 @@ export interface OrderEntryProps {
     readonly bestBidPx?: number;
     /** Live best ask in units for the Ask chip; -1 (default) disables it. */
     readonly bestAskPx?: number;
-    /** Display-only: the client-assigned id the next NEW will use (nextClOrdId.peek()). */
-    readonly clOrdIdPreview?: number;
 }
 
 export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function OrderEntry(
-    { onSubmit, disabled = false, bestBidPx = -1, bestAskPx = -1, clOrdIdPreview },
+    { onSubmit, disabled = false, bestBidPx = -1, bestAskPx = -1 },
     ref,
 ) {
     const [side, setSide] = useState<Side>("BUY");
@@ -287,9 +296,14 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
 
     const isPeg = ordType === "PEG_MID";
     const midPx = midChipPx(bestBidPx, bestAskPx);
+    // The iceberg Display slice is meaningful only for a resting (GTC) limit order
+    // (D8); a peg or an IOC/FOK order hides it (P14-8).
+    const showDisplay = ordType === "LIMIT" && tif === "GTC";
 
     return (
         <div className="order-entry">
+            <div className="order-entry__header">Order entry</div>
+            <div className="order-entry__body">
             <div className="order-entry__side" role="group" aria-label="Side">
                 <button
                     type="button"
@@ -311,38 +325,6 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 >
                     SELL
                 </button>
-            </div>
-
-            <div className="order-entry__tif" role="group" aria-label="Time in force">
-                {TIF_OPTIONS.map((option) => (
-                    <button
-                        key={option}
-                        type="button"
-                        className={`order-entry__tif-btn${tif === option ? " order-entry__tif-btn--active" : ""}`}
-                        aria-pressed={tif === option}
-                        data-testid={`tif-${option.toLowerCase()}`}
-                        disabled={disabled}
-                        onClick={() => setTif(option)}
-                    >
-                        {option}
-                    </button>
-                ))}
-            </div>
-
-            <div className="order-entry__ordtype" role="group" aria-label="Order type">
-                {ORD_TYPE_OPTIONS.map((option) => (
-                    <button
-                        key={option.value}
-                        type="button"
-                        className={`order-entry__ordtype-btn${ordType === option.value ? " order-entry__ordtype-btn--active" : ""}`}
-                        aria-pressed={ordType === option.value}
-                        data-testid={`ordtype-${option.id}`}
-                        disabled={disabled}
-                        onClick={() => setOrdType(option.value)}
-                    >
-                        {option.label}
-                    </button>
-                ))}
             </div>
 
             <div className="order-entry__chips" role="group" aria-label="Reference prices">
@@ -386,108 +368,135 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 </button>
             </div>
 
-            <div className="order-entry__field">
-                <div className="order-entry__field-head">
+            <div className="order-entry__controls">
+                <label className="order-entry__control order-entry__control--tif">
+                    <span className="order-entry__label">TIF</span>
+                    <select
+                        className="order-entry__select"
+                        data-testid="tif-select"
+                        aria-label="Time in force"
+                        value={tif}
+                        disabled={disabled}
+                        onChange={(e) => setTif(e.target.value as TimeInForce)}
+                    >
+                        {TIF_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                                {option}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+
+                <label className="order-entry__control order-entry__control--ordtype">
+                    <span className="order-entry__label">Type</span>
+                    <select
+                        className="order-entry__select"
+                        data-testid="ordtype-select"
+                        aria-label="Order type"
+                        value={ordType}
+                        disabled={disabled}
+                        onChange={(e) => setOrdType(e.target.value as OrdType)}
+                    >
+                        {ORD_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+
+                <div className="order-entry__control order-entry__control--price">
                     <span className="order-entry__label">Price</span>
-                </div>
-                <div className="order-entry__price-row">
-                    <button
-                        type="button"
-                        className="order-entry__nudge"
-                        data-testid="nudge-down"
-                        aria-label="Decrease price one tick"
-                        disabled={disabled || isPeg}
-                        onClick={() => nudge(-1)}
-                    >
-                        −
-                    </button>
-                    <input
-                        className="order-entry__input"
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        value={isPeg ? "MID" : priceInput}
-                        data-testid="price-input"
-                        aria-label="Price"
-                        disabled={disabled || isPeg}
-                        onChange={(e) => setPriceInput(e.target.value)}
-                    />
-                    <button
-                        type="button"
-                        className="order-entry__nudge"
-                        data-testid="nudge-up"
-                        aria-label="Increase price one tick"
-                        disabled={disabled || isPeg}
-                        onClick={() => nudge(1)}
-                    >
-                        +
-                    </button>
-                </div>
-            </div>
-
-            <div className="order-entry__field">
-                <div className="order-entry__field-head">
-                    <span className="order-entry__label">Qty</span>
-                </div>
-                <input
-                    className="order-entry__input"
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="0"
-                    value={qtyInput}
-                    data-testid="qty-input"
-                    aria-label="Quantity"
-                    disabled={disabled}
-                    onChange={(e) => setQtyInput(e.target.value)}
-                />
-                <div className="order-entry__presets" role="group" aria-label="Quantity presets">
-                    {QTY_PRESETS.map((p) => (
-                        <button
-                            key={p}
-                            type="button"
-                            className="order-entry__preset"
-                            data-testid={`qty-preset-${p}`}
-                            disabled={disabled}
-                            onClick={() => preset(p)}
-                        >
-                            {p}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {ordType === "LIMIT" && tif === "GTC" ? (
-                <div className="order-entry__field order-entry__field--display">
-                    <div className="order-entry__field-head">
-                        <span className="order-entry__label">Display</span>
+                    <div className="order-entry__price-row">
+                        <input
+                            className="order-entry__input"
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            value={isPeg ? "MID" : priceInput}
+                            data-testid="price-input"
+                            aria-label="Price"
+                            disabled={disabled || isPeg}
+                            onChange={(e) => setPriceInput(e.target.value)}
+                        />
+                        <div className="order-entry__stepper" aria-hidden={disabled || isPeg}>
+                            <button
+                                type="button"
+                                className="order-entry__step order-entry__step--up"
+                                data-testid="nudge-up"
+                                aria-label="Increase price one tick"
+                                disabled={disabled || isPeg}
+                                onClick={() => nudge(1)}
+                            >
+                                ▲
+                            </button>
+                            <button
+                                type="button"
+                                className="order-entry__step order-entry__step--down"
+                                data-testid="nudge-down"
+                                aria-label="Decrease price one tick"
+                                disabled={disabled || isPeg}
+                                onClick={() => nudge(-1)}
+                            >
+                                ▼
+                            </button>
+                        </div>
                     </div>
+                </div>
+
+                <div className="order-entry__qtygroup">
+                <div className="order-entry__control order-entry__control--qty">
+                    <span className="order-entry__label">Qty</span>
                     <input
                         className="order-entry__input"
                         type="text"
                         inputMode="numeric"
                         placeholder="0"
-                        value={displayInput}
-                        data-testid="display-input"
-                        aria-label="Display quantity"
+                        value={qtyInput}
+                        data-testid="qty-input"
+                        aria-label="Quantity"
                         disabled={disabled}
-                        onChange={(e) => setDisplayInput(e.target.value)}
+                        onChange={(e) => setQtyInput(e.target.value)}
                     />
+                    <div className="order-entry__presets" role="group" aria-label="Quantity presets">
+                        {QTY_PRESETS.map((p) => (
+                            <button
+                                key={p}
+                                type="button"
+                                className="order-entry__preset"
+                                data-testid={`qty-preset-${p}`}
+                                disabled={disabled}
+                                onClick={() => preset(p)}
+                            >
+                                {p}
+                            </button>
+                        ))}
+                    </div>
                 </div>
-            ) : null}
 
-            <div className="order-entry__clordid" data-testid="order-entry-clordid">
-                <span className="order-entry__label">Order ID</span>
-                <span
-                    className="order-entry__clordid-value"
-                    data-testid="order-entry-clordid-value"
-                >
-          {clOrdIdPreview !== undefined ? clOrdIdPreview : EMPTY_PRICE}
-        </span>
+                {showDisplay ? (
+                    <div className="order-entry__control order-entry__control--display">
+                        <span className="order-entry__label">Display</span>
+                        <input
+                            className="order-entry__input"
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="0"
+                            value={displayInput}
+                            data-testid="display-input"
+                            aria-label="Display quantity"
+                            disabled={disabled}
+                            onChange={(e) => setDisplayInput(e.target.value)}
+                        />
+                    </div>
+                ) : null}
+                </div>
             </div>
 
             <button
                 type="button"
                 className="order-entry__submit"
+                data-side={side === "BUY" ? "buy" : "sell"}
                 data-testid="order-submit"
                 disabled={disabled}
                 onClick={submit}
@@ -500,6 +509,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                     {error}
                 </div>
             ) : null}
+            </div>
         </div>
     );
 });

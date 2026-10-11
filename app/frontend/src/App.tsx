@@ -20,11 +20,16 @@
  * separate hook from useOrderBook and never touches the reducer or the hot path. Chg
  * is not affected: it stays anchored to the session's first trade (P11 D6).
  *
- * P13-4: the /chart route now receives the same two order-entry props /trading
- * already had, onSubmitOrder and clOrdIdPreview, because the Price Chart side panel
- * mounts a ticket. Both routes therefore share one handleSubmit and one nextClOrdId
- * call site, which is the point: the second ticket adds a second CONSUMER of the
- * encoder seam, never a second owner of it. This is App's only P13 change.
+ * P13-4: the /chart route receives the same order-entry prop /trading already had,
+ * onSubmitOrder, because the Price Chart side panel mounts a ticket. Both routes
+ * therefore share one handleSubmit and one nextClOrdId call site, which is the
+ * point: the second ticket adds a second CONSUMER of the encoder seam, never a
+ * second owner of it.
+ *
+ * Ticket redesign: the ticket dropped its client-assigned Order ID readout, so the
+ * display-only clOrdIdPreview prop (nextClOrdId.peek()) is no longer threaded to
+ * either page. nextClOrdId() stays the one mint point on submit; only the preview
+ * peek is gone.
  *
  * P14-6: handleSubmit takes the ticket's resolved OrderIntent (decision H) and
  * hands it to newOrderFrame with a freshly minted clOrdId. The intent carries the
@@ -87,7 +92,6 @@ export default function App() {
                             state={state}
                             onSubmitOrder={handleSubmit}
                             onCancelOrder={handleCancel}
-                            clOrdIdPreview={nextClOrdId.peek()}
                         />
                     }
                 />
@@ -98,7 +102,6 @@ export default function App() {
                             state={state}
                             openPx={openPx}
                             onSubmitOrder={handleSubmit}
-                            clOrdIdPreview={nextClOrdId.peek()}
                         />
                     }
                 />

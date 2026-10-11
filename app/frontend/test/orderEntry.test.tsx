@@ -12,6 +12,16 @@ afterEach(cleanup);
 const price = () => screen.getByTestId("price-input") as HTMLInputElement;
 const qty = () => screen.getByTestId("qty-input") as HTMLInputElement;
 
+// The time-in-force and order-type controls are <select> dropdowns (ticket
+// redesign). Drive them with a change event carrying the option value; the
+// option values are the same wire codes the segmented buttons carried before.
+const tifSelect = () => screen.getByTestId("tif-select") as HTMLSelectElement;
+const ordtypeSelect = () => screen.getByTestId("ordtype-select") as HTMLSelectElement;
+const setTif = (value: "GTC" | "IOC" | "FOK") =>
+    fireEvent.change(tifSelect(), { target: { value } });
+const setOrdType = (value: "LIMIT" | "PEG_MID") =>
+    fireEvent.change(ordtypeSelect(), { target: { value } });
+
 describe("validateOrderInput", () => {
     it("accepts a valid price and quantity, returning integer units and an int qty", () => {
         expect(validateOrderInput("150.25", "10")).toEqual({ ok: true, pricePx: 1502500, qty: 10 });
@@ -138,7 +148,7 @@ describe("<OrderEntry /> time in force (P14-6)", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
 
-        expect(screen.getByTestId("tif-gtc").getAttribute("aria-pressed")).toBe("true");
+        expect(tifSelect().value).toBe("GTC");
         fillValidOrder();
         expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ tif: "GTC" }));
     });
@@ -147,14 +157,14 @@ describe("<OrderEntry /> time in force (P14-6)", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
 
-        fireEvent.click(screen.getByTestId("tif-ioc"));
-        expect(screen.getByTestId("tif-ioc").getAttribute("aria-pressed")).toBe("true");
+        setTif("IOC");
+        expect(tifSelect().value).toBe("IOC");
         fillValidOrder();
         expect(onSubmit).toHaveBeenLastCalledWith(
             expect.objectContaining({ tif: "IOC", ordType: "LIMIT", displayQty: 0 }),
         );
 
-        fireEvent.click(screen.getByTestId("tif-fok"));
+        setTif("FOK");
         fillValidOrder();
         expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ tif: "FOK" }));
     });
@@ -163,18 +173,16 @@ describe("<OrderEntry /> time in force (P14-6)", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
 
-        fireEvent.click(screen.getByTestId("tif-fok"));
+        setTif("FOK");
         fillValidOrder();
         // Only price and qty clear; side and time in force persist for repeat fires.
-        expect(screen.getByTestId("tif-fok").getAttribute("aria-pressed")).toBe("true");
+        expect(tifSelect().value).toBe("FOK");
         expect(price().value).toBe("");
     });
 
     it("disables the time-in-force control when the ticket is disabled", () => {
         render(<OrderEntry onSubmit={vi.fn()} disabled />);
-        expect((screen.getByTestId("tif-gtc") as HTMLButtonElement).disabled).toBe(true);
-        expect((screen.getByTestId("tif-ioc") as HTMLButtonElement).disabled).toBe(true);
-        expect((screen.getByTestId("tif-fok") as HTMLButtonElement).disabled).toBe(true);
+        expect(tifSelect().disabled).toBe(true);
     });
 });
 
@@ -270,38 +278,13 @@ describe("<OrderEntry /> quantity presets (P7-7)", () => {
     });
 });
 
-describe("<OrderEntry /> clOrdId field and price seam (P7-7)", () => {
-    it("shows the client-assigned id the next NEW will use", () => {
-        render(<OrderEntry onSubmit={vi.fn()} clOrdIdPreview={1757000000123} />);
-        expect(screen.getByTestId("order-entry-clordid-value").textContent).toBe("1757000000123");
-    });
-
+describe("<OrderEntry /> price seam (P7-7)", () => {
     it("exposes an imperative setPrice that populates the input (the seam the curve feeds)", () => {
         const ref = createRef<OrderEntryHandle>();
         render(<OrderEntry ref={ref} onSubmit={vi.fn()} />);
 
         act(() => ref.current!.setPrice(1502500));
         expect(price().value).toBe("150.25");
-    });
-});
-
-describe("<OrderEntry /> FIX annotation cleanup (P8-6)", () => {
-    it("shows the plain Order ID label and keeps the auto-assigned id value", () => {
-        render(<OrderEntry onSubmit={vi.fn()} clOrdIdPreview={1757000000123} />);
-
-        expect(screen.getByText("Order ID")).not.toBeNull();
-        expect(screen.getByTestId("order-entry-clordid-value").textContent).toBe("1757000000123");
-    });
-
-    it("drops the tag numbers, the Primitive helper, and the client-assigned caption", () => {
-        render(<OrderEntry onSubmit={vi.fn()} clOrdIdPreview={1757000000123} />);
-
-        expect(screen.queryByText("ClOrdId")).toBeNull();
-        expect(screen.queryByText(/Tag 11/)).toBeNull();
-        expect(screen.queryByText(/Tag 44/)).toBeNull();
-        expect(screen.queryByText(/Tag 38/)).toBeNull();
-        expect(screen.queryByText(/Primitive/)).toBeNull();
-        expect(screen.queryByText(/client-assigned/i)).toBeNull();
     });
 });
 
@@ -312,13 +295,13 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         render(<OrderEntry onSubmit={vi.fn()} />);
         expect(screen.queryByTestId("display-input")).not.toBeNull(); // GTC is default
 
-        fireEvent.click(screen.getByTestId("tif-ioc"));
+        setTif("IOC");
         expect(screen.queryByTestId("display-input")).toBeNull();
 
-        fireEvent.click(screen.getByTestId("tif-fok"));
+        setTif("FOK");
         expect(screen.queryByTestId("display-input")).toBeNull();
 
-        fireEvent.click(screen.getByTestId("tif-gtc"));
+        setTif("GTC");
         expect(screen.queryByTestId("display-input")).not.toBeNull();
     });
 
@@ -381,7 +364,7 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         fireEvent.change(display(), { target: { value: "10" } });
         // Switch to IOC: the field unmounts and its value is ignored, so a valid
         // order still sends with no iceberg rather than being blocked.
-        fireEvent.click(screen.getByTestId("tif-ioc"));
+        setTif("IOC");
         fireEvent.click(screen.getByTestId("order-submit"));
 
         expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -408,13 +391,12 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
 
     it("defaults the order type to Limit", () => {
         render(<OrderEntry onSubmit={vi.fn()} />);
-        expect(screen.getByTestId("ordtype-limit").getAttribute("aria-pressed")).toBe("true");
-        expect(screen.getByTestId("ordtype-mid").getAttribute("aria-pressed")).toBe("false");
+        expect(ordtypeSelect().value).toBe("LIMIT");
     });
 
     it("disables the price input, chips and nudges and shows MID when Mid peg is selected", () => {
         render(<OrderEntry onSubmit={vi.fn()} bestBidPx={1500000} bestAskPx={1502500} />);
-        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        setOrdType("PEG_MID");
         expect(price().disabled).toBe(true);
         expect(price().value).toBe("MID");
         expect((screen.getByTestId("chip-bid") as HTMLButtonElement).disabled).toBe(true);
@@ -427,14 +409,14 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
     it("hides the Display field for a peg even under GTC", () => {
         render(<OrderEntry onSubmit={vi.fn()} />);
         expect(screen.queryByTestId("display-input")).not.toBeNull(); // Limit GTC
-        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        setOrdType("PEG_MID");
         expect(screen.queryByTestId("display-input")).toBeNull();
     });
 
     it("submits a peg with the NA price and no display, no price typed", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
-        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        setOrdType("PEG_MID");
         fireEvent.change(pegQty(), { target: { value: "100" } });
         fireEvent.click(screen.getByTestId("order-submit"));
         expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -451,8 +433,8 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
     it("carries the selected time in force on a peg", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
-        fireEvent.click(screen.getByTestId("ordtype-mid"));
-        fireEvent.click(screen.getByTestId("tif-ioc"));
+        setOrdType("PEG_MID");
+        setTif("IOC");
         fireEvent.change(pegQty(), { target: { value: "5" } });
         fireEvent.click(screen.getByTestId("order-submit"));
         expect(onSubmit).toHaveBeenCalledWith(
@@ -463,7 +445,7 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
     it("blocks a peg submit on an invalid quantity", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
-        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        setOrdType("PEG_MID");
         fireEvent.change(pegQty(), { target: { value: "0" } });
         fireEvent.click(screen.getByTestId("order-submit"));
         expect(onSubmit).not.toHaveBeenCalled();
@@ -473,16 +455,15 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
     it("restores a typed limit price when switching back to Limit", () => {
         render(<OrderEntry onSubmit={vi.fn()} />);
         fireEvent.change(price(), { target: { value: "150.25" } });
-        fireEvent.click(screen.getByTestId("ordtype-mid"));
+        setOrdType("PEG_MID");
         expect(price().value).toBe("MID");
-        fireEvent.click(screen.getByTestId("ordtype-limit"));
+        setOrdType("LIMIT");
         expect(price().disabled).toBe(false);
         expect(price().value).toBe("150.25");
     });
 
     it("disables the order-type control when the ticket is disabled", () => {
         render(<OrderEntry onSubmit={vi.fn()} disabled />);
-        expect((screen.getByTestId("ordtype-limit") as HTMLButtonElement).disabled).toBe(true);
-        expect((screen.getByTestId("ordtype-mid") as HTMLButtonElement).disabled).toBe(true);
+        expect(ordtypeSelect().disabled).toBe(true);
     });
 });
