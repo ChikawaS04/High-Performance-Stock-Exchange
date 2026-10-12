@@ -237,9 +237,13 @@ body {
 }
 
 .topbar {
-    padding: 10px 18px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--line-strong);
+    /* The Header owns its own charcoal band (--head) and bottom hairline, so the
+       topbar wrapper adds no frame of its own: no slate padding, fill, or border.
+       This removes the blue-grey --surface border that used to ring the strip.
+       (The navbar directly below still carries the old slate chrome; that is a
+       separate, known cleanup handled later.) */
+    padding: 0;
+    background: transparent;
 }
 
 .workspace {
@@ -342,92 +346,297 @@ body {
     color: var(--text);
 }
 
-/* ---- header (P9-Extras: one instrument row, badge pinned top-right) ------- */
+/* ---- header (charcoal rework: one thin instrument strip at the panel-header
+   band, gear menu + Live badge pinned right) --------------------------------
+   Reworked off the slate look onto the TWS charcoal design system: a 30px --head
+   band, white data at the blotter row weight (IBM Plex Mono, normal), IBM Plex
+   Sans labels. The green/red switchers (Chg, Bid, Ask) keep their colours. The
+   .header__value entry was removed from the slate sans-override block at the foot
+   of this file so header figures read in mono like order entry / blotter / book
+   reader. */
 
 .header {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    position: relative;
     width: 100%;
     min-width: 0;
+    height: 30px;
+    background: var(--head);
+    border-bottom: 1px solid var(--hair);
 }
 
 .header__instrument {
     display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 22px;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 18px;
+    height: 100%;
     min-width: 0;
+    padding: 0 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
 }
+.header__instrument::-webkit-scrollbar { display: none; }
 
+/* ASML: bold white, the one strong mark on the strip. Sans, like the panel titles. */
 .header__ticker {
-    font-family: var(--mono);
-    font-size: 20px;
+    font-family: var(--sans);
+    font-size: 14px;
     font-weight: 700;
     letter-spacing: 0.04em;
-    color: var(--text);
+    color: #ffffff;
+    flex: 0 0 auto;
+    padding-right: 4px;
+    line-height: 1;
 }
 
 .header__metric {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: flex-start;
+    gap: 1px;
+    flex: 0 0 auto;
+    line-height: 1;
 }
 
+/* Labels: white by default; the Layout setting flips them to faint grey via the
+   .header--labels-faint modifier on the root element. */
 .header__label {
-    font-size: 10px;
-    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 8px;
+    font-weight: 400;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+.header--labels-faint .header__label {
+    color: #8f8f8f;
 }
 
+/* Values: white, normal weight, mono tabular — the blotter row-data treatment. */
 .header__value {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 400;
+    color: #ffffff;
     display: inline-flex;
     align-items: baseline;
     gap: 4px;
 }
 
-.header__value--up {
-    color: var(--bid);
-}
-
-.header__value--down {
-    color: var(--ask);
-}
+/* Green/red switchers are left untouched. */
+.header__value--up { color: var(--bid); }
+.header__value--down { color: var(--ask); }
+.header__metric--bid .header__value { color: var(--bid); }
+.header__metric--ask .header__value { color: var(--ask); }
 
 .header__value-sub {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text-dim);
+    font-size: 9px;
+    font-weight: 400;
+    color: #8f8f8f;
 }
 
-.header__metric--bid .header__value {
-    color: var(--bid);
-}
-
-.header__metric--ask .header__value {
-    color: var(--ask);
-}
-
-/* P9-Extras: the last-frame clock now rides at the end of the instrument row.
-   It aligns like the other metrics (inherits .header__metric flex-end) but keeps
-   a dimmer, smaller value so it still reads as session meta, not a market number.
-   The P7-3 second "session row" (.header__session) and its border-top are gone;
-   the FIX session identity strip removed in P8-6/P8-7 stays gone. */
+/* Last-frame clock now reads like the rest of the strip: white, thin, mono. */
 .header__metric--last-frame .header__value {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 400;
+    color: #ffffff;
 }
 
-/* P9-Extras: the Live badge sits in the header's top-right corner. margin-left:auto
-   consumes the free space to its left so it pins to the right edge and stays there
-   as the metrics wrap; align-self:flex-start pins it to the top against the
-   baseline-aligned metric row. */
-.header .badge {
+/* Right cluster: gear then Live badge, kept tight together and pinned right. */
+.header__right {
     margin-left: auto;
-    align-self: flex-start;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Gear glyph colour matches the orders-panel dropdown caret (var(--text)). */
+.header__gear {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 3px;
+    cursor: pointer;
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+    border-radius: 3px;
+}
+.header__gear svg { width: 14px; height: 14px; display: block; }
+.header__gear:hover { color: #f0f0f0; }
+
+/* ---- header settings popup (DESIGN_SYSTEM.md §10) ------------------------- */
+/* Two-tone body over a darker header, light-grey outline, black divider, red exit
+   mark, silver action button, all text thin white. Sharp edges everywhere except
+   the silver button. */
+.header-settings {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 6px;
+    z-index: 40;
+    width: 240px;
+    background: var(--pop-body);
+    border: 1px solid #808080;
+    border-radius: 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    font-weight: 400;
+}
+
+.header-settings__head {
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2px 0 10px;
+    background: var(--pop-head);
+    border-bottom: 1px solid #000000;
+}
+.header-settings__title {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+.header-settings__x {
+    appearance: none;
+    border: 0;
+    background: var(--pop-head);
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 0;
+    color: var(--exit-x);
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.header-settings__x:hover { color: #d40000; }
+
+.header-settings__body { padding: 8px; }
+
+.header-settings__cat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 400;
+    color: #ffffff;
+    border: 1px solid transparent;
+    background: transparent;
+    text-align: left;
+}
+.header-settings__cat:hover { background: rgba(255, 255, 255, 0.05); }
+.header-settings__caret {
+    color: var(--text);
+    font-size: 10px;
+    transition: transform 0.12s;
+}
+.header-settings__cat[aria-expanded="true"] .header-settings__caret {
+    transform: rotate(90deg);
+}
+
+.header-settings__panel { padding: 4px 8px 8px; }
+
+.header-settings__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.header-settings__name {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    color: #ffffff;
+}
+
+/* Choice control: a sunken well holding two options; the active one is raised. */
+.header-settings__choice {
+    display: inline-flex;
+    background: var(--well);
+    border: 1px solid var(--hair);
+    border-radius: 3px;
+    padding: 2px;
+    gap: 2px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+.header-settings__opt {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #8f8f8f;
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 400;
+    padding: 3px 8px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1;
+}
+.header-settings__opt[aria-pressed="true"] {
+    background: linear-gradient(var(--raise-top), var(--raise-bot));
+    border: 1px solid var(--hair-strong);
+    color: #ffffff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.header-settings__foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 6px 8px 8px;
+}
+.header-settings__done {
+    appearance: none;
+    cursor: pointer;
+    background: linear-gradient(var(--silver-top), var(--silver-bot));
+    border: 1px solid var(--silver-edge);
+    border-radius: 3px;
+    color: #000000;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    padding: 4px 14px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.header-settings__done:active {
+    background: linear-gradient(var(--silver-bot), var(--silver-top));
+}
+
+/* Transparent full-viewport catcher so an outside click closes the popup. */
+.header-settings__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: transparent;
+}
+
+/* ---- connection badge in the header: bare dot + white label, no pill ------ */
+.header .badge {
+    margin-left: 0;
+    padding: 0 0 0 2px;
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+    gap: 6px;
+    font-size: 11px;
+    color: #ffffff;
+}
+.header .badge__label {
+    font-family: var(--sans);
+    font-weight: 400;
+    color: #ffffff;
 }
 
 /* ---- connection badge ----------------------------------------------------- */
@@ -505,30 +714,84 @@ body {
     --depth-row-h: 22px;
 }
 
-/* Depth selector: a quiet control, never competing with the bars. */
+/* Order Book header band: the ORDER BOOK title plus the Depth selector, bled to
+   the panel's top and side edges (the panel keeps its 12px padding). Mirrors the
+   blotter's header band (DESIGN_SYSTEM.md §9). */
 .depth-ladder__controls {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 6px;
-    padding: 0 8px 6px;
+    gap: 8px;
+    margin: -12px -12px 0;
+    padding: 7px 10px;
+    background: var(--head);
+    border-bottom: 1px solid var(--hair);
 }
 
-.depth-ladder__depth-label {
+/* Panel title in the band — matches the blotter's ORDERS title. */
+.depth-ladder__panel-title {
     font-family: var(--sans);
     font-size: 10px;
-    color: var(--text-dim);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffffff;
 }
 
+/* "Depth" label — identical to the order-entry TIF / TYPE labels (.order-entry__label).
+   margin-left:auto pushes the label + selector to the right end of the band. */
+.depth-ladder__depth-label {
+    margin-left: auto;
+    font-family: var(--sans);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+
+/* Depth selector — identical to the order-entry TIF / TYPE dropdown
+   (.order-entry__select), with white text on hover (the one deliberate difference
+   from the ticket dropdowns: the hover ground is darkened so the white text reads). */
+/* Depth selector — metallic silver button: gradient from a much darker silver at the
+   bottom to a light silver at the top, a dark edge (no light frame), a slight drop
+   shadow underneath, sharp corners, and no focus ring. Right-aligned in the band (the
+   "Depth" label was removed); the caret is layered over the gradient. */
 .depth-ladder__depth {
-    padding: 2px 6px;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    color: var(--text);
-    font-family: var(--mono);
+    appearance: none;
+    -webkit-appearance: none;
+    margin-left: auto;
+    min-width: 44px;
+    padding: 4px 20px 4px 9px;
+    border: 1px solid #3a3a3a;
+    border-radius: 0;
+    color: #000;
+    font-family: var(--sans);
     font-size: 11px;
-    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    cursor: pointer;
+    background-color: #8c8c8c;
+    /* Two layers, each with its OWN size and position. The gradient must fill the
+       whole button (100% 100% at 0 0); sharing the caret's "right 7px" position
+       shifted it left and left an uncovered strip down the right edge. */
+    background-image:
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='6' viewBox='0 0 9 6'><path d='M0 0l4.5 6L9 0z' fill='%23222222'/></svg>"),
+        linear-gradient(#c8c8c8, #505050);
+    background-repeat: no-repeat, no-repeat;
+    background-size: 9px 6px, 100% 100%;
+    background-position: right 7px center, 0 0;
+    background-origin: padding-box, border-box;
+    background-clip: border-box;
+    /* slight drop shadow underneath */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+}
+.depth-ladder__depth:hover {
+    filter: brightness(1.06);
+}
+.depth-ladder__depth:focus {
+    outline: none;
+}
+.depth-ladder__depth option {
+    background: #fff;
+    color: #000;
 }
 
 /* Column captions for Price / Size / Total; same three-track grid as a row. */
@@ -540,11 +803,12 @@ body {
     padding: 5px 8px;
     font-family: var(--sans);
     font-size: 9px;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    background: var(--surface-2);
-    border-bottom: 1px solid var(--line-strong);
+    color: #ffffff;
+    background: var(--body);
+    border-bottom: 1px solid var(--hair);
 }
 
 .depth-ladder__head-qty,
@@ -617,40 +881,40 @@ body {
     border-radius: 1px;
 }
 
+/* Depth bars take the bid/ask wash from the orders panel's Side cell (DESIGN_SYSTEM
+   §9): blue for bids, red for asks, so the two panels read as one family. */
 .depth-ladder__row--ask .depth-ladder__bar {
-    background: rgba(255, 75, 75, 0.22);
+    background: var(--quote-ask-wash);
 }
 
 .depth-ladder__row--bid .depth-ladder__bar {
-    background: rgba(46, 201, 113, 0.22);
+    background: var(--quote-bid-wash);
 }
 
+/* Price keeps its heavier weight, now mono, coloured by side (the legible quote
+   variants) so it contrasts with its own wash bar. */
 .depth-ladder__price {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
     font-weight: 600;
 }
 
 .depth-ladder__row--ask .depth-ladder__price {
-    color: var(--ask);
+    color: var(--quote-ask);
 }
 
 .depth-ladder__row--bid .depth-ladder__price {
-    color: var(--bid);
+    color: var(--quote-bid);
 }
 
+/* Size + Total match the orders-panel row data: white, normal weight, mono tabular. */
 .depth-ladder__qty,
 .depth-ladder__cum {
     text-align: right;
     min-width: 48px;
+    font-family: var(--mono);
     font-variant-numeric: tabular-nums;
-}
-
-.depth-ladder__qty {
-    color: var(--text-dim);
-}
-
-/* Cumulative total: the depth the bar encodes, kept legible but still quiet. */
-.depth-ladder__cum {
-    color: var(--text);
+    color: #ffffff;
 }
 
 /* Spread / mid / last strip between the two sides. */
@@ -664,9 +928,9 @@ body {
     gap: 12px;
     padding: 6px 8px;
     margin: 0 -12px;
-    border-top: 1px solid var(--line-strong);
-    border-bottom: 1px solid var(--line-strong);
-    background: var(--surface-2);
+    border-top: 1px solid var(--hair);
+    border-bottom: 1px solid var(--hair);
+    background: var(--head);
 }
 
 .depth-ladder__divider-cell {
@@ -678,17 +942,68 @@ body {
 .depth-ladder__divider-label {
     font-family: var(--sans);
     font-size: 10px;
-    color: var(--text-dim);
+    color: #ffffff;
 }
 
 .depth-ladder__divider-value {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
-    color: var(--text);
+    color: #ffffff;
 }
 
-/* ---- depth curve (P7-10: wired below the ladder in the same panel) -------- */
+/* The reworked Order Book and Depth Chart panels take the charcoal body and a
+   charcoal hairline border (DESIGN_SYSTEM.md §5), replacing the slate panel chrome.
+   They keep the 12px panel padding; their header bands and panes bleed to the edges
+   via -12px margins (as the ladder caption and panes already do). */
+.panel--ladder,
+.panel--depthchart {
+    background: var(--body);
+    border-color: var(--hair);
+    /* Rounded card like the order-entry and blotter panels. overflow:hidden clips the
+       bled header band and panes to the radius; safe now that the curve is its own panel. */
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* Active-panel cue: a very thin light-grey highlight around a panel while it holds
+   focus. Every panel section carries tabIndex={-1}, so a click ANYWHERE inside it
+   (not just on a control) focuses the panel; :focus-within also keeps the highlight
+   while a control inside it has focus. The outline follows border-radius, so the
+   rounded cards get a rounded highlight. */
+.panel:focus-within,
+.chart-page__region:focus-within {
+    outline: 1px solid #9e9e9e;
+    outline-offset: -1px;
+}
+
+/* The order-entry and blotter wrappers are transparent shells around their own
+   4px-rounded cards; give the shells the same radius so the highlight curves with
+   the card instead of drawing square corners around it. */
+.panel--entry,
+.panel--blotter {
+    border-radius: 4px;
+}
+
+/* Depth Chart header band — the same band as the Order Book title, now that the
+   curve is split into its own panel (was a loose .panel__title--chart heading). */
+.depth-chart__head {
+    margin: -12px -12px 0;
+    padding: 7px 10px;
+    background: var(--head);
+    border-bottom: 1px solid var(--hair);
+}
+
+.depth-chart__panel-title {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+
+/* ---- depth curve (split into its own Depth Chart panel, 2026-10) ---------- */
 
 .depth-curve {
     flex-shrink: 0;
@@ -1915,10 +2230,10 @@ body {
    ========================================================================== */
 
 /* The reference is sans-serif end to end. Redirect the numeric elements from
-   mono to sans while keeping tabular figures so columns still lock. */
-.header__value,
+   mono to sans while keeping tabular figures so columns still lock.
+   (.header__value was removed here in the header charcoal rework: the header strip
+   now reads in mono like order entry / blotter / book reader.) */
 .session-stats__value,
-.depth-ladder,
 .trade-tape,
 .cancel-ticket__input,
 .open-orders__table {
@@ -2122,11 +2437,11 @@ body {
        its black ground fills (the curve is bottom-anchored via preserveAspectRatio),
        and the tape body fills with its own near-black ground. Scroll caps stay in the
        page-scroll model; here the tape simply scrolls once rows exceed the panel. */
-    .panel--ladder .depth-curve {
+    .panel--depthchart .depth-curve {
         flex: 1 1 auto;
         min-height: 0;
     }
-    .panel--ladder .depth-curve__svg {
+    .panel--depthchart .depth-curve__svg {
         height: 100%;
         aspect-ratio: auto;
     }

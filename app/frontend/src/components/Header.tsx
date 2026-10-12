@@ -1,22 +1,24 @@
 /**
- * Header (SRS §3.7, rebuilt in P7-3; header polish in P9-Extras). One instrument
- * row now, the way a real terminal carries the top line. No product name, no
- * tagline: the phase strips marketing chrome and shows only what the server sent
- * or a documented client-side derivation.
+ * Header (SRS §3.7, rebuilt in P7-3; header polish in P9-Extras; charcoal rework
+ * + settings gear in P-UI). One instrument row now, the way a real terminal
+ * carries the top line. No product name, no tagline: the phase strips marketing
+ * chrome and shows only what the server sent or a documented client-side
+ * derivation.
  *
  * Instrument row, all derived from BOOK plus the session aggregates and your own
  * orders (never from EXEC arrival order): symbol, last, session change, bid, ask,
  * mid, spread in ticks and basis points, session volume, and the P9-Extras Filled
  * and Rem counters. The last-frame clock rides at the end of the same row as
- * session meta, and the reused ConnectionBadge is pinned to the top-right corner.
+ * session meta, and the reused ConnectionBadge is pinned to the top-right corner,
+ * now preceded by a settings gear.
  *
- * P9-Extras: the P7-3 second "session row" is dissolved. The last-frame clock
- * moved up into the instrument row and the badge moved to the corner (CSS
- * margin-left:auto). Whole-number counters (Volume, Filled, Rem) render through
- * the shared format.ts formatQty so they carry thousands separators. P8-6 had
- * already removed the FIX session identity strip (SenderCompID / TargetCompID /
- * MsgSeqNum); the client MsgSeqNum counter still lives in reducer state and is
- * still incremented, only its header display is gone.
+ * Charcoal rework (P-UI): the strip is a thin (30px) panel-header band. ASML stays
+ * bold but white; every value is white at the blotter row-data weight (IBM Plex
+ * Mono, normal); labels are IBM Plex Sans, white by default. The green/red
+ * switchers (Chg, Bid, Ask) keep their colours. A gear sits just left of the Live
+ * badge in the dropdown-caret colour; it opens a settings popup (DESIGN_SYSTEM.md
+ * §10) whose Layout section lets you set the header labels to white or faint grey.
+ * The choice persists per browser in localStorage.
  *
  * Filled and Rem are YOUR-order aggregates, distinct from Volume (whole-market
  * session volume). Filled sums the executed portion over every one of your orders;
@@ -27,6 +29,7 @@
  * header, the depth-ladder divider, and the trade tape share one definition each.
  */
 
+import { useEffect, useState } from "react";
 import { formatPrice, EMPTY_PRICE, formatClockNanos, formatQty, midpointLabel } from "../format";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { isTerminal } from "../state/reducer";
@@ -36,6 +39,18 @@ const SYMBOL = "ASML";
 
 /** One cent, in units of $0.0001: the on-tick spacing the spread is counted in. */
 const TICK_PX = 100;
+
+/** Header label appearance, chosen in the settings popup and persisted per browser. */
+type LabelMode = "white" | "faint";
+const LABEL_STORAGE_KEY = "header.labelMode";
+
+function readLabelMode(): LabelMode {
+    try {
+        return localStorage.getItem(LABEL_STORAGE_KEY) === "faint" ? "faint" : "white";
+    } catch {
+        return "white";
+    }
+}
 
 export type ChangeDirection = "up" | "down" | "flat" | "none";
 
@@ -199,6 +214,29 @@ export function Header({
                        }: HeaderProps) {
     const m = deriveHeader({ book, tape, orders, sessionVolume, sessionOpenPx, lastFrameNanos });
 
+    // Settings popup: open/closed, the Layout section's expand state, and the
+    // persisted header-label appearance.
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [layoutOpen, setLayoutOpen] = useState(true);
+    const [labelMode, setLabelMode] = useState<LabelMode>(readLabelMode);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(LABEL_STORAGE_KEY, labelMode);
+        } catch {
+            // Per-viewer convenience only; a storage failure is non-fatal.
+        }
+    }, [labelMode]);
+
+    useEffect(() => {
+        if (!settingsOpen) return;
+        function onKey(e: KeyboardEvent) {
+            if (e.key === "Escape") setSettingsOpen(false);
+        }
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [settingsOpen]);
+
     const changeClass =
         m.changeDir === "up"
             ? " header__value--up"
@@ -206,8 +244,10 @@ export function Header({
                 ? " header__value--down"
                 : "";
 
+    const rootClass = labelMode === "faint" ? "header header--labels-faint" : "header";
+
     return (
-        <div className="header">
+        <div className={rootClass}>
             <div className="header__instrument">
                 <span className="header__ticker">{SYMBOL}</span>
 
@@ -274,8 +314,113 @@ export function Header({
                     <span className="header__value" data-testid="header-last-frame">{m.lastFrame}</span>
                 </div>
 
-                <ConnectionBadge status={connection} />
+                <div className="header__right">
+                    <button
+                        type="button"
+                        className="header__gear"
+                        aria-label="Settings"
+                        aria-haspopup="dialog"
+                        aria-expanded={settingsOpen}
+                        onClick={() => setSettingsOpen((open) => !open)}
+                        data-testid="header-settings-gear"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                                fill="currentColor"
+                                d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.82,11.69,4.82,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
+                            />
+                        </svg>
+                    </button>
+
+                    <ConnectionBadge status={connection} />
+                </div>
             </div>
+
+            {settingsOpen && (
+                <>
+                    <div
+                        className="header-settings__backdrop"
+                        onClick={() => setSettingsOpen(false)}
+                        data-testid="header-settings-backdrop"
+                    />
+                    <div
+                        className="header-settings"
+                        role="dialog"
+                        aria-label="Terminal settings"
+                        data-testid="header-settings"
+                    >
+                        <div className="header-settings__head">
+                            <span className="header-settings__title">Settings</span>
+                            <button
+                                type="button"
+                                className="header-settings__x"
+                                aria-label="Close"
+                                onClick={() => setSettingsOpen(false)}
+                                data-testid="header-settings-close"
+                            >
+                                {"×"}
+                            </button>
+                        </div>
+
+                        <div className="header-settings__body">
+                            <button
+                                type="button"
+                                className="header-settings__cat"
+                                aria-expanded={layoutOpen}
+                                aria-controls="header-settings-layout"
+                                onClick={() => setLayoutOpen((open) => !open)}
+                                data-testid="header-settings-layout-toggle"
+                            >
+                                <span>Layout</span>
+                                <span className="header-settings__caret" aria-hidden="true">{"▸"}</span>
+                            </button>
+
+                            {layoutOpen && (
+                                <div className="header-settings__panel" id="header-settings-layout">
+                                    <div className="header-settings__row">
+                                        <span className="header-settings__name">Header labels</span>
+                                        <span
+                                            className="header-settings__choice"
+                                            role="group"
+                                            aria-label="Header label colour"
+                                        >
+                                            <button
+                                                type="button"
+                                                className="header-settings__opt"
+                                                aria-pressed={labelMode === "white"}
+                                                onClick={() => setLabelMode("white")}
+                                                data-testid="header-labels-white"
+                                            >
+                                                White
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="header-settings__opt"
+                                                aria-pressed={labelMode === "faint"}
+                                                onClick={() => setLabelMode("faint")}
+                                                data-testid="header-labels-faint"
+                                            >
+                                                Faint grey
+                                            </button>
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="header-settings__foot">
+                            <button
+                                type="button"
+                                className="header-settings__done"
+                                onClick={() => setSettingsOpen(false)}
+                                data-testid="header-settings-done"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }

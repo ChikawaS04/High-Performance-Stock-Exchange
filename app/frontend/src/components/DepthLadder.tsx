@@ -176,13 +176,12 @@ export function DepthLadder({ book, lastPx = -1 }: DepthLadderProps) {
     return (
         <div className="depth-ladder">
             <div className="depth-ladder__controls">
-                <label className="depth-ladder__depth-label" htmlFor="depth-select">
-                    Depth
-                </label>
+                <span className="depth-ladder__panel-title">Book Reader</span>
                 <select
                     id="depth-select"
                     className="depth-ladder__depth"
                     data-testid="depth-select"
+                    aria-label="Depth levels"
                     value={depth}
                     onChange={(e) => setDepth(Number(e.target.value))}
                 >

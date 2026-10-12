@@ -67,7 +67,7 @@ export function PriceChartPage({
 
     return (
         <main className="chart-page" aria-label="Price chart">
-            <section className="chart-page__region chart-page__region--chart" aria-label="Chart">
+            <section tabIndex={-1} className="chart-page__region chart-page__region--chart" aria-label="Chart">
                 <h2 className="panel__title">Price chart</h2>
                 <PriceChart
                     tape={state.tape}
@@ -76,7 +76,7 @@ export function PriceChartPage({
                 />
             </section>
 
-            <section className="chart-page__region chart-page__region--panel" aria-label="Side panel">
+            <section tabIndex={-1} className="chart-page__region chart-page__region--panel" aria-label="Side panel">
                 <h2 className="panel__title">Session</h2>
                 <SessionStats
                     tape={state.tape}

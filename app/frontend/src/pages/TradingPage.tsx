@@ -71,29 +71,40 @@ export function TradingPage({
             </div>
 
             <main className="workspace">
-                <section
-                    className={`panel panel--ladder${connected ? "" : " panel--stale"}`}
-                    aria-label="Order book depth"
-                >
-                    <h2 className="panel__title">Depth</h2>
-                    <DepthLadder
-                        book={state.book}
-                        lastPx={state.tape.length > 0 ? state.tape[0].pricePx : -1}
-                    />
-                    <h2 className="panel__title panel__title--chart">Depth chart</h2>
-                    <DepthCurve
-                        book={state.book}
-                        onPriceSelect={(pricePx) => entryRef.current?.setPrice(pricePx)}
-                    />
-                </section>
+                <div className="workspace__col">
+                    <section
+                        tabIndex={-1}
+                        className={`panel panel--ladder${connected ? "" : " panel--stale"}`}
+                        aria-label="Order book"
+                    >
+                        <DepthLadder
+                            book={state.book}
+                            lastPx={state.tape.length > 0 ? state.tape[0].pricePx : -1}
+                        />
+                    </section>
 
-                <section className="panel panel--tape" aria-label="Trade tape">
+                    <section
+                        tabIndex={-1}
+                        className={`panel panel--depthchart${connected ? "" : " panel--stale"}`}
+                        aria-label="Depth chart"
+                    >
+                        <div className="depth-chart__head">
+                            <span className="depth-chart__panel-title">Depth Chart</span>
+                        </div>
+                        <DepthCurve
+                            book={state.book}
+                            onPriceSelect={(pricePx) => entryRef.current?.setPrice(pricePx)}
+                        />
+                    </section>
+                </div>
+
+                <section tabIndex={-1} className="panel panel--tape" aria-label="Trade tape">
                     <h2 className="panel__title">Trades</h2>
                     <TradeTape tape={state.tape} />
                 </section>
 
                 <div className="workspace__col">
-                    <section className="panel panel--entry" aria-label="Order entry">
+                    <section tabIndex={-1} className="panel panel--entry" aria-label="Order entry">
                         <OrderEntry
                             ref={entryRef}
                             onSubmit={onSubmitOrder}
@@ -103,7 +114,7 @@ export function TradingPage({
                         />
                     </section>
 
-                    <section className="panel panel--blotter" aria-label="Order blotter">
+                    <section tabIndex={-1} className="panel panel--blotter" aria-label="Order blotter">
                         <OpenOrders
                             orders={state.myOrders}
                             onCancel={onCancelOrder}
