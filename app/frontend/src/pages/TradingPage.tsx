@@ -20,6 +20,13 @@
  *
  * P14-6: onSubmitOrder now carries the ticket's resolved OrderIntent (decision H).
  * The page only forwards it to OrderEntry, so the change is a pure type widening.
+ *
+ * Blotter TWS rework (2026-10): the blotter panel now renders only OpenOrders, which
+ * owns its own ORDERS header band and the Cancel-by-ID flow (a header dropdown ->
+ * popup). The old loose "Open orders" / "Cancel by ID" headings and the always-
+ * visible CancelTicket section are gone; the blotter fills the panel. The cancel-by-
+ * id route is unchanged: OpenOrders emits the same onCancelOrder the per-row cancel
+ * uses. OpenOrders takes disabled while the socket is down, as the ticket did.
  */
 
 import { useRef, useState } from "react";
@@ -33,7 +40,6 @@ import { TradeTape } from "../components/TradeTape";
 import { OrderEntry } from "../components/OrderEntry";
 import type { OrderEntryHandle } from "../components/OrderEntry";
 import { OpenOrders } from "../components/OpenOrders";
-import { CancelTicket } from "../components/CancelTicket";
 import { FixInspector } from "../components/FixInspector";
 
 export interface TradingPageProps {
@@ -98,10 +104,11 @@ export function TradingPage({
                     </section>
 
                     <section className="panel panel--blotter" aria-label="Order blotter">
-                        <h2 className="panel__title">Open orders</h2>
-                        <OpenOrders orders={state.myOrders} onCancel={onCancelOrder} />
-                        <h2 className="panel__title panel__title--spaced panel__title--cancel">Cancel by ID</h2>
-                        <CancelTicket onCancel={onCancelOrder} disabled={!connected} />
+                        <OpenOrders
+                            orders={state.myOrders}
+                            onCancel={onCancelOrder}
+                            disabled={!connected}
+                        />
                     </section>
                 </div>
             </main>

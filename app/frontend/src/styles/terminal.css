@@ -81,6 +81,33 @@
 
     --gap: 8px;
     --radius: 0;
+
+    /* TWS charcoal — promoted from the order-entry --oe-* scope (DESIGN_SYSTEM.md
+       §9 table panels, §10 popups). Global so every reworked table panel and every
+       popup share them. The slate --line / --line-strong above stay live for the
+       panels not yet reworked; charcoal hairlines use --hair / --hair-strong. */
+    --body: #1b1b1b;
+    --head: #2c2c2c;
+    --well: #0d0d0d;
+    --zebra: #181818;
+    --raise-top: #343434;
+    --raise-bot: #262626;
+    --hair: #333333;
+    --hair-strong: #444444;
+    --pop-head: #333333;
+    --pop-body: #434343;
+    --exit-x: #af0000;
+    --silver-top: #d6d6d6;
+    --silver-bot: #9e9e9e;
+    --silver-edge: #7d7d7d;
+    --faint: #5e5e5e;                        /* placeholders / muted labels */
+    /* Legible bid/ask quote variants (DESIGN_SYSTEM.md §2) — distinct from the
+       slate --bid/--ask above, which stay green/red for not-yet-reworked panels.
+       The washes are translucent so a zebra stripe shows through a tinted cell. */
+    --quote-bid: #5a96ff;
+    --quote-ask: #ff6a5a;
+    --quote-bid-wash: rgba(90, 150, 255, 0.16);
+    --quote-ask-wash: rgba(255, 106, 90, 0.16);
 }
 
 * {
@@ -1922,13 +1949,8 @@ body {
     color: var(--text);
 }
 
-/* Subtle blotter striping + row hover in the cool palette. */
-.open-orders__table tbody tr:nth-of-type(even) > td {
-    background: transparent;
-}
-.open-orders__table tbody tr:hover > td {
-    background: rgba(61, 139, 253, 0.08);
-}
+/* (Blotter striping + hover moved to the TWS blotter rework block at the foot of
+   this file, where they sit on the row so the Side-cell tint composites over them.) */
 
 /* Trade-tape row hover for the live-grid feel (own-trade marker unaffected). */
 .trade-tape__row:hover {
@@ -2073,19 +2095,24 @@ body {
        unbounded: the panel simply grew with the order count and the PAGE
        scrolled, so the list's own scrollbar never engaged. The empty state
        reserves the same height, so the panel never jumps on the first order. */
+    /* Blotter fills the third column down to the screen bottom (it took the place
+       of the removed Cancel-by-ID ticket): the card, its body, and the scroll body
+       all grow, and a long list scrolls inside the body past a floor of ~7 rows. */
     .panel--blotter .open-orders {
-        display: flex;
-        flex-direction: column;
-        flex: 0 0 auto;
+        flex: 1;
+        min-height: 0;
+    }
+    .panel--blotter .open-orders__body {
+        flex: 1;
         min-height: 0;
     }
     .panel--blotter .open-orders__scroll {
-        flex: 0 0 auto;
+        flex: 1;
         min-height: calc(var(--blotter-row-h) * 7);
-        max-height: calc(var(--blotter-row-h) * 7);
+        max-height: none;
     }
     .panel--blotter .open-orders__empty {
-        flex: 0 0 auto;
+        flex: 1;
         min-height: calc(var(--blotter-row-h) * 7);
     }
 
@@ -2278,3 +2305,384 @@ body {
    button rules were removed with it. Selecting Mid peg still disables the price
    input, chips and stepper through the shared :disabled styling.
    -------------------------------------------------------------------------- */
+
+
+/* ==========================================================================
+   Order blotter (ORDERS) — TWS charcoal rework + Cancel-by-ID popup (2026-10)
+   The blotter becomes a self-contained card like the order-entry ticket: a
+   dark-grey header band (--head) carrying the ORDERS title and a tiny blend-in
+   dropdown caret, over a column-header row (--body) and a sunken, zebra-striped
+   table body (--well) that fills the panel. Per-row Cancel is a raised charcoal
+   control. The caret opens a white "Cancel by ID" menu; that opens the sharp-
+   edged popup (the global popup blueprint). This block sits after the base and
+   slate-retheme rules, so it re-skins the blotter without editing them.
+   See DESIGN_SYSTEM.md §9 (table panels) and §10 (popups).
+   ========================================================================== */
+
+/* The outer panel chrome is the card itself now (as with .panel--entry). */
+.panel--blotter {
+    padding: 0;
+    background: transparent;
+    border: none;
+}
+
+/* The card. */
+.open-orders {
+    --blotter-row-h: 26px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--body);
+    border: 1px solid var(--hair);
+    border-radius: 4px;
+    overflow: hidden;
+    color: #ffffff;
+}
+
+/* Header band: the ORDERS title and the tiny dropdown caret. */
+.open-orders__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px 6px 11px;
+    background: var(--head);
+    border-bottom: 1px solid var(--hair);
+}
+
+.open-orders__panel-title {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+
+/* Tiny caret that blends into the header; only the glyph contrasts. */
+.open-orders__menu-wrap {
+    position: relative;
+    margin-left: auto;
+    display: flex;
+}
+
+.open-orders__caret {
+    padding: 0 5px;
+    border: 1px solid var(--head);
+    border-radius: 2px;
+    background: var(--head);
+    color: var(--text);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+.open-orders__caret:hover {
+    background: var(--raise-top);
+}
+
+/* White action menu (the one deliberately light element), opens downward. */
+.open-orders__menu {
+    position: absolute;
+    top: calc(100% + 5px);
+    right: 0;
+    min-width: 72px;
+    z-index: 30;
+    padding: 2px;
+    background: #ffffff;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* "Cancel by ID" verbatim (no uppercasing), about half the former footprint. */
+.open-orders__menu-item {
+    display: block;
+    width: 100%;
+    padding: 4px 7px;
+    border: none;
+    border-radius: 2px;
+    background: #ffffff;
+    color: #000000;
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.open-orders__menu-item:hover {
+    background: #cccccc;
+}
+
+/* Body: the sunken well that fills the card. */
+.open-orders__body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+/* The scroll body fills and scrolls past overflow. */
+.open-orders .open-orders__scroll {
+    flex: 1;
+    max-height: none;
+    margin: 0;
+    background: transparent;
+    overflow: auto;
+    scrollbar-gutter: stable;
+}
+
+.open-orders .open-orders__empty {
+    flex: 1;
+    margin: 0;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+}
+
+/* Table: mono base so numeric columns read as data; sans only where noted. */
+.open-orders .open-orders__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    font-size: 11px;
+}
+
+/* Column-header row sits on the panel-body colour; labels bold white. */
+.open-orders .open-orders__table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: var(--blotter-row-h);
+    padding: 7px 12px;
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffffff;
+    background: var(--body);
+    box-shadow: inset 0 -1px 0 var(--hair);
+}
+.open-orders .open-orders__table th.open-orders__col-time,
+.open-orders .open-orders__table th.open-orders__col-price,
+.open-orders .open-orders__table th.open-orders__col-qty {
+    text-align: right;
+}
+
+/* Data cells: bright white, normal weight, no per-side colour. */
+.open-orders .open-orders__table td {
+    height: var(--blotter-row-h);
+    padding: 6px 12px;
+    text-align: left;
+    color: #ffffff;
+    border-bottom: none;
+}
+.open-orders .open-orders__time,
+.open-orders .open-orders__price,
+.open-orders .open-orders__qty {
+    text-align: right;
+}
+/* Short status codes stay sans; every cell keeps the bright-white data colour. */
+.open-orders .open-orders__side,
+.open-orders .open-orders__type,
+.open-orders .open-orders__tif,
+.open-orders .open-orders__status {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: #ffffff;
+}
+.open-orders .open-orders__time {
+    color: #ffffff;
+    font-size: 11px;
+}
+/* Side cell: tinted per the bid/ask convention (DESIGN_SYSTEM.md §2) with a
+   translucent wash, so the zebra stripe shows through and modulates the cell. */
+.open-orders .open-orders__row--buy .open-orders__side {
+    background: var(--quote-bid-wash);
+    color: var(--quote-bid);
+}
+.open-orders .open-orders__row--sell .open-orders__side {
+    background: var(--quote-ask-wash);
+    color: var(--quote-ask);
+}
+
+/* Zebra + hover sit on the ROW, not the cell, so the Side cell's translucent wash
+   composites over the stripe (the stripe shows through the tinted cell); kept dark. */
+.open-orders .open-orders__table tbody tr:nth-of-type(even) {
+    background: var(--zebra);
+}
+.open-orders .open-orders__table tbody tr:hover {
+    background: #202020;
+}
+
+/* Per-row Cancel: a small raised charcoal control. */
+.open-orders .open-orders__cancel {
+    padding: 3px 13px;
+    border: 1px solid var(--hair-strong);
+    border-radius: 3px;
+    background: linear-gradient(var(--raise-top), var(--raise-bot));
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.open-orders .open-orders__cancel:hover {
+    border-color: var(--hair-strong);
+    color: #ffffff;
+    filter: brightness(1.12);
+}
+.open-orders .open-orders__cancel:active {
+    background: linear-gradient(var(--raise-bot), var(--raise-top));
+}
+
+/* ---- Cancel-by-ID popup (global popup blueprint, DESIGN_SYSTEM.md §10) ----- */
+
+.cxid-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: var(--scrim);
+}
+
+/* Sharp edges everywhere except the confirm button; lighter than the panels,
+   with the header darker than the body. */
+.cxid-modal {
+    width: min(360px, 100%);
+    background: var(--pop-body);
+    border: 1px solid #808080;               /* light-grey outline (all popups) */
+    border-radius: 0;
+    overflow: hidden;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+}
+
+.cxid-head {
+    position: relative;
+    padding: 10px 40px 10px 14px;
+    background: var(--pop-head);
+    border-bottom: 1px solid #000000;        /* thin black header/body divider (all popups) */
+}
+
+.cxid-title {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+}
+
+/* Exit button blends into the header; only the big red × shows. */
+.cxid-exit {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 0;
+    background: var(--pop-head);
+    color: var(--exit-x);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+.cxid-exit:hover {
+    background: #2a2a2a;
+}
+
+.cxid-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px 14px;
+    background: var(--pop-body);
+}
+
+.cxid-label {
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+
+/* Universal field colour (the well), sunken. */
+.cxid-input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--hair);
+    border-radius: 0;
+    background: var(--well);
+    color: #ffffff;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+.cxid-input::placeholder {
+    color: var(--faint);
+}
+.cxid-input:focus-visible {
+    outline: none;
+    border-color: var(--focus);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(90, 166, 255, 0.35);
+}
+
+.cxid-error {
+    padding: 6px 9px;
+    border: 1px solid var(--exit-x);
+    background: rgba(175, 0, 0, 0.14);
+    color: #ffffff;
+    font-family: var(--sans);
+    font-size: 11px;
+}
+
+.cxid-confirm-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+/* The one rounded element: silver, bold black, small, with a light lift shadow.
+   Gradient runs lighter grey at the top to darker grey at the bottom. */
+.cxid-confirm {
+    padding: 5px 12px;
+    border: 1px solid var(--silver-edge);
+    border-radius: 3px;
+    background: linear-gradient(var(--silver-top), var(--silver-bot));
+    color: #000000;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.cxid-confirm:active {
+    background: linear-gradient(var(--silver-bot), var(--silver-top));
+}
+.cxid-input:disabled,
+.cxid-confirm:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
