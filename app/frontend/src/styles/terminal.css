@@ -990,11 +990,12 @@ body {
     outline-offset: -1px;
 }
 
-/* The order-entry and blotter wrappers are transparent shells around their own
-   4px-rounded cards; give the shells the same radius so the highlight curves with
-   the card instead of drawing square corners around it. */
+/* The order-entry, blotter and tape wrappers are transparent shells around their
+   own 4px-rounded cards; give the shells the same radius so the focus highlight
+   curves with the card instead of drawing square corners around it. */
 .panel--entry,
-.panel--blotter {
+.panel--blotter,
+.panel--tape {
     border-radius: 4px;
 }
 
@@ -1045,83 +1046,75 @@ body {
     fill: color-mix(in srgb, var(--focus) 8%, transparent);
 }
 
-/* ---- trade tape (P7-6: time, tick colour, filters, side) ------------------ */
+/* ---- trade tape (TWS charcoal rework) -------------------------------------
+   The tape is a self-contained card like the blotter (DESIGN_SYSTEM.md §5/§9):
+   a --head header band (title + settings gear) over a sunken --well body, 1px
+   --hair border, 4px radius, overflow hidden. The old inline control row is
+   gone; All / >200 / >500 and ms/ns live behind the gear in the standard
+   settings popup (§10/§11). Side cells copy the open-orders Side treatment
+   exactly; zebra striping is allowed here. */
 
 .trade-tape {
+    /* NOTE: deliberately NOT position:relative. A positioned card paints above the
+       panel shell's inset :focus-within outline (§5) and swallows the active-panel
+       highlight (the blotter card is static and shows its highlight; a relative tape
+       card did not). The settings popup anchors to .trade-tape__head-band instead. */
     display: flex;
     flex-direction: column;
     min-height: 0;
-    /* P8-8: bounded height for the page-scroll model (was flex: 1, which
-       collapsed to nothing once the column is no longer stretched to the
-       viewport). min-height keeps the empty "No trades yet" panel present;
-       max-height caps a busy tape so its rows scroll internally
-       (.trade-tape__rows) rather than stretching the page. Both are tunable. */
-    min-height: 240px;
-    font-size: 13px;
+    background: var(--body);
+    border: 1px solid var(--hair);
+    border-radius: 4px;
+    overflow: hidden;
+    color: #ffffff;
     /* Single source for the tape's row height and the number of rows the scroll body
        shows before it scrolls: the 21st print is what engages the shared P8-3 scrollbar,
        mirroring the depth panes (--depth-row-h) and the blotter (--blotter-row-h). */
-    --tape-row-h: 22px;
+    --tape-row-h: 26px;
     --tape-rows: 20;
 }
 
-/* Controls: block-size filter + precision toggle. Quiet, above the tape. */
-.trade-tape__controls {
+/* Header band: TRADES title left, the standard settings gear pinned right.
+   position:relative so the settings popup anchors here (not on the card, which must
+   stay unpositioned so the active-panel highlight shows — see .trade-tape note). */
+.trade-tape__head-band {
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 0 8px 6px;
+    gap: 10px;
+    padding: 6px 8px 6px 11px;
+    background: var(--head);
+    border-bottom: 1px solid var(--hair);
 }
-
-.trade-tape__filter {
-    display: inline-flex;
-    gap: 4px;
-}
-
-.trade-tape__filter-btn,
-.trade-tape__precision {
-    padding: 2px 8px;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    color: var(--text-dim);
+.trade-tape__panel-title {
     font-family: var(--sans);
-    font-size: 11px;
-    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffffff;
 }
 
-.trade-tape__filter-btn--active {
-    border-color: var(--focus);
-    color: var(--text);
-}
-
-.trade-tape__precision {
-    font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-    min-width: 34px;
-    text-align: center;
-}
-
-/* Four columns shared by the head and every row: time, price, size, side. */
+/* Column-header row (§9): panel-body colour, bright-white 600 labels, hairline. */
 .trade-tape__head,
 .trade-tape__row {
     display: grid;
-    grid-template-columns: auto 1fr 72px 64px;
-    column-gap: 24px;
+    grid-template-columns: auto 1fr 90px 72px;
+    column-gap: 20px;
     align-items: center;
+    padding: 0 12px;
 }
 
 .trade-tape__head {
-    margin: 0 -12px;
-    padding: 5px 8px;
+    height: 24px;
     font-family: var(--sans);
     font-size: 9px;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    background: var(--surface-2);
-    border-bottom: 1px solid var(--line-strong);
+    color: #ffffff;
+    background: var(--body);
+    border-bottom: 1px solid var(--hair);
 }
 
 .trade-tape__head-price,
@@ -1130,7 +1123,7 @@ body {
     text-align: right;
 }
 
-/* The scrolling body; controls and head stay put above it. */
+/* Scrolling body: the sunken well, with its inset shadow; fills the panel. */
 .trade-tape__rows {
     display: flex;
     flex-direction: column;
@@ -1142,28 +1135,34 @@ body {
        print. A shorter tape still sizes to its own rows. */
     max-height: calc(var(--tape-rows, 20) * var(--tape-row-h));
     overflow-y: auto;
-    background: var(--bg);
-    margin: 0 -12px -12px;
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .trade-tape__row {
     height: var(--tape-row-h);
-    padding: 0 8px;
-    border-bottom: 1px solid var(--row-line);
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+}
+
+/* Zebra striping (allowed here, §9): alternate rows take --zebra, kept dark.
+   The stripe sits on the row so the Side cell wash composites over it. */
+.trade-tape__row:nth-of-type(even) {
+    background: var(--zebra);
 }
 
 .trade-tape__time {
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
+    color: #ffffff;
 }
 
 .trade-tape__price {
     text-align: right;
-    color: var(--text);
+    color: #ffffff;
 }
 
-/* Tick direction against the previous print: up = bid green, down = ask red,
-   flat = neutral. Same tokens as the ladder, never the focus blue. */
+/* Tick direction against the previous print: up green, down red, flat white.
+   Kept as-is from the legacy tape; same ladder tokens, never the focus blue. */
 .trade-tape__price--up {
     color: var(--bid);
 }
@@ -1173,31 +1172,44 @@ body {
 }
 
 .trade-tape__price--flat {
-    color: var(--text);
+    color: #ffffff;
 }
 
 .trade-tape__qty {
     text-align: right;
-    color: var(--text);
+    color: #ffffff;
 }
 
-/* Aggressor side, own trades only (no side is on the wire). Plain text, not a
-   green/red side colour, so it never competes with the tick or the mine marker. */
+/* Side cell (BUY / SELL), own trades only. Exactly the open-orders Side cell
+   (§9): sans ~11px NORMAL weight on a translucent wash of the hue, legible
+   quote colour. BUY blue, SELL red. The wash fills the cell to its edges so it
+   reads as an enclosure, like the blotter. */
 .trade-tape__side {
-    text-align: right;
-    color: var(--text-dim);
+    justify-self: stretch;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin: 0 -12px 0 0;
+    padding: 0 12px;
     font-family: var(--sans);
     font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+}
+.trade-tape__side--buy {
+    background: var(--quote-bid-wash);
+    color: var(--quote-bid);
+}
+.trade-tape__side--sell {
+    background: var(--quote-ask-wash);
+    color: var(--quote-ask);
 }
 
-/* Own trades: a left marker in the focus blue, neither bid nor ask, so "mine" reads
-   as a selection cue, not a side. The price keeps its green/red/neutral tick colour
-   (the focus blue is deliberately OFF the number now): blue stays a structural accent,
-   never a data colour. */
-.trade-tape__row--mine {
-    border-left: 2px solid var(--focus);
-    padding-left: 6px;
-}
+/* Own trades: the --mine class hook is kept (markup + tests) but carries NO blue
+   left strip on the time cell. Own prints are already identifiable by their Side
+   tag (BUY/SELL shows only on own trades, where the aggressor side is derivable),
+   so the blue marker was redundant and is removed. No blue anywhere on the tape. */
 
 .trade-tape__empty,
 .open-orders__empty {
@@ -1207,8 +1219,17 @@ body {
 }
 
 .trade-tape__empty {
-    margin: 0 -12px -12px;
-    background: var(--bg);
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+/* The outer panel chrome is the tape card itself now (as with .panel--blotter):
+   the .panel--tape wrapper contributes no surface, padding or border, so the card's
+   own 4px-radius edges show and there is no double border or inset. */
+.panel--tape {
+    padding: 0;
+    background: transparent;
+    border: none;
 }
 
 /* ---- order entry (TWS charcoal rework) ------------------------------------
@@ -2294,7 +2315,6 @@ body {
    (.header__value was removed here in the header charcoal rework: the header strip
    now reads in mono like order entry / blotter / book reader.) */
 .session-stats__value,
-.trade-tape,
 .cancel-ticket__input,
 .open-orders__table {
     font-family: var(--sans);
@@ -2309,20 +2329,14 @@ body {
 
 /* (Nav active-tab styling now lives in the charcoal nav rework above.) */
 
-/* Trade-tape active filter keeps the blue accent. The nav tabs, FIX-inspector
-   button, inspector filters and Copy button were pulled out of this group when
-   those were reworked to the charcoal design system. */
-.trade-tape__filter-btn--active {
-    border-color: var(--accent);
-    color: var(--text);
-}
+/* (Trade-tape controls are now the settings gear + popup, charcoal §11; the old
+   inline filter-button and precision rules, and the blue filter-active accent,
+   were removed with them.) */
 
-/* (Blotter striping + hover moved to the TWS blotter rework block at the foot of
-   this file, where they sit on the row so the Side-cell tint composites over them.) */
-
-/* Trade-tape row hover for the live-grid feel (own-trade marker unaffected). */
+/* Trade-tape row hover for the live-grid feel: charcoal, sitting on the row so
+   the Side-cell wash composites over it (blotter model). No blue highlight. */
 .trade-tape__row:hover {
-    background: rgba(61, 139, 253, 0.06);
+    background: #202020;
 }
 
 
@@ -2337,13 +2351,10 @@ body {
    P?-extras (2026-09): tape side colours, toolbar-on-nav band
    ========================================================================== */
 
-/* Trade-tape aggressor side coloured like the blotter: BUY green, SELL red. */
-.trade-tape__side--buy {
-    color: var(--bid);
-}
-.trade-tape__side--sell {
-    color: var(--ask);
-}
+/* (Trade-tape aggressor Side colours now live in the charcoal tape block above,
+   copied from the open-orders Side cell: legible quote colour on a translucent
+   wash, BUY blue / SELL red per §2. The old legacy green/red colour-only rule was
+   removed so the wash enclosure stands.) */
 
 /* The FIX-inspector button sits in the navbar row, but the toolbar itself takes
    NO layout space: zero height, no negative margin, and the button lifted into
@@ -2460,8 +2471,8 @@ body {
     }
     .trade-tape__empty {
         flex: 1;
-        background: var(--bg);
-        margin: 0 -12px -12px;
+        background: var(--well);
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
     }
 }
 
@@ -3011,3 +3022,223 @@ body {
     opacity: 0.45;
     cursor: not-allowed;
 }
+
+
+/* ==========================================================================
+   §11 Shared controls — LOCKED (terminal-wide standards)
+   One canonical look for the settings gear, the single-choice radio set, and
+   the two-state toggle, used everywhere regardless of panel (DESIGN_SYSTEM.md
+   §11). Settled on the header Settings mechanism; the trade tape is the first
+   reuse. Any panel needing these copies these classes, not a private variant.
+   ========================================================================== */
+
+/* 11.1 Settings gear — the standard settings entry point. A bare glyph (same as
+   the header gear): transparent, no border, --text icon, 3px padding, 14px svg. */
+.term-gear {
+    appearance: none;
+    margin-left: auto;
+    background: transparent;
+    border: 0;
+    padding: 3px;
+    cursor: pointer;
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+    border-radius: 3px;
+}
+.term-gear:hover { color: #f0f0f0; }
+.term-gear svg { width: 14px; height: 14px; display: block; }
+
+/* 11.4 Settings popup — the §10 popup chrome (two-tone, light-grey outline,
+   black divider, red ×, silver Done), opened by a gear and anchored below it. */
+.settings-pop__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: transparent;
+}
+.settings-pop {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 6px;
+    z-index: 40;
+    width: 230px;
+    background: var(--pop-body);
+    border: 1px solid #808080;
+    border-radius: 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    font-weight: 400;
+}
+.settings-pop__head {
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2px 0 10px;
+    background: var(--pop-head);
+    border-bottom: 1px solid #000000;
+}
+.settings-pop__title {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+.settings-pop__x {
+    appearance: none;
+    border: 0;
+    background: var(--pop-head);
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 0;
+    color: var(--exit-x);
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.settings-pop__x:hover { color: #d40000; }
+
+.settings-pop__body { padding: 8px; }
+
+/* Category header: full-width transparent button, white 12px sans, rotating caret. */
+.settings-pop__cat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 400;
+    color: #ffffff;
+    border: 1px solid transparent;
+    background: transparent;
+    text-align: left;
+}
+.settings-pop__cat:hover { background: rgba(255, 255, 255, 0.05); }
+.settings-pop__caret {
+    color: var(--text);
+    font-size: 10px;
+    transition: transform 0.12s;
+}
+.settings-pop__cat[aria-expanded="true"] .settings-pop__caret { transform: rotate(90deg); }
+
+.settings-pop__panel { padding: 4px 8px 8px; }
+
+/* Setting row: name on the left, control (radio set / toggle) on the right. */
+.settings-pop__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 28px;
+}
+.settings-pop__name {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    color: #ffffff;
+}
+
+/* 11.2 Radio set — single choice. Sunken-well dots, blue when selected. */
+.settings-radio {
+    display: inline-flex;
+    gap: 12px;
+    align-items: center;
+}
+.settings-radio__opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    color: #ffffff;
+    cursor: pointer;
+}
+.settings-radio__opt input {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 11px;
+    height: 11px;
+    margin: 0;
+    border: 1px solid var(--hair-strong);
+    border-radius: 50%;
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+    display: grid;
+    place-content: center;
+}
+.settings-radio__opt input::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    transform: scale(0);
+    background: var(--quote-bid);
+}
+.settings-radio__opt input:checked { border-color: var(--quote-bid); }
+.settings-radio__opt input:checked::before { transform: scale(1); }
+
+/* 11.3 Toggle — two-state switch. The header-labels control exactly: a sunken
+   well of two options, the active one raised with the top glint (§4). */
+.settings-toggle {
+    display: inline-flex;
+    background: var(--well);
+    border: 1px solid var(--hair);
+    border-radius: 3px;
+    padding: 2px;
+    gap: 2px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+.settings-toggle__opt {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #8f8f8f;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    font-weight: 400;
+    padding: 3px 9px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1;
+}
+.settings-toggle__opt[aria-pressed="true"] {
+    background: linear-gradient(var(--raise-top), var(--raise-bot));
+    border: 1px solid var(--hair-strong);
+    color: #ffffff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* Footer: silver Done button (§10 primary action), bottom-right. */
+.settings-pop__foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 6px 8px 8px;
+}
+.settings-pop__done {
+    appearance: none;
+    cursor: pointer;
+    background: linear-gradient(var(--silver-top), var(--silver-bot));
+    border: 1px solid var(--silver-edge);
+    border-radius: 3px;
+    color: #000000;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    padding: 4px 14px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.settings-pop__done:active { background: linear-gradient(var(--silver-bot), var(--silver-top)); }

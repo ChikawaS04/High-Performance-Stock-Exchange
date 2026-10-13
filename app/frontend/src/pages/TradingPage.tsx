@@ -16,7 +16,8 @@
  * route remounts the page: the socket and reducer state survive (that is the load-
  * bearing routing guarantee), but this page's own local UI state resets, which is
  * within the P10 decision. That covers the inspector open flag here and any state
- * held inside the panels (the depth selector, tape filters, a half-typed ticket).
+ * held inside the panels (the depth selector, the tape's settings popup / filters /
+ * precision, a half-typed ticket).
  *
  * P14-6: onSubmitOrder now carries the ticket's resolved OrderIntent (decision H).
  * The page only forwards it to OrderEntry, so the change is a pure type widening.
@@ -27,6 +28,10 @@
  * visible CancelTicket section are gone; the blotter fills the panel. The cancel-by-
  * id route is unchanged: OpenOrders emits the same onCancelOrder the per-row cancel
  * uses. OpenOrders takes disabled while the socket is down, as the ticket did.
+ *
+ * Tape TWS rework (2026-10): the trade tape now owns its own TRADES header band and
+ * settings gear (the standard §11 gear + popup), so the loose "Trades" panel heading
+ * is gone, matching the blotter. The panel wrapper just mounts the card.
  */
 
 import { useRef, useState } from "react";
@@ -102,7 +107,6 @@ export function TradingPage({
                 </div>
 
                 <section tabIndex={-1} className="panel panel--tape" aria-label="Trade tape">
-                    <h2 className="panel__title">Trades</h2>
                     <TradeTape tape={state.tape} />
                 </section>
 

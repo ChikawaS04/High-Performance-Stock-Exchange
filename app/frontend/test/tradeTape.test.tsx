@@ -39,6 +39,12 @@ function priceClassOf(row: HTMLElement): string {
     return row.querySelector(".trade-tape__price")!.className;
 }
 
+// P8: the view controls moved behind a settings gear. Open the popup before
+// touching the Levels radios or the Time-units toggle.
+function openSettings(): void {
+    fireEvent.click(screen.getByTestId("tape-settings-gear"));
+}
+
 describe("TradeTape", () => {
     it("renders exactly the entries it is given (one row per TapeEntry)", () => {
         // The component only accepts TapeEntry[], which the reducer builds fills-only;
@@ -102,11 +108,14 @@ describe("TradeTape", () => {
         expect(timeOf(screen.getByTestId("tape-row"))).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
     });
 
-    it("toggles the time column to full nanoseconds", () => {
+    it("toggles the time column to full nanoseconds via the settings toggle", () => {
         render(<TradeTape tape={[entry({ timestamp: 1_700_000_000_123_000_000 })]} />);
         expect(timeOf(screen.getByTestId("tape-row"))).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
-        fireEvent.click(screen.getByTestId("tape-precision"));
+        openSettings();
+        fireEvent.click(screen.getByTestId("tape-precision-ns"));
         expect(timeOf(screen.getByTestId("tape-row"))).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{9}$/);
+        fireEvent.click(screen.getByTestId("tape-precision-ms"));
+        expect(timeOf(screen.getByTestId("tape-row"))).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
     });
 
     it("filters by block size, strict-greater, preserving order", () => {
@@ -118,6 +127,8 @@ describe("TradeTape", () => {
         render(<TradeTape tape={tape} />);
         expect(screen.getAllByTestId("tape-row")).toHaveLength(3);
 
+        openSettings();
+
         fireEvent.click(screen.getByTestId("tape-filter-gt200"));
         expect(screen.getAllByTestId("tape-row").map(qtyOf)).toEqual(["700", "300"]);
 
@@ -126,6 +137,15 @@ describe("TradeTape", () => {
 
         fireEvent.click(screen.getByTestId("tape-filter-all"));
         expect(screen.getAllByTestId("tape-row")).toHaveLength(3);
+    });
+
+    it("opens and closes the settings popup from the gear", () => {
+        render(<TradeTape tape={[entry()]} />);
+        expect(screen.queryByTestId("tape-settings")).toBeNull();
+        fireEvent.click(screen.getByTestId("tape-settings-gear"));
+        expect(screen.getByTestId("tape-settings")).toBeTruthy();
+        fireEvent.click(screen.getByTestId("tape-settings-close"));
+        expect(screen.queryByTestId("tape-settings")).toBeNull();
     });
 
     it("colours each price against the previous (older) print", () => {

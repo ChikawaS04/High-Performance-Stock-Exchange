@@ -21,8 +21,9 @@
  *    a side, so it is derivable only for trades touching one of this client's own
  *    orders (aggressorSide on TapeEntry, computed in the reducer where myOrders is
  *    in scope). That set is exactly the `mine` set, so a BUY/SELL tag appears on the
- *    focus-blue own-trade rows and anonymous prints show none. Shown as plain text,
- *    never a green/red colour, so it never competes with the tick colour or mine.
+ *    focus-blue own-trade rows and anonymous prints show none. Shown as the Side
+ *    cell, styled exactly like the open-orders Side cell (DESIGN_SYSTEM.md §9): the
+ *    legible quote colour on a translucent wash of the same hue.
  *
  *  - Tick colouring: each print's price is coloured against the previous print (the
  *    older neighbour in this newest-first slice) — up green, down red, equal flat.
@@ -33,6 +34,15 @@
  *  - Block-size filters (all / >200 / >500), strict-greater, applied at render over
  *    the already-capped newest-first slice, so filtering preserves order and the cap
  *    and adds no reaccumulation.
+ *
+ * P8 terminal rework (TWS charcoal): the panel now carries its own card chrome (a
+ * --head header band over a --well body, 4px radius, overflow hidden) so it reads as
+ * one family with the blotter. The old inline control row (All / >200 / >500 and the
+ * ms/ns button) is consolidated behind a single settings gear in the header band;
+ * clicking it opens the standard settings popup (DESIGN_SYSTEM.md §10/§11) with a
+ * Display category holding a Levels radio set and a Time-units toggle. The gear, the
+ * radio set and the toggle are the terminal-wide shared controls (§11), not
+ * tape-private widgets. View state and the pure helpers are unchanged.
  *
  * Prices go through format.ts; a -1 would render as EMPTY_PRICE, never a negative.
  * The P5-3 class/testid hooks and the `--mine` marker are preserved.
@@ -90,6 +100,9 @@ interface TradeTapeProps {
 export function TradeTape({ tape }: TradeTapeProps) {
     const [filter, setFilter] = useState<BlockFilter>("all");
     const [precision, setPrecision] = useState<ClockPrecision>("ms");
+    // Settings popup open state, and the Display category's expand state.
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [displayOpen, setDisplayOpen] = useState(true);
 
     // Filter the already-capped, newest-first slice at render: an order-preserving
     // subset, no reaccumulation, no refetch, cap and order intact by construction.
@@ -100,33 +113,121 @@ export function TradeTape({ tape }: TradeTapeProps) {
 
     return (
         <div className="trade-tape">
-            <div className="trade-tape__controls">
-                <div className="trade-tape__filter" role="group" aria-label="Block size filter">
-                    {FILTERS.map((f) => (
-                        <button
-                            key={f.value}
-                            type="button"
-                            className={
-                                filter === f.value
-                                    ? "trade-tape__filter-btn trade-tape__filter-btn--active"
-                                    : "trade-tape__filter-btn"
-                            }
-                            data-testid={`tape-filter-${f.value}`}
-                            onClick={() => setFilter(f.value)}
-                        >
-                            {f.label}
-                        </button>
-                    ))}
-                </div>
+            <div className="trade-tape__head-band">
+                <span className="trade-tape__panel-title">Trades</span>
                 <button
                     type="button"
-                    className="trade-tape__precision"
-                    data-testid="tape-precision"
-                    aria-label="Toggle timestamp precision"
-                    onClick={() => setPrecision((p) => (p === "ms" ? "ns" : "ms"))}
+                    className="term-gear"
+                    aria-label="Tape settings"
+                    aria-haspopup="dialog"
+                    aria-expanded={settingsOpen}
+                    data-testid="tape-settings-gear"
+                    onClick={() => setSettingsOpen((open) => !open)}
                 >
-                    {precision}
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                            fill="currentColor"
+                            d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.82,11.69,4.82,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
+                        />
+                    </svg>
                 </button>
+
+                {settingsOpen && (
+                    <>
+                        <div
+                            className="settings-pop__backdrop"
+                            onClick={() => setSettingsOpen(false)}
+                            data-testid="tape-settings-backdrop"
+                        />
+                        <div
+                            className="settings-pop"
+                            role="dialog"
+                            aria-label="Tape settings"
+                            data-testid="tape-settings"
+                        >
+                            <div className="settings-pop__head">
+                                <span className="settings-pop__title">Settings</span>
+                                <button
+                                    type="button"
+                                    className="settings-pop__x"
+                                    aria-label="Close"
+                                    onClick={() => setSettingsOpen(false)}
+                                    data-testid="tape-settings-close"
+                                >
+                                    {"×"}
+                                </button>
+                            </div>
+
+                            <div className="settings-pop__body">
+                                <button
+                                    type="button"
+                                    className="settings-pop__cat"
+                                    aria-expanded={displayOpen}
+                                    aria-controls="tape-settings-display"
+                                    onClick={() => setDisplayOpen((open) => !open)}
+                                    data-testid="tape-settings-display-toggle"
+                                >
+                                    <span>Display</span>
+                                    <span className="settings-pop__caret" aria-hidden="true">{"▸"}</span>
+                                </button>
+
+                                {displayOpen && (
+                                    <div className="settings-pop__panel" id="tape-settings-display">
+                                        <div className="settings-pop__row">
+                                            <span className="settings-pop__name">Levels</span>
+                                            <span
+                                                className="settings-radio"
+                                                role="radiogroup"
+                                                aria-label="Block size levels"
+                                            >
+                                                {FILTERS.map((f) => (
+                                                    <label key={f.value} className="settings-radio__opt">
+                                                        <input
+                                                            type="radio"
+                                                            name="tape-levels"
+                                                            checked={filter === f.value}
+                                                            onChange={() => setFilter(f.value)}
+                                                            data-testid={`tape-filter-${f.value}`}
+                                                        />
+                                                        {f.label}
+                                                    </label>
+                                                ))}
+                                            </span>
+                                        </div>
+
+                                        <div className="settings-pop__row">
+                                            <span className="settings-pop__name">Time units</span>
+                                            <span
+                                                className="settings-toggle"
+                                                role="group"
+                                                aria-label="Timestamp precision"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    className="settings-toggle__opt"
+                                                    aria-pressed={precision === "ms"}
+                                                    onClick={() => setPrecision("ms")}
+                                                    data-testid="tape-precision-ms"
+                                                >
+                                                    ms
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="settings-toggle__opt"
+                                                    aria-pressed={precision === "ns"}
+                                                    onClick={() => setPrecision("ns")}
+                                                    data-testid="tape-precision-ns"
+                                                >
+                                                    ns
+                                                </button>
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
 
             <div className="trade-tape__head" aria-hidden="true">
