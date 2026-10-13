@@ -121,15 +121,7 @@ export function FixInspector({ entries, open, onClose }: FixInspectorProps) {
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="fix-inspector__header">
-                    <div>
-                        <h2 className="fix-inspector__title">FIX stream inspector</h2>
-                        <p className="fix-inspector__subtitle">
-                            IN / OUT means order-flow direction at the matching system, not the
-                            WebSocket direction. IN is the real inbound FIX bytes the server
-                            parsed. OUT is the actual EXEC JSON frames, since the server builds
-                            no outbound FIX.
-                        </p>
-                    </div>
+                    <h2 className="fix-inspector__title">FIX stream inspector</h2>
                     <button
                         type="button"
                         className="fix-inspector__close"
@@ -140,6 +132,12 @@ export function FixInspector({ entries, open, onClose }: FixInspectorProps) {
                         ×
                     </button>
                 </div>
+                <p className="fix-inspector__subtitle">
+                    IN / OUT means order-flow direction at the matching system, not the
+                    WebSocket direction. IN is the real inbound FIX bytes the server
+                    parsed. OUT is the actual EXEC JSON frames, since the server builds
+                    no outbound FIX.
+                </p>
 
                 <div className="fix-inspector__filters">
                     {(["all", "new", "cancel", "exec"] as const).map((f) => (

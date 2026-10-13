@@ -6,9 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/DepthLadder.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/DepthLadder.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/Header.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/Header.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/FixInspector.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/FixInspector.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
     </list>
@@ -52,23 +50,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.522627130075954" />
-      <entry key="MS500" value="4.322829468841898" />
-      <entry key="S2" value="10.646876889189821" />
-      <entry key="S5" value="19.85930289323753" />
-      <entry key="S10" value="29.262555478888114" />
-      <entry key="S30" value="40.67223908870176" />
-      <entry key="S60" value="44.56328196071368" />
-      <entry key="M2" value="46.708497924704695" />
-      <entry key="M5" value="48.07312335362963" />
-      <entry key="M10" value="49.299738475846254" />
-      <entry key="M15" value="52.590355859794236" />
-      <entry key="M30" value="72.06406935385897" />
-      <entry key="H1" value="115.99430116987446" />
-      <entry key="H2" value="207.078695032414" />
-      <entry key="H4" value="406.0553797460281" />
-      <entry key="D1" value="1221.5083076120684" />
-      <entry key="W1" value="1747.960294822146" />
+      <entry key="MS100" value="1.2970433531475565" />
+      <entry key="MS500" value="4.057877607512545" />
+      <entry key="S2" value="12.491569353727403" />
+      <entry key="S5" value="19.541793596205324" />
+      <entry key="S10" value="23.244958094448517" />
+      <entry key="S30" value="26.27886208315389" />
+      <entry key="S60" value="27.121038035625165" />
+      <entry key="M2" value="27.555810086270014" />
+      <entry key="M5" value="27.821179395969043" />
+      <entry key="M10" value="27.910408169726974" />
+      <entry key="M15" value="27.94209399127925" />
+      <entry key="M30" value="28.39999597331776" />
+      <entry key="H1" value="36.944133846462776" />
+      <entry key="H2" value="85.54302453272821" />
+      <entry key="H4" value="242.0595176602108" />
+      <entry key="D1" value="1125.8819768765331" />
+      <entry key="W1" value="1749.5175964883279" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -90,23 +88,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.4350811518852893" />
-      <entry key="MS500" value="4.272509665136074" />
-      <entry key="S2" value="10.615163281470542" />
-      <entry key="S5" value="19.83523888939283" />
-      <entry key="S10" value="29.24461689442783" />
-      <entry key="S30" value="40.663845946440766" />
-      <entry key="S60" value="44.55867167951085" />
-      <entry key="M2" value="46.706078548896436" />
-      <entry key="M5" value="48.07212645599576" />
-      <entry key="M10" value="49.29922454534934" />
-      <entry key="M15" value="52.58998411956847" />
-      <entry key="M30" value="72.0638005840738" />
-      <entry key="H1" value="115.99407308091234" />
-      <entry key="H2" value="207.07847205789537" />
-      <entry key="H4" value="406.05513895242643" />
-      <entry key="D1" value="1221.508177890111" />
-      <entry key="W1" value="1747.9602681671458" />
+      <entry key="MS100" value="1.2206215217201266" />
+      <entry key="MS500" value="4.012840433704664" />
+      <entry key="S2" value="12.45630199586564" />
+      <entry key="S5" value="19.519265376569216" />
+      <entry key="S10" value="23.23144508159093" />
+      <entry key="S30" value="26.27373890314175" />
+      <entry key="S60" value="27.118390227803165" />
+      <entry key="M2" value="27.55446390162989" />
+      <entry key="M5" value="27.82063547899504" />
+      <entry key="M10" value="27.910135295847237" />
+      <entry key="M15" value="27.94191185820203" />
+      <entry key="M30" value="28.399903207866416" />
+      <entry key="H1" value="36.944070622868026" />
+      <entry key="H2" value="85.54293975481947" />
+      <entry key="H4" value="242.05937931279482" />
+      <entry key="D1" value="1125.8818583821037" />
+      <entry key="W1" value="1749.5175699649371" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -400,7 +398,8 @@
       <workItem from="1791613938884" duration="3983000" />
       <workItem from="1791660462506" duration="1288000" />
       <workItem from="1791751043037" duration="275000" />
-      <workItem from="1791757432608" duration="19022000" />
+      <workItem from="1791757432608" duration="22084000" />
+      <workItem from="1791855893950" duration="615000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

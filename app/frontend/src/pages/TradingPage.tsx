@@ -66,6 +66,9 @@ export function TradingPage({
                     data-testid="open-fix-inspector"
                     onClick={() => setInspectorOpen(true)}
                 >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="currentColor" d="M4 5h16v2H4zm0 6h16v2H4zm0 6h10v2H4z" />
+                    </svg>
                     FIX inspector
                 </button>
             </div>

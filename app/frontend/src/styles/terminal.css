@@ -328,22 +328,35 @@ body {
     border-bottom: 1px solid var(--line);
 }
 
+/* Raised bevelled tool control, Mosaic-style, lifted into the nav row. */
 .toolbar__inspector-btn {
-    padding: 4px 10px;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    color: var(--text-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 10px;
+    border: 1px solid var(--hair-strong);
+    border-radius: 3px;
+    background: linear-gradient(var(--raise-top), var(--raise-bot));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    color: var(--text);
     font-family: var(--sans);
-    font-size: 11px;
+    font-size: 9.5px;
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
     cursor: pointer;
 }
 
+.toolbar__inspector-btn svg {
+    width: 11px;
+    height: 11px;
+    opacity: 0.85;
+}
+
 .toolbar__inspector-btn:hover {
-    border-color: var(--focus);
-    color: var(--text);
+    color: #ffffff;
+    border-color: #4f4f4f;
 }
 
 /* ---- header (charcoal rework: one thin instrument strip at the panel-header
@@ -1770,6 +1783,11 @@ body {
 
 /* ---- FIX stream inspector (P7-9) ------------------------------------------ */
 
+/* ---- FIX stream inspector (charcoal rework) -------------------------------
+   §10 popup chrome: flat panel-header band + gold gradient caption, light popup
+   body, light-grey lines, all-white text, black code blocks, silver Copy packet
+   beneath the content. IN/OUT direction reads white like the rest. */
+
 .fix-inspector__backdrop {
     position: fixed;
     inset: 0;
@@ -1778,7 +1796,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: var(--scrim);
+    background: rgba(0, 0, 0, 0.6);
 }
 
 .fix-inspector {
@@ -1786,81 +1804,96 @@ body {
     flex-direction: column;
     width: min(920px, 100%);
     max-height: min(720px, 100%);
-    background: var(--surface);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
+    background: var(--pop-body);
+    border: 1px solid #808080;
+    border-radius: 0;
     overflow: hidden;
+    color: #ffffff;
 }
 
+/* header band: flat panel-header colour, white title, red exit */
 .fix-inspector__header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--line-strong);
+    padding: 10px 4px 10px 14px;
+    background: var(--pop-head);
+    border-bottom: 1px solid #000000;
 }
 
 .fix-inspector__title {
-    margin: 0 0 4px;
+    margin: 0;
     font-family: var(--sans);
     font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
+    font-weight: 400;
+    color: #ffffff;
 }
 
+/* gold gradient caption, a separate strip below the header band */
 .fix-inspector__subtitle {
     margin: 0;
-    max-width: 620px;
+    max-width: none;
+    padding: 9px 14px;
+    background: linear-gradient(to right, #000000, #5e5e5e);
+    color: #FFDF00;
     font-family: var(--sans);
-    font-size: 11px;
-    color: var(--text-dim);
+    font-size: 10px;
+    line-height: 1.5;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .fix-inspector__close {
     flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    color: var(--text-dim);
-    font-size: 16px;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 0;
+    background: var(--pop-head);
+    color: var(--exit-x);
+    font-size: 19px;
     line-height: 1;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .fix-inspector__close:hover {
-    border-color: var(--ask);
-    color: var(--ask);
+    color: #d40000;
 }
 
 .fix-inspector__filters {
     display: flex;
-    gap: 4px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--line);
+    gap: 2px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .fix-inspector__filter-btn {
-    padding: 2px 9px;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    color: var(--text-dim);
+    padding: 5px 12px;
+    border: 1px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: #ffffff;
     font-family: var(--sans);
-    font-size: 11px;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    line-height: 1;
     cursor: pointer;
 }
 
 .fix-inspector__filter-btn--active {
-    border-color: var(--focus);
-    color: var(--text);
+    background: linear-gradient(var(--raise-top), var(--raise-bot));
+    border: 1px solid var(--hair-strong);
+    color: #ffffff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .fix-inspector__body {
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 300px 1fr;
     flex: 1;
     min-height: 0;
 }
@@ -1869,88 +1902,97 @@ body {
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    border-right: 1px solid var(--line);
+    border-right: 1px solid #808080;
 }
 
 .fix-inspector__row {
     display: grid;
-    grid-template-columns: 32px 1fr auto;
+    grid-template-columns: 36px 1fr auto;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 6px 10px;
-    border: none;
-    border-bottom: 1px solid var(--line);
+    padding: 8px 12px;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
     background: transparent;
-    color: var(--text-dim);
+    color: #ffffff;
     font-family: var(--mono);
     font-size: 11px;
     text-align: left;
     cursor: pointer;
 }
 
+.fix-inspector__row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
 .fix-inspector__row--selected {
-    background: var(--surface-2);
-    color: var(--text);
+    background: rgba(255, 255, 255, 0.09);
+    border-left-color: rgba(255, 255, 255, 0.7);
 }
 
 .fix-inspector__row-dir {
-    font-family: var(--sans);
+    font-family: var(--mono);
     font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: #ffffff;
 }
 
-.fix-inspector__row-dir--in {
-    color: var(--bid);
-}
-
+/* direction now reads white like the rest */
+.fix-inspector__row-dir--in,
 .fix-inspector__row-dir--out {
-    color: var(--ask);
+    color: #ffffff;
 }
 
 .fix-inspector__row-label {
-    font-family: var(--sans);
+    font-family: var(--mono);
     font-size: 11px;
+    color: #ffffff;
 }
 
 .fix-inspector__row-time {
+    font-family: var(--mono);
     font-variant-numeric: tabular-nums;
-    color: var(--text-faint);
+    color: #ffffff;
     font-size: 10px;
 }
 
 .fix-inspector__detail {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px 16px;
+    gap: 14px;
+    padding: 14px;
     overflow-y: auto;
 }
 
 .fix-inspector__panel {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 14px;
 }
 
 .fix-inspector__meta {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 6px 26px;
     font-family: var(--sans);
     font-size: 11px;
-    color: var(--text-dim);
+    color: #ffffff;
 }
 
+/* code blocks (raw FIX / JSON): black ground, white text */
 .fix-inspector__raw {
     margin: 0;
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--bg);
-    color: var(--text);
+    padding: 11px 13px;
+    border: 1px solid #808080;
+    border-radius: 0;
+    background: #0d0d0d;
+    color: #ffffff;
     font-family: var(--mono);
     font-size: 11px;
+    line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-all;
 }
@@ -1963,21 +2005,21 @@ body {
 }
 
 .fix-inspector__tags th {
-    padding: 3px 8px;
+    padding: 4px 2px 8px;
     text-align: left;
     font-family: var(--sans);
     font-weight: 600;
     font-size: 9px;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--text-faint);
-    border-bottom: 1px solid var(--line-strong);
+    color: #ffffff;
+    border-bottom: 1px solid #808080;
 }
 
 .fix-inspector__tags td {
-    padding: 3px 8px;
-    border-bottom: 1px solid var(--line);
-    color: var(--text);
+    padding: 6px 2px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+    color: #ffffff;
 }
 
 .fix-inspector__verbatim-note,
@@ -1985,29 +2027,32 @@ body {
     margin: 0;
     font-family: var(--sans);
     font-size: 10px;
-    color: var(--text-faint);
+    color: #ffffff;
 }
 
+/* silver standard popup button, beneath the content */
 .fix-inspector__copy {
     align-self: flex-start;
-    padding: 4px 10px;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    color: var(--text-dim);
+    padding: 6px 15px;
+    border: 1px solid var(--silver-edge);
+    border-radius: 3px;
+    background: linear-gradient(var(--silver-top), var(--silver-bot));
+    color: #000000;
     font-family: var(--sans);
-    font-size: 11px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
     cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
-.fix-inspector__copy:hover {
-    border-color: var(--focus);
-    color: var(--text);
+.fix-inspector__copy:active {
+    background: linear-gradient(var(--silver-bot), var(--silver-top));
 }
 
 .fix-inspector__empty {
     padding: 14px 10px;
-    color: var(--text-faint);
+    color: #ffffff;
     font-size: 12px;
 }
 
@@ -2018,36 +2063,51 @@ body {
    The router owns active state via NavLink's className callback (nav__link--active);
    there is no active/onNavigate prop and no local state. */
 
+/* Mosaic-style charcoal nav band on the panel body, flush under the header.
+   Squared, hairline-separated tabs; the active tab lifts onto the lighter header
+   shade with a thin steel-blue cap. The FIX-inspector tool button is lifted into
+   this row from the zero-height .toolbar below (see the toolbar block). */
 .nav {
     display: flex;
     align-items: stretch;
-    gap: 2px;
-    padding: 0 18px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--line-strong);
+    gap: 0;
+    padding: 0;
+    height: 32px;
+    background: var(--body);
+    border-bottom: 1px solid var(--hair);
 }
 
 .nav__link {
-    padding: 9px 16px;
-    border: none;
-    border-bottom: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 16px;
+    border: 0;
+    border-right: 1px solid var(--hair);
     background: transparent;
-    color: var(--text-dim);
+    color: var(--dim, #8f8f8f);
     font-family: var(--sans);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
     text-decoration: none;
     cursor: pointer;
 }
 
+.nav__link:first-child {
+    border-left: 1px solid var(--hair);
+}
+
 .nav__link:hover {
     color: var(--text);
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .nav__link--active {
-    color: var(--text);
-    border-bottom-color: var(--focus);
+    color: #ffffff;
+    background: var(--head);
+    box-shadow: inset 0 2px 0 var(--focus);
 }
 
 .nav__link:focus-visible {
@@ -2247,19 +2307,12 @@ body {
    the sunken quote strip). The old slate-retheme side-btn and chip-tint rules were
    removed so they no longer override that block. */
 
-/* Active tab marked with the blue interface accent. */
-.nav__link--active {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-}
+/* (Nav active-tab styling now lives in the charcoal nav rework above.) */
 
-/* Chrome hover / active accents in blue. The order-entry controls were removed
-   from this group; their hovers live in the order-entry rework block above so the
-   global accent does not fight the ticket palette. */
-.toolbar__inspector-btn:hover,
-.trade-tape__filter-btn--active,
-.fix-inspector__filter-btn--active,
-.fix-inspector__copy:hover {
+/* Trade-tape active filter keeps the blue accent. The nav tabs, FIX-inspector
+   button, inspector filters and Copy button were pulled out of this group when
+   those were reworked to the charcoal design system. */
+.trade-tape__filter-btn--active {
     border-color: var(--accent);
     color: var(--text);
 }
@@ -2274,53 +2327,10 @@ body {
 
 
 /* ==========================================================================
-   Navbar: flat tab strip (2026-10)
-   A full-width bar carrying the page tabs on the left and the FIX inspector on
-   the right. Tabs are plain rectangles divided by thin rules; the active one is
-   marked the way a trading terminal marks one — a soft blue label, a slightly
-   raised ground, and a blue underline along the bar's bottom edge.
+   Navbar: the Mosaic-style charcoal tab strip now lives in the base .nav block
+   above (reworked 2026-10). This former slate override has been removed so it no
+   longer re-skins the tabs back to the blue-grey look.
    ========================================================================== */
-
-.nav {
-    align-items: stretch;
-    gap: 0;
-    padding: 0 0 0 var(--gap);
-    margin-top: 12px;          /* separates the bar from the header strip above */
-    min-height: 46px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--line-strong);
-}
-
-.nav__link {
-    display: flex;
-    align-items: center;
-    padding: 0 22px;
-    border: none;
-    border-right: 1px solid var(--line);
-    border-bottom: 2px solid transparent;
-    background: transparent;
-    color: var(--text-dim);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-}
-
-.nav__link:hover {
-    color: var(--text);
-    background: rgba(255, 255, 255, 0.03);
-}
-
-/* Active tab: soft blue label, raised ground, blue underline. */
-.nav__link--active {
-    color: var(--nav-active-bg);
-    background: var(--surface-2);
-    border-bottom-color: var(--accent);
-}
-
-.nav__link:focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: -2px;
-}
 
 
 /* ==========================================================================
@@ -2356,8 +2366,8 @@ body {
 
 .toolbar > * {
     position: absolute;
-    right: var(--gap);
-    bottom: 9px;
+    right: 10px;
+    bottom: 5px;        /* centres the 22px tool button in the 32px nav row */
     pointer-events: auto;
 }
 
