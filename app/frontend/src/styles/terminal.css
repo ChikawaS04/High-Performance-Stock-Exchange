@@ -2308,29 +2308,63 @@ body {
     padding: 12px;
 }
 
-/* ---- price chart page: session stats panel (P13-5) ------------------------ */
-/* Label/value rows for the four session fields. The model is
-   .order-entry__clordid, not .header__metric: the header stacks its label above
-   its value because it is a horizontal strip aligned to flex-end, and copying
-   that into a narrow vertical panel would spend two lines of height per row for
-   nothing. Label left, value right on a shared baseline, which is how a real
-   terminal's instrument detail list reads.
+/* ---- price chart page: side-panel region shell (TWS charcoal rework) ------- */
+/* The side-panel region is a transparent shell around its two self-contained
+   charcoal cards (session stats + order-entry ticket), mirroring the chart region
+   (DESIGN_SYSTEM.md §5/§8). The cards carry their own chrome, so the shell drops
+   the slate surface/border/padding and just stacks them with a gap; it keeps the
+   4px radius so the active-panel :focus-within highlight curves with the cards
+   instead of cutting square corners around them. */
+.chart-page__region--panel {
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    gap: var(--gap);
+}
 
-   Existing tokens only (P13 D8): no new colours and no new custom properties, so
-   this block does not fight the next theme pass. Values take their sans tabular
-   figures from the retheme selector list at the foot of this file (P13-0 decision
-   D), which is why no font-family is set here.
-
-   The .chart-page__placeholder rule this replaces also carried the panel's only
-   height floor (flex:1, min-height:220px). It is not restored: the panel's height
-   is now intrinsic to its content, and with the ticket below these rows it is the
-   taller of the two regions at common widths, not the shorter. */
+/* ---- price chart page: session stats panel (TWS charcoal rework) ---------- */
+/* A self-contained charcoal card like the order-entry ticket and the trade tape
+   (§5): a --head header band with the bright-white uppercase SESSION title over a
+   --body body, 1px --hair border, 4px radius. The four label/value rows sit in a
+   sunken --well block with the §4 inset shadow (depth, never a flat fill) and
+   --hair row hairlines (§9 family). Label left, value right on a shared baseline,
+   the instrument detail-list reading. Values are mono tabular like every other
+   number in the charcoal terminal (the slate sans redirect that used to catch
+   .session-stats__value was removed, §3). Owning the card chrome lets the panel
+   look identical wherever it mounts (§8) and lets the region above drop to a shell.
+   --dim is not a global token, so the label grey is the literal #8f8f8f the header
+   charcoal rework uses. */
 
 .session-stats {
     display: flex;
     flex-direction: column;
-    border-bottom: 1px solid var(--line);
-    padding-bottom: 6px;
+    background: var(--body);
+    border: 1px solid var(--hair);
+    border-radius: 4px;
+    overflow: hidden;
+    color: #ffffff;
+}
+
+/* Header band: SESSION title, same metrics as the order-entry / tape panel titles. */
+.session-stats__head {
+    padding: 8px 11px;
+    background: var(--head);
+    border-bottom: 1px solid var(--hair);
+    color: #ffffff;
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+/* Body: the sunken well that holds the rows, with the §4 inset shadow. */
+.session-stats__body {
+    display: flex;
+    flex-direction: column;
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .session-stats__row {
@@ -2338,19 +2372,23 @@ body {
     align-items: baseline;
     justify-content: space-between;
     gap: 8px;
-    padding: 5px 0;
-    border-top: 1px solid var(--row-line);
+    padding: 6px 11px;
+    border-top: 1px solid var(--hair);
 }
 
-/* The first row sits directly under the Session heading, which carries its own
-   spacing; a separator there would read as a double rule against the heading. */
+/* The first row meets the header band's hairline; a second rule there would
+   double it. */
 .session-stats__row:first-child {
     border-top: none;
 }
 
 .session-stats__label {
-    font-size: 10px;
-    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #8f8f8f;
 }
 
 .session-stats__value {
@@ -2358,17 +2396,21 @@ body {
     display: inline-flex;
     align-items: baseline;
     gap: 6px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
     font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
+    font-weight: 500;
+    color: #ffffff;
 }
 
-/* Last-trade size, nested inside the price value. Mirrors .header__value-sub so
-   the panel's secondary numbers read exactly like the strip's percent and bps. */
+/* Last-trade size, nested inside the price value. The faint mono sub, mirroring
+   the header strip's secondary numbers. */
 .session-stats__value-sub {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
     font-size: 11px;
-    font-weight: 500;
-    color: var(--text-dim);
+    font-weight: 400;
+    color: #8f8f8f;
 }
 
 /* ---- price chart page: panel ticket density (P13-5) ---------------------- */
@@ -2388,8 +2430,9 @@ body {
    is hidden or removed here: every chip, nudge, preset and field the Trading
    ticket has is still present, only tighter. */
 
+/* The shell's gap spaces the ticket below the session card; no own margin. */
 .chart-page__region--panel .order-entry {
-    margin-top: 12px;
+    margin-top: 0;
 }
 
 .chart-page__region--panel .order-entry__control--price {
@@ -2472,7 +2515,6 @@ body {
    mono to sans while keeping tabular figures so columns still lock.
    (.header__value was removed here in the header charcoal rework: the header strip
    now reads in mono like order entry / blotter / book reader.) */
-.session-stats__value,
 .cancel-ticket__input,
 .open-orders__table {
     font-family: var(--sans);
@@ -3838,4 +3880,11 @@ body {
 .settings-swatch--on {
     border-color: #ffffff;
     box-shadow: 0 0 0 2px var(--pop-body), 0 0 0 3px var(--quote-bid);
+}
+
+/* Crosshair readout label: mono tabular like every other number on the chart. */
+.price-chart__readout {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
 }

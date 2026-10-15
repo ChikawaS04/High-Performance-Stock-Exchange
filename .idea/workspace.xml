@@ -4,15 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(">
+    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/format.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/format.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/SessionStats.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/SessionStats.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/priceSeries.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/priceSeries.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -54,23 +51,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.2970433531475565" />
-      <entry key="MS500" value="4.057877607512545" />
-      <entry key="S2" value="12.491569353727403" />
-      <entry key="S5" value="19.541793596205324" />
-      <entry key="S10" value="23.244958094448517" />
-      <entry key="S30" value="26.27886208315389" />
-      <entry key="S60" value="27.121038035625165" />
-      <entry key="M2" value="27.555810086270014" />
-      <entry key="M5" value="27.821179395969043" />
-      <entry key="M10" value="27.910408169726974" />
-      <entry key="M15" value="27.94209399127925" />
-      <entry key="M30" value="28.39999597331776" />
-      <entry key="H1" value="36.944133846462776" />
-      <entry key="H2" value="85.54302453272821" />
-      <entry key="H4" value="242.0595176602108" />
-      <entry key="D1" value="1125.8819768765331" />
-      <entry key="W1" value="1749.5175964883279" />
+      <entry key="MS100" value="1.0129958513406274" />
+      <entry key="MS500" value="1.6342999840251287" />
+      <entry key="S2" value="3.8702351257037697" />
+      <entry key="S5" value="6.960917983203527" />
+      <entry key="S10" value="12.535009030716258" />
+      <entry key="S30" value="29.352240136441065" />
+      <entry key="S60" value="39.2435660017282" />
+      <entry key="M2" value="45.87744588548769" />
+      <entry key="M5" value="50.55125368640763" />
+      <entry key="M10" value="52.240413308424095" />
+      <entry key="M15" value="52.82077701058611" />
+      <entry key="M30" value="53.829307467980904" />
+      <entry key="H1" value="62.597538768988144" />
+      <entry key="H2" value="111.19754248032429" />
+      <entry key="H4" value="267.6095728933853" />
+      <entry key="D1" value="1151.5459901193724" />
+      <entry key="W1" value="1775.4432856579951" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -92,23 +89,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.2206215217201266" />
-      <entry key="MS500" value="4.012840433704664" />
-      <entry key="S2" value="12.45630199586564" />
-      <entry key="S5" value="19.519265376569216" />
-      <entry key="S10" value="23.23144508159093" />
-      <entry key="S30" value="26.27373890314175" />
-      <entry key="S60" value="27.118390227803165" />
-      <entry key="M2" value="27.55446390162989" />
-      <entry key="M5" value="27.82063547899504" />
-      <entry key="M10" value="27.910135295847237" />
-      <entry key="M15" value="27.94191185820203" />
-      <entry key="M30" value="28.399903207866416" />
-      <entry key="H1" value="36.944070622868026" />
-      <entry key="H2" value="85.54293975481947" />
-      <entry key="H4" value="242.05937931279482" />
-      <entry key="D1" value="1125.8818583821037" />
-      <entry key="W1" value="1749.5175699649371" />
+      <entry key="MS100" value="0.9519026022521596" />
+      <entry key="MS500" value="1.6153152968876476" />
+      <entry key="S2" value="3.8593391045279217" />
+      <entry key="S5" value="6.953105149519398" />
+      <entry key="S10" value="12.52710329681219" />
+      <entry key="S30" value="29.344903277990035" />
+      <entry key="S60" value="39.23845886667989" />
+      <entry key="M2" value="45.874405623509844" />
+      <entry key="M5" value="50.54989989310221" />
+      <entry key="M10" value="52.23971148801746" />
+      <entry key="M15" value="52.82030342331886" />
+      <entry key="M30" value="53.8290662130211" />
+      <entry key="H1" value="62.59740071003372" />
+      <entry key="H2" value="111.19742026484109" />
+      <entry key="H4" value="267.6094158979505" />
+      <entry key="D1" value="1151.5458685077433" />
+      <entry key="W1" value="1775.44325868533" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -120,59 +117,59 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "Application.DefaultConfig.executor": "Run",
-    "Application.Main.executor": "Run",
-    "Application.ParticipantSimMain.executor": "Run",
-    "JUnit.All in OrderBookDemo.executor": "Run",
-    "JUnit.EndToEndPipelineTest.executor": "Run",
-    "JUnit.EpochNanoClockTest.executor": "Run",
-    "JUnit.FixFrameDecoderTest.executor": "Run",
-    "JUnit.FixParserChecksumTest.executor": "Run",
-    "JUnit.FixParserPriceTest.executor": "Run",
-    "JUnit.FixParserScanTest.executor": "Run",
-    "JUnit.FixParserTest.executor": "Run",
-    "JUnit.InboundPipelineTest.executor": "Run",
-    "JUnit.MarketDataServiceTest.executor": "Run",
-    "JUnit.MatchingEngineBookReadTest.executor": "Run",
-    "JUnit.MatchingEngineHandlerSnapshotTest.executor": "Run",
-    "JUnit.MatchingEngineHandlerTest.executor": "Run",
-    "JUnit.MatchingEngineSnapshotTest.executor": "Run",
-    "JUnit.OrderGatewayTest.executor": "Run",
-    "JUnit.TradeLoggerTest.executor": "Run",
-    "JUnit.WebSocketFrameHandlerTest.executor": "Run",
-    "JUnit.WebSocketPublisherTest.executor": "Run",
-    "JUnit.WebSocketRoundTripTest.executor": "Run",
-    "JUnit.WebSocketServerTest.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "Vitest.TradeTape.executor": "Run",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "git-widget-placeholder": "main",
-    "ignore.virus.scanning.warn.message": "true",
-    "kotlin-language-version-configured": "true",
-    "last_directory_selection": "C:/Users/ddavi/IdeaProjects/LimitOrderBook/src/test/java",
-    "last_opened_file_path": "C:/Users/ddavi/IdeaProjects/Limit-Order-Management-System",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "project.structure.last.edited": "Modules",
-    "project.structure.proportion": "0.15",
-    "project.structure.side.proportion": "0.2",
-    "settings.editor.selected.configurable": "preferences.general",
-    "ts.external.directory.path": "C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.1.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;Application.DefaultConfig.executor&quot;: &quot;Run&quot;,
+    &quot;Application.Main.executor&quot;: &quot;Run&quot;,
+    &quot;Application.ParticipantSimMain.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.All in OrderBookDemo.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.EndToEndPipelineTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.EpochNanoClockTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.FixFrameDecoderTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.FixParserChecksumTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.FixParserPriceTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.FixParserScanTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.FixParserTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.InboundPipelineTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.MarketDataServiceTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.MatchingEngineBookReadTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.MatchingEngineHandlerSnapshotTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.MatchingEngineHandlerTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.MatchingEngineSnapshotTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.OrderGatewayTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.TradeLoggerTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.WebSocketFrameHandlerTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.WebSocketPublisherTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.WebSocketRoundTripTest.executor&quot;: &quot;Run&quot;,
+    &quot;JUnit.WebSocketServerTest.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;Vitest.TradeTape.executor&quot;: &quot;Run&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_directory_selection&quot;: &quot;C:/Users/ddavi/IdeaProjects/LimitOrderBook/src/test/java&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/ddavi/IdeaProjects/Limit-Order-Management-System&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;project.structure.last.edited&quot;: &quot;Modules&quot;,
+    &quot;project.structure.proportion&quot;: &quot;0.15&quot;,
+    &quot;project.structure.side.proportion&quot;: &quot;0.2&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.general&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.1.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\ddavi\IdeaProjects\Limit-Order-Management-System" />
@@ -409,15 +406,8 @@
       <workItem from="1791928589364" duration="9472000" />
       <workItem from="1791956954140" duration="2256000" />
       <workItem from="1792014655057" duration="10255000" />
-      <workItem from="1792050655756" duration="308000" />
-    </task>
-    <task id="LOCAL-00019" summary="test(gateway): add FixParser tag scanner tests&#10;&#10;Cover the Step 3 scanner: session tags pass through in order,&#10;'='-in-value delimited by SOH, empty/non-numeric tag and missing '='&#10;rejects, empty value accepted (deferred to Step 5), MAX_FIELDS&#10;boundary both sides, and offset/length handling within a larger buffer.">
-      <option name="closed" value="true" />
-      <created>1784831703286</created>
-      <option name="number" value="00019" />
-      <option name="presentableId" value="LOCAL-00019" />
-      <option name="project" value="LOCAL" />
-      <updated>1784831703286</updated>
+      <workItem from="1792050655756" duration="665000" />
+      <workItem from="1792102059515" duration="3092000" />
     </task>
     <task id="LOCAL-00020" summary="Add checksum validation for FIX messages (Step 4)&#10;&#10;Verify tag 10 before any message interpretation: sum every byte up to and&#10;including the SOH preceding &quot;10=&quot;, mod 256, and compare against the field's&#10;three-digit value. Operates on raw byte[] so structural trust is&#10;established before the tag scan, independent of the Step 3 scanner arrays.&#10;&#10;Locate the trailer by computing from the end (a complete message ends in&#10;the 7-byte 10=xxx&lt;SOH&gt;) rather than scanning for it, leaning on the frame&#10;decoder's trailer invariant instead of duplicating a scan. Read the three&#10;digits via parseLong, which gives free rejection of a malformed checksum&#10;field: its -1L sentinel can't equal a 0..255 sum, consistent with the&#10;parseLong/parsePrice reject convention.&#10;&#10;Guard length &lt; 8 (no room for a summed byte plus the trailer) before&#10;indexing. The per-byte &amp; 0xFF is kept for clarity but is not load-bearing:&#10;the final &amp; 0xFF already collapses the signed/unsigned difference, since a&#10;high byte differs by exactly 256, i.e. 0 mod 256.&#10;&#10;Static, pure byte[] in; no String, no io.netty, no com.lmax. Runs at the&#10;gateway boundary, off the hot path.&#10;&#10;Tested: known-good message (independently computed checksum), corrupted&#10;body byte, wrong checksum value, non-digit checksum field, too-short&#10;buffer, and the good message embedded in a wider buffer to verify&#10;offset/length bounds.">
       <option name="closed" value="true" />
@@ -803,14 +793,21 @@
       <option name="project" value="LOCAL" />
       <updated>1792040617982</updated>
     </task>
-    <option name="localTasksCounter" value="68" />
+    <task id="LOCAL-00068" summary="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange">
+      <option name="closed" value="true" />
+      <created>1792051306329</created>
+      <option name="number" value="00068" />
+      <option name="presentableId" value="LOCAL-00068" />
+      <option name="project" value="LOCAL" />
+      <updated>1792051306330</updated>
+    </task>
+    <option name="localTasksCounter" value="69" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(frontend): P5-1 protocol types, encoders, reducer, socket hook&#10;&#10;- protocol/messages.ts: BookFrame|ExecFrame and NewOrder|CancelOrder unions,&#10;  ExecType (full Java enum names), parseServerFrame as the single JSON-&gt;typed&#10;  narrowing point (rebuilds the object, so extra fields can't ride along)&#10;- protocol/encode.ts: NEW/CANCEL frame builders (integer cents, symbol ASML) and&#10;  a Date.now()-seeded monotonic clOrdId generator, factory-shaped for tests&#10;- state/reducer.ts: pure over {connection, book, tape, myOrders}. BOOK replaces&#10;  book state wholesale and EXEC never touches it; tape capped at 200 newest-first;&#10;  myOrders keyed by clOrdId, registered at send time (no EXEC carries a side)&#10;- state/useOrderBook.ts: socket lifecycle from VITE_WS_URL, capped backoff&#10;  reconnect (250ms-&gt;4s, reset on open), clears book on drop, StrictMode-safe&#10;- vite-env.d.ts for import.meta.env typing&#10;- tests: protocol.test.ts (narrowing + reject branches + encoders),&#10;  reducer.test.ts (BOOK-replaces-not-merges, tape cap, myOrders lifecycle,&#10;  the Q1 passive-fill gap, connection transitions)&#10;&#10;Q1/Q2 resolved against Phase-4 source: the engine fires one onFill per trade&#10;naming the aggressor and is silent on the passive side, and the handler maps&#10;aggressorOrderId straight into EXEC orderId. Resting orders therefore have no&#10;trackable per-order fill progress; encoded in the reducer as a documented gap." />
     <MESSAGE value="feat(frontend): add DepthLadder component (P5-2)&#10;&#10;Presentational depth ladder rendering the authoritative BOOK slice: asks&#10;above bids (both highest-price-first, best price nearest the mid divider),&#10;each row with a cumulative-depth bar. Bars use a shared max across both&#10;sides so bid/ask imbalance is visible.&#10;&#10;- buildLadder: pure, exported width helper (best-first cumulation, shared&#10;  max guarded against divide-by-zero), unit-tested separately from the&#10;  component per the guide.&#10;- spreadLabel: guards bestBid/bestAsk &gt; 0 before subtracting so a -1&#10;  sentinel can't render a bogus spread; exported and asserted directly.&#10;- Cents in, dollars only at the render edge via format.ts; no float math.&#10;- Presentational only (single `book: BookState` prop); no App wiring yet.&#10;&#10;Toolchain: add jsdom + @testing-library/react + @testing-library/dom (dev);&#10;switch vitest environment to jsdom and include .tsx tests. Existing pure&#10;suites unaffected.&#10;&#10;Structural class-name hooks only; terminal theme deferred to P5-5." />
     <MESSAGE value="feat(frontend): add TradeTape component (P5-3)&#10;&#10;Presentational, newest-first trade tape rendering the reducer's fills-only&#10;`tape` slice. Single-slice prop (`tape: readonly TapeEntry[]`), no socket/&#10;hook/state — mirrors DepthLadder. Renders 1:1 with the slice; the reducer&#10;already guarantees fills-only, newest-first, capped at TAPE_CAP.&#10;&#10;- Side omitted: no EXEC frame carries a side and the aggressor side is not on&#10;  the wire; recovering it would need myOrders (partial coverage) and couple a&#10;  presentational component to order state. Resolved &quot;not derivable&quot;; a test&#10;  locks that no BUY/SELL text renders.&#10;- No time column: TapeEntry.timestamp is the backend's System.nanoTime()&#10;  (monotonic, arbitrary origin — not epoch, despite the wire-contract label),&#10;  so it can't honestly render as wall-clock time.&#10;- Prices via format.ts (cents -&gt; dollars); -1 -&gt; EMPTY_PRICE, never negative.&#10;- `mine` fills marked with a structural --mine modifier (no theme; P5-5).&#10;- React key is tradeId (unique, positive on fills). Clean empty state.&#10;&#10;Structural class-name/data-testid hooks only; terminal theme deferred to P5-5.&#10;&#10;test/tradeTape.test.tsx: render-from-fixture (row count = entries given,&#10;order preserved, dollar prices + sentinel-leak guard, quantity, --mine&#10;present/absent, no side text, empty state), explicit afterEach(cleanup).&#10;No new deps; App.tsx / vite.config.ts / backend untouched." />
     <MESSAGE value="feat(frontend): P5-4 order entry + open orders panel&#10;&#10;Add the manual trading interface (SRS §3.7):&#10;&#10;- OrderEntry.tsx: BUY/SELL toggle, text price/qty inputs, client-side&#10;  validation before send (decision 6 — backend gives no reject feedback).&#10;  Exports pure validateOrderInput (mirrors buildLadder); dollars convert to&#10;  integer cents at the component edge via dollarsToCents. onSubmit emits&#10;  (side, priceCents, qty); no HTML &lt;form&gt;, plain onClick/onChange.&#10;- OpenOrders.tsx: myOrders panel (clOrdId, side, price, remaining qty,&#10;  status). Cancel offered only on isCancellable rows (OPEN/PARTIALLY_FILLED),&#10;  emitting the row's clOrdId as origClOrdId via onCancel.&#10;&#10;Both are presentational and callback-driven — no clOrdId generation, frame&#10;building, or socket access (that lives in the P5-5 App wiring over the single&#10;useOrderBook instance, keeping clOrdId generated in exactly one place).&#10;&#10;Tests: orderEntry.test.tsx (pure validation + render), openOrders.test.tsx&#10;(rows, cancellable gating, onCancel id, empty state). No new deps; jsdom + RTL&#10;from P5-2. App.tsx and backend untouched." />
@@ -835,6 +832,7 @@
     <MESSAGE value="feat(frontend): P7-8 order blotter with passive-fill decrement&#10;&#10;Extend OpenOrders into a full blotter (P7-8):&#10;&#10;- MyOrder gains sentAtNanos (client-assigned epoch-nanos send time,&#10;  captured at dispatch in useOrderBook, rendered via formatClockNanos).&#10;  Optional so all existing SENT fixtures compile unchanged.&#10;- SENT action gains sentAtNanos; applySent stores it on NEW rows only.&#10;- passiveFill(order, filledQty): MyOrder exported from reducer.ts:&#10;  decrements remainingQty locally and transitions to PARTIALLY_FILLED or&#10;  FILLED. Terminal guard mirrors nextOrder. Pure, exported, unit-tested.&#10;- applyExec gains the passive branch: on a fill EXEC whose passiveOrderId&#10;  matches an owned clOrdId (guarded &gt;0, != orderId, isFill), passiveFill&#10;  is applied. EXEC stays authoritative for the aggressor; the passive&#10;  decrement is a documented client-side derivation. Slice-identity&#10;  preserved on no-op paths.&#10;- OpenOrders rewritten as a blotter: ID, Sent (client-assigned), Side,&#10;  Price (limit from SENT), Filled (derived originalQty - remainingQty via&#10;  exported filledOf), Status, Cancel. Every P5-4 class, testid, and&#10;  isCancellable cancel gating preserved.&#10;- terminal.css open-orders section extended (col-time, time cell); every&#10;  other section verbatim.&#10;&#10;Tests: passiveFill pure (partial, full, clamp, terminal guard); reducer&#10;integration (passive decrement, -1 NA never matches, terminal not&#10;resurrected, aggressor-then-passive mixed case); openOrders.logic&#10;(filledOf: normal, zero, negative clamp); openOrders.test extended (send&#10;time renders HH:MM:SS.mmm, empty cell without one, filled/total column).&#10;Revised reducer.test passive block to assert the decrement (closes the&#10;gap). Revised openOrders.test row assertion from remaining to filled/total.&#10;&#10;237 tests green. App.tsx, messages.ts, format.ts, encode.ts, backend&#10;untouched. README derivation note deferred to P7-10." />
     <MESSAGE value="Begun work on Phase 10" />
     <MESSAGE value="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(" />
-    <option name="LAST_COMMIT_MESSAGE" value="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(" />
+    <MESSAGE value="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange" />
+    <option name="LAST_COMMIT_MESSAGE" value="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange" />
   </component>
 </project>

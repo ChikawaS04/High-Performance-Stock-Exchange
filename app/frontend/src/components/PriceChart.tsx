@@ -10,36 +10,40 @@
  *
  * What the rework changes (DESIGN_SYSTEM.md §5/§8 card chrome, §9/§10/§11 controls):
  *
- *  - The panel is now a self-contained card: a --head header band over the plot
- *    body, so it reads as one family with the tape and blotter. The chart-page's
- *    loose "Price chart" heading is retired in favour of this band (the region
- *    becomes a transparent shell in terminal.css).
+ *  - The panel is a self-contained card: a --head header band over the plot body,
+ *    so it reads as one family with the tape and blotter.
  *
  *  - Bloomberg "GP" plot: a right-hand price axis with round-level gridlines, a
  *    gradient area fill under the line, a dashed last-price level across the plot,
- *    and a last-price tag snapped to the right axis and coloured against the session
- *    open (up green / down red, §2). The time axis is sparse elapsed m:ss ticks:
- *    TapeEntry.timestamp is monotonic nanos with an arbitrary origin, so elapsed
- *    time is the honest label (formatElapsed), replacing the old fake HH:MM:SS.mmm.
+ *    and a last-price tag snapped to the right axis. The time axis is sparse elapsed
+ *    m:ss ticks (TapeEntry.timestamp is monotonic nanos with an arbitrary origin, so
+ *    elapsed time is the honest label — formatElapsed).
  *
- *  - A padded price domain (priceAxis) so a flat / one-cent session reads flat
- *    rather than filling the panel. A reference never widens the domain (D5): the
- *    domain is the prints', and a reference out of range is simply not drawn.
+ *  - A padded price domain (priceAxis) so a flat / one-cent session reads flat. A
+ *    reference never widens the domain (D5).
  *
- *  - Header-band controls, all the terminal-wide shared standards (§11): a §9 caret
- *    dropdown ("View in trading", a placeholder wired open/close with no action yet)
- *    immediately left of the §11 settings gear. The gear opens the §10/§11 settings
- *    popup with a Display category: Background (White/Black), Line colour (swatch
- *    set), Area fill (On/Off) and Fill colour. View state is local and display-only.
+ *  - Header-band controls (§11): a §9 caret "view" dropdown ("View in trading",
+ *    a placeholder with no action yet) left of the §11 settings gear, which opens the
+ *    §10/§11 popup with a Display category: Background, Line colour, Area fill,
+ *    Fill colour. View state is local and display-only.
+ *
+ *  - Crosshair readout: moving the cursor over the plot snaps to the nearest print
+ *    and shows a vertical crosshair, a dot on the line, and a readout box with the
+ *    elapsed time and price at that point. Geometry is memoised so the per-move
+ *    re-render only recomputes the crosshair, not the series/scales.
+ *
+ *  - The last-price tag is always the line colour (its text ink flips dark/light by
+ *    luminance so it stays legible on any swatch), not a red/green session-direction
+ *    colour.
  *
  * Guards unchanged: an empty tape plots a quiet "No trades yet" state; a single
- * print plots only the last-point marker and tag; a single distinct price
- * (cMin === cMax) is handled by priceAxis padding; a single timestamp (tMin === tMax)
- * centres on x. Test ids (price-chart, -line, -last, -ref-session, -ref-market) and
- * the component's props are preserved.
+ * print plots only the last-point marker and tag; a single distinct price is handled
+ * by priceAxis padding; a single timestamp centres on x. Test ids (price-chart,
+ * -line, -last, -ref-session, -ref-market) and the component's props are preserved.
  */
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { buildPriceSeries, priceAxis, timeAxis } from "../priceSeries";
 import { formatPrice, formatElapsed } from "../format";
@@ -91,8 +95,6 @@ const FILL_CHOICES: readonly { readonly key: FillChoice; readonly name: string }
     { key: "#3d8bfd", name: "Blue" },
 ];
 
-const UP = "#2bb673";
-const DOWN = "#e05555";
 const WARN = "#e0a13c"; // Alpaca market-open reference line
 
 const GEAR_PATH =
@@ -104,6 +106,10 @@ interface Ink {
     readonly gridV: string;
     readonly axis: string;
     readonly ref: string;
+    readonly cross: string;
+    readonly readoutBg: string;
+    readonly readoutInk: string;
+    readonly readoutBorder: string;
 }
 
 function inkFor(bg: ChartBg): Ink {
@@ -114,6 +120,10 @@ function inkFor(bg: ChartBg): Ink {
               gridV: "rgba(0,0,0,0.05)",
               axis: "#555555",
               ref: "rgba(0,0,0,0.45)",
+              cross: "#555555",
+              readoutBg: "rgba(255,255,255,0.97)",
+              readoutInk: "#111111",
+              readoutBorder: "rgba(0,0,0,0.22)",
           }
         : {
               bg: "#000000",
@@ -121,7 +131,42 @@ function inkFor(bg: ChartBg): Ink {
               gridV: "rgba(255,255,255,0.04)",
               axis: "#9a9a9a",
               ref: "rgba(255,255,255,0.5)",
+              cross: "#9aa3b1",
+              readoutBg: "rgba(18,18,18,0.95)",
+              readoutInk: "#e8e8e8",
+              readoutBorder: "rgba(255,255,255,0.18)",
           };
+}
+
+/** Legible ink (near-black or white) for text on a coloured fill, by luminance. */
+function inkOn(hex: string): string {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return lum > 0.6 ? "#0b0b0b" : "#ffffff";
+}
+
+interface PlotPoint {
+    readonly t: number;
+    readonly px: number;
+    readonly x: number;
+    readonly y: number;
+}
+
+interface Geometry {
+    readonly tMin: number;
+    readonly dMin: number;
+    readonly dMax: number;
+    readonly levels: readonly number[];
+    readonly ticks: readonly number[];
+    readonly pts: readonly PlotPoint[];
+    readonly last: PlotPoint;
+    readonly linePts: string;
+    readonly areaPath: string;
+    readonly xOf: (t: number) => number;
+    readonly yOf: (px: number) => number;
 }
 
 export interface PriceChartProps {
@@ -140,9 +185,83 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [displayOpen, setDisplayOpen] = useState(true);
     const [viewOpen, setViewOpen] = useState(false);
+    const [hover, setHover] = useState<number | null>(null);
+    const svgRef = useRef<SVGSVGElement>(null);
 
     const ink = inkFor(bg);
     const fillColor = fill === "line" ? lineColor : fill;
+
+    // Geometry depends only on the tape, so memoise it: a hover move re-renders the
+    // component, and without this every move would rebuild the series and scales.
+    const geom = useMemo<Geometry | null>(() => {
+        const series = buildPriceSeries(tape);
+        if (
+            series.points.length === 0 ||
+            series.tMin === null ||
+            series.tMax === null ||
+            series.cMin === null ||
+            series.cMax === null
+        ) {
+            return null;
+        }
+        const { points, tMin, tMax, cMin, cMax } = series;
+        const yax = priceAxis(cMin, cMax);
+        const tax = timeAxis(tMin, tMax);
+        const { dMin, dMax } = yax;
+
+        const xOf = (t: number): number =>
+            tMax === tMin
+                ? PLOT_LEFT + PLOT_W / 2
+                : PLOT_LEFT + ((t - tMin) / (tMax - tMin)) * PLOT_W;
+        const yOf = (px: number): number =>
+            PLOT_BOTTOM - ((px - dMin) / (dMax - dMin)) * PLOT_H;
+
+        const pts: PlotPoint[] = points.map((p) => ({
+            t: p.t,
+            px: p.pricePx,
+            x: xOf(p.t),
+            y: yOf(p.pricePx),
+        }));
+        const last = pts[pts.length - 1];
+        const linePts = pts.map((p) => `${p.x},${p.y}`).join(" ");
+        const areaPath =
+            `M ${pts[0].x} ${pts[0].y} ` +
+            pts.map((p) => `L ${p.x} ${p.y}`).join(" ") +
+            ` L ${last.x} ${PLOT_BOTTOM} L ${pts[0].x} ${PLOT_BOTTOM} Z`;
+
+        return {
+            tMin,
+            dMin,
+            dMax,
+            levels: yax.levels,
+            ticks: tax.ticks,
+            pts,
+            last,
+            linePts,
+            areaPath,
+            xOf,
+            yOf,
+        };
+    }, [tape]);
+
+    const onMove = (e: ReactPointerEvent<SVGSVGElement>): void => {
+        const svg = svgRef.current;
+        if (svg === null || geom === null) return;
+        const rect = svg.getBoundingClientRect();
+        if (rect.width === 0) return;
+        const sx = ((e.clientX - rect.left) / rect.width) * VIEW_W;
+        let best = 0;
+        let bestD = Infinity;
+        for (let i = 0; i < geom.pts.length; i++) {
+            const d = Math.abs(geom.pts[i].x - sx);
+            if (d < bestD) {
+                bestD = d;
+                best = i;
+            }
+        }
+        setHover(best);
+    };
+    const onLeave = (): void => setHover(null);
 
     const band = (
         <div className="price-chart__band">
@@ -364,17 +483,8 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
         </div>
     );
 
-    const series = buildPriceSeries(tape);
-
-    // Empty: a quiet frame, nothing to plot, no NaN. The null-bound checks also
-    // narrow the domain values to numbers for the plotting path below.
-    if (
-        series.points.length === 0 ||
-        series.tMin === null ||
-        series.tMax === null ||
-        series.cMin === null ||
-        series.cMax === null
-    ) {
+    // Empty: a quiet frame, nothing to plot, no NaN.
+    if (geom === null) {
         return (
             <div className={`price-chart price-chart--${bg}`}>
                 {band}
@@ -404,53 +514,57 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
         );
     }
 
-    const { points, tMin, tMax, cMin, cMax } = series;
+    const { pts, last, xOf, yOf, dMin, dMax, tMin } = geom;
 
-    const yax = priceAxis(cMin, cMax);
-    const tax = timeAxis(tMin, tMax);
-    const { dMin, dMax } = yax;
-
-    const xOf = (t: number): number =>
-        tMax === tMin
-            ? PLOT_LEFT + PLOT_W / 2
-            : PLOT_LEFT + ((t - tMin) / (tMax - tMin)) * PLOT_W;
-
-    const yOf = (px: number): number =>
-        PLOT_BOTTOM - ((px - dMin) / (dMax - dMin)) * PLOT_H;
-
-    const linePts = points.map((p) => `${xOf(p.t)},${yOf(p.pricePx)}`).join(" ");
-    const last = points[points.length - 1];
-
-    const areaPath =
-        `M ${xOf(points[0].t)} ${yOf(points[0].pricePx)} ` +
-        points.map((p) => `L ${xOf(p.t)} ${yOf(p.pricePx)}`).join(" ") +
-        ` L ${xOf(last.t)} ${PLOT_BOTTOM} L ${xOf(points[0].t)} ${PLOT_BOTTOM} Z`;
-
-    // A reference draws only when its price sits inside the plotted domain, so it
-    // never widens the domain (D5).
     const inDomain = (px: number): boolean => px >= dMin && px <= dMax;
     const sessionRef =
         sessionOpenPx > 0 && inDomain(sessionOpenPx) ? sessionOpenPx : null;
     const marketRef =
         openPx !== undefined && openPx > 0 && inDomain(openPx) ? openPx : null;
 
-    // Last-price tag colour: against the session open (up green / down red, §2);
-    // neutral to the line colour when there is no open anchor yet.
-    const up = sessionOpenPx > 0 ? last.pricePx >= sessionOpenPx : true;
-    const tagColor = sessionOpenPx > 0 ? (up ? UP : DOWN) : lineColor;
-    const tagY = Math.max(PLOT_TOP + 9, Math.min(PLOT_BOTTOM - 9, yOf(last.pricePx)));
+    // The last-price tag is always the line colour; its text ink flips for legibility.
+    const tagColor = lineColor;
+    const tagInk = inkOn(tagColor);
+    const tagY = Math.max(PLOT_TOP + 9, Math.min(PLOT_BOTTOM - 9, last.y));
+
+    // Crosshair readout for the hovered print.
+    const hoverPt = hover !== null && hover >= 0 && hover < pts.length ? pts[hover] : null;
+    let readout: {
+        readonly bx: number;
+        readonly by: number;
+        readonly w: number;
+        readonly h: number;
+        readonly label: string;
+    } | null = null;
+    if (hoverPt !== null) {
+        const w = 128;
+        const h = 20;
+        let bx = hoverPt.x + 10;
+        if (bx + w > PLOT_RIGHT) bx = hoverPt.x - 10 - w;
+        if (bx < PLOT_LEFT) bx = PLOT_LEFT;
+        readout = {
+            bx,
+            by: PLOT_TOP + 4,
+            w,
+            h,
+            label: `${formatElapsed(hoverPt.t - tMin)}   ${formatPrice(hoverPt.px)}`,
+        };
+    }
 
     return (
         <div className={`price-chart price-chart--${bg}`}>
             {band}
             <div className="price-chart__plot">
                 <svg
+                    ref={svgRef}
                     className="price-chart__svg"
                     viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
                     width="100%"
                     role="img"
                     aria-label="Session price chart"
                     data-testid="price-chart"
+                    onPointerMove={onMove}
+                    onPointerLeave={onLeave}
                 >
                     <defs>
                         <linearGradient id="pc-fill-grad" x1="0" y1="0" x2="0" y2="1">
@@ -462,7 +576,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
                     <rect x={0} y={0} width={VIEW_W} height={VIEW_H} fill={ink.bg} />
 
                     {/* Horizontal gridlines + right-hand price labels. */}
-                    {yax.levels.map((v) =>
+                    {geom.levels.map((v) =>
                         inDomain(v) ? (
                             <g key={`y-${v}`}>
                                 <line
@@ -488,7 +602,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
                     )}
 
                     {/* Vertical time ticks, labelled with elapsed m:ss. */}
-                    {tax.ticks.map((t, i) => (
+                    {geom.ticks.map((t, i) => (
                         <g key={`t-${i}`}>
                             <line
                                 x1={xOf(t)}
@@ -538,28 +652,28 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
                         />
                     ) : null}
 
-                    {gradientOn && points.length >= 2 ? (
-                        <path className="price-chart__area" d={areaPath} fill="url(#pc-fill-grad)" />
+                    {gradientOn && pts.length >= 2 ? (
+                        <path className="price-chart__area" d={geom.areaPath} fill="url(#pc-fill-grad)" />
                     ) : null}
 
                     {/* Dashed last-price level across the plot (Bloomberg GP signature). */}
                     <line
                         className="price-chart__level"
                         x1={PLOT_LEFT}
-                        y1={yOf(last.pricePx)}
+                        y1={last.y}
                         x2={PLOT_RIGHT}
-                        y2={yOf(last.pricePx)}
+                        y2={last.y}
                         stroke={lineColor}
                         strokeOpacity="0.5"
                         strokeWidth="1"
                         strokeDasharray="2 3"
                     />
 
-                    {points.length >= 2 ? (
+                    {pts.length >= 2 ? (
                         <polyline
                             className="price-chart__line"
                             data-testid="price-chart-line"
-                            points={linePts}
+                            points={geom.linePts}
                             fill="none"
                             stroke={lineColor}
                             strokeWidth="1.6"
@@ -571,24 +685,59 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
                     <circle
                         className="price-chart__last"
                         data-testid="price-chart-last"
-                        cx={xOf(last.t)}
-                        cy={yOf(last.pricePx)}
+                        cx={last.x}
+                        cy={last.y}
                         r="3"
                         fill={lineColor}
                     />
 
-                    {/* Last-price tag on the right axis. */}
+                    {/* Last-price tag on the right axis (always the line colour). */}
                     <rect x={PLOT_RIGHT + 1} y={tagY - 9} width={58} height={18} rx="2" fill={tagColor} />
                     <text
                         className="price-chart__tag"
                         x={PLOT_RIGHT + 30}
                         y={tagY}
-                        fill="#0b0b0b"
+                        fill={tagInk}
                         dominantBaseline="middle"
                         textAnchor="middle"
                     >
-                        {formatPrice(last.pricePx)}
+                        {formatPrice(last.px)}
                     </text>
+
+                    {/* Crosshair readout (hover). Non-interactive so it never eats pointer moves. */}
+                    {hoverPt !== null && readout !== null ? (
+                        <g className="price-chart__cross" data-testid="price-chart-cross" pointerEvents="none">
+                            <line
+                                x1={hoverPt.x}
+                                y1={PLOT_TOP}
+                                x2={hoverPt.x}
+                                y2={PLOT_BOTTOM}
+                                stroke={ink.cross}
+                                strokeWidth="1"
+                                strokeDasharray="2 2"
+                            />
+                            <circle cx={hoverPt.x} cy={hoverPt.y} r="3.5" fill={lineColor} stroke={ink.bg} strokeWidth="1.5" />
+                            <rect
+                                x={readout.bx}
+                                y={readout.by}
+                                width={readout.w}
+                                height={readout.h}
+                                rx="2"
+                                fill={ink.readoutBg}
+                                stroke={ink.readoutBorder}
+                            />
+                            <text
+                                className="price-chart__readout"
+                                x={readout.bx + 8}
+                                y={readout.by + readout.h / 2}
+                                fill={ink.readoutInk}
+                                dominantBaseline="middle"
+                                textAnchor="start"
+                            >
+                                {readout.label}
+                            </text>
+                        </g>
+                    ) : null}
                 </svg>
             </div>
         </div>

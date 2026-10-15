@@ -10,10 +10,10 @@
  *
  * P13-4 fills the side-panel region, closing the arc that began at P10-4: the
  * "Side panel arrives in P13" placeholder is gone, replaced by <SessionStats> over
- * the session accumulators and a working ticket. The two headings stack inside the
- * one section with panel__title--spaced, the same way TradingPage stacks Depth over
- * Depth curve, rather than through a SidePanel wrapper that would hold two children
- * and no logic (P13 D7).
+ * the session accumulators and a working ticket. The two self-contained charcoal
+ * cards (each owning its own header band) stack directly in the one section, the
+ * same way TradingPage stacks Depth over Depth curve, rather than through a
+ * SidePanel wrapper that would hold two children and no logic (P13 D7).
  *
  * The ticket is the SAME <OrderEntry> the Trading page mounts, with no new prop and
  * no behavioural branch (P13 D3): a second entry component would duplicate the
@@ -76,7 +76,6 @@ export function PriceChartPage({
             </section>
 
             <section tabIndex={-1} className="chart-page__region chart-page__region--panel" aria-label="Side panel">
-                <h2 className="panel__title">Session</h2>
                 <SessionStats
                     tape={state.tape}
                     sessionHighPx={state.sessionHighPx}

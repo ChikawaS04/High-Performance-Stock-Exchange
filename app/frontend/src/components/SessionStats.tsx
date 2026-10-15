@@ -29,9 +29,11 @@
  * timestamp on the last trade either, which is what keeps spreadBpsLabel and the
  * clock formatter out of this file (P13 D6).
  *
- * Styling arrives in P13-5: the session-stats__* block, and the retheme selector
- * list that redirects numeric values from mono to sans with tabular figures. This
- * component only names the classes.
+ * Styling is the TWS charcoal card (DESIGN_SYSTEM.md §5): the component now owns the
+ * card chrome (a --head SESSION band over a sunken --well body) alongside the four
+ * label/value rows, so the panel reads identically wherever it mounts. Values render
+ * in mono tabular like the rest of the charcoal terminal; this component only names
+ * the classes, the metrics live in the session-stats__* block.
  */
 
 import { buildSessionStats } from "../sessionStats";
@@ -54,29 +56,33 @@ export function SessionStats({
 
     return (
         <div className="session-stats">
-            <div className="session-stats__row">
-                <span className="session-stats__label">High</span>
-                <span className="session-stats__value" data-testid="session-high">{m.high}</span>
-            </div>
+            <div className="session-stats__head">Session</div>
 
-            <div className="session-stats__row">
-                <span className="session-stats__label">Low</span>
-                <span className="session-stats__value" data-testid="session-low">{m.low}</span>
-            </div>
+            <div className="session-stats__body">
+                <div className="session-stats__row">
+                    <span className="session-stats__label">High</span>
+                    <span className="session-stats__value" data-testid="session-high">{m.high}</span>
+                </div>
 
-            <div className="session-stats__row">
-                <span className="session-stats__label">Trades</span>
-                <span className="session-stats__value" data-testid="session-trades">{m.trades}</span>
-            </div>
+                <div className="session-stats__row">
+                    <span className="session-stats__label">Low</span>
+                    <span className="session-stats__value" data-testid="session-low">{m.low}</span>
+                </div>
 
-            <div className="session-stats__row">
-                <span className="session-stats__label">Last trade</span>
-                <span className="session-stats__value" data-testid="session-last-price">
-          {m.lastPrice}
-                    <span className="session-stats__value-sub" data-testid="session-last-size">
-            {m.lastSize}
-          </span>
-        </span>
+                <div className="session-stats__row">
+                    <span className="session-stats__label">Trades</span>
+                    <span className="session-stats__value" data-testid="session-trades">{m.trades}</span>
+                </div>
+
+                <div className="session-stats__row">
+                    <span className="session-stats__label">Last trade</span>
+                    <span className="session-stats__value" data-testid="session-last-price">
+                        {m.lastPrice}
+                        <span className="session-stats__value-sub" data-testid="session-last-size">
+                            {m.lastSize}
+                        </span>
+                    </span>
+                </div>
             </div>
         </div>
     );
