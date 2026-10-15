@@ -246,6 +246,37 @@ body {
     background: transparent;
 }
 
+/* ---- status footer (thin --head band pinned to the terminal's bottom edge) ---
+   The mirror of the header strip: the same --head fill and --hair hairline, one
+   line tall. Variant B "Bloomberg" segmentation — cells divided by --hair
+   hairlines. Only the Settings cell for now; connection / latency / clock cells
+   drop in to its right later. It is pinned and non-scrolling via the fixed-
+   viewport rules in the 901px block below. */
+.terminal-footer {
+    display: flex;
+    align-items: stretch;
+    flex: 0 0 auto;
+    height: 18px;
+    background: var(--head);
+    border-top: 1px solid var(--hair);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.terminal-footer__item {
+    display: flex;
+    align-items: center;
+    padding: 0 11px;
+    border-right: 1px solid var(--hair);
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffffff;
+    line-height: 1;
+    white-space: nowrap;
+}
+
 .workspace {
     display: grid;
     grid-template-columns: minmax(260px, 1fr) minmax(220px, 1fr) minmax(280px, 1.2fr);
@@ -1002,6 +1033,10 @@ body {
 /* Depth Chart header band — the same band as the Order Book title, now that the
    curve is split into its own panel (was a loose .panel__title--chart heading). */
 .depth-chart__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
     margin: -12px -12px 0;
     padding: 7px 10px;
     background: var(--head);
@@ -1017,22 +1052,54 @@ body {
     color: #ffffff;
 }
 
+/* Maximize glyph: a bare header control (DESIGN_SYSTEM.md §11.1 settings-gear
+   convention) — transparent, no border, --text glyph brightening on hover, never a
+   silver/filled button. Opens the draggable maximized chart window. */
+.depth-chart__maximize {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    line-height: 0;
+}
+.depth-chart__maximize:hover {
+    color: #f0f0f0;
+}
+
 /* ---- depth curve (split into its own Depth Chart panel, 2026-10) ---------- */
 
 .depth-curve {
     flex-shrink: 0;
     /* Full width: bleed to the panel's inner edges (same trick as the ladder panes) so
-       the chart uses the whole section width. Black plot ground, sitting flush under the
-       header band's bottom rule for a clean header/chart demarcation. */
+       the chart uses the whole section width. The plot ground is the sunken --well with
+       its inset shadow (DESIGN_SYSTEM.md §4), sitting flush under the header band's
+       bottom rule for a clean header/chart demarcation. */
     margin: 0 -12px -12px;
-    background: #000;
+    background: var(--well);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 
 .depth-curve__svg {
     display: block;
     width: 100%;
     height: auto;
-    aspect-ratio: 2 / 1;
+    aspect-ratio: 720 / 320;
+}
+
+/* Chrome labels are sans; every number on the chart (axis ticks, quotes, the mid
+   pill, wall sizes) is mono + tabular so digits line up, via the .n class. */
+.depth-curve__svg text {
+    font-family: var(--sans);
+}
+.depth-curve__svg .n {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
 }
 
 /* The mid marker is a price: mono + tabular so it reads like every other price.
@@ -1269,13 +1336,14 @@ body {
     background: var(--oe-body);
     border: 1px solid var(--oe-line);
     border-radius: 4px;
-    overflow: hidden;
+    overflow: visible;   /* let the Qty pick-list escape the card */
     color: var(--oe-text);
 }
 
 /* Dark-grey header band (the panel title lives here now). */
 .order-entry__header {
     padding: 8px 11px;
+    border-radius: 4px 4px 0 0;
     background: var(--oe-head);
     border-bottom: 1px solid var(--oe-line);
     color: #ffffff;
@@ -1409,7 +1477,6 @@ body {
    so the ticket packs tight and short, leaving more room for the panels below. */
 @container (min-width: 700px) {
     .order-entry__chips { align-self: center; }
-    .order-entry__controls { justify-content: center; }
 }
 .order-entry__control {
     display: flex;
@@ -1469,8 +1536,7 @@ body {
 .order-entry__input::placeholder { color: var(--oe-faint); }
 .order-entry__input:focus {
     outline: none;
-    border-color: var(--oe-focus);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(90, 166, 255, 0.4);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 /* Price field: well with a stacked up/down stepper on its right edge. */
@@ -1484,8 +1550,7 @@ body {
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 .order-entry__price-row:focus-within {
-    border-color: var(--oe-focus);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(90, 166, 255, 0.4);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 .order-entry__control--price .order-entry__input {
     flex: 1;
@@ -1524,7 +1589,87 @@ body {
 .order-entry__step:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Quantity column: well, presets, optional Display beneath. */
-.order-entry__control--qty { width: 88px; }
+.order-entry__control--tif { width: 56px; }
+.order-entry__control--ordtype { width: 104px; }
+.order-entry__control--qty { width: 84px; }
+
+/* ---- standard dropdown / combobox (TIF, TYPE, QTY, DISPLAY) ---------------
+   One white scroll pick-list, grey hover, no visible scrollbar. Single-selects
+   (TIF, TYPE) use a white button trigger; editable fields (QTY, DISPLAY) use the
+   sunken input. This is the terminal's standard dropdown — see DESIGN_SYSTEM.md. */
+.order-entry__combo { position: relative; }
+.order-entry__combo .order-entry__input { padding-right: 18px; }
+
+/* White button trigger for single-select dropdowns (value left, caret right). */
+.order-entry__trigger {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 5px 20px 5px 8px;
+    border: 1px solid #555555;
+    border-radius: var(--oe-rad);
+    background: #ffffff;
+    color: #000000;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+}
+.order-entry__trigger:hover:not(:disabled) { background: #cccccc; }
+.order-entry__trigger:focus { outline: none; }   /* no blue focus ring */
+.order-entry__trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+.order-entry__trigger-val {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.order-entry__caret {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 8px;
+    color: var(--oe-dim);
+    pointer-events: none;
+}
+
+.order-entry__menu {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    z-index: 60;
+    margin: 0;
+    padding: 2px;
+    list-style: none;
+    max-height: 164px;
+    overflow-y: auto;
+    background: #ffffff;
+    border: 1px solid #555555;
+    border-radius: var(--oe-rad);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+    scrollbar-width: none;            /* Firefox: hide scrollbar */
+}
+.order-entry__menu::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+.order-entry__opt {
+    padding: 4px 8px;
+    font-family: var(--sans);
+    font-size: 12px;
+    color: #000000;
+    cursor: pointer;
+    border-radius: 2px;
+}
+.order-entry__opt--num {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+.order-entry__opt:hover,
+.order-entry__opt[aria-selected="true"] { background: #cccccc; }
 .order-entry__presets {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1550,13 +1695,14 @@ body {
 /* Display sits as its own small control to the right of Qty (limit orders only);
    kept narrow so it fits the empty space without widening the panel. */
 .order-entry__control--display {
-    width: 72px;
+    width: 66px;
 }
 
 /* Submit: short, bottom-left, carries the side colour with the glint. */
 .order-entry__submit {
     appearance: none;
-    align-self: flex-start;
+    align-self: flex-end;
+    margin-left: auto;
     width: 118px;
     padding: 6px 0;
     text-align: center;
@@ -2285,6 +2431,18 @@ body {
     .workspace {
         grid-template-columns: 1fr;
     }
+    /* Stacked layout (below the 3-column breakpoint, page-scroll model): the ≥901px
+       flex split doesn't apply here, so without this the aspect-ratio depth chart is
+       tall while an empty trades panel is short. Give trades a tall floor so it covers
+       more space than the depth chart, and let its empty state fill as a sunken well. */
+    .panel--tape .trade-tape {
+        min-height: 480px;
+    }
+    .panel--tape .trade-tape__empty {
+        flex: 1;
+        background: var(--well);
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+    }
     .chart-page {
         grid-template-columns: 1fr;
     }
@@ -2387,7 +2545,6 @@ body {
 .topbar,
 .nav,
 .toolbar,
-.workspace,
 .chart-page {
     flex-shrink: 0;
 }
@@ -2402,15 +2559,37 @@ body {
    stacked panels below 900px size to content as before.
    ========================================================================== */
 @media (min-width: 901px) {
-    .workspace {
-        align-items: start;
+    /* Fixed terminal viewport: the shell is exactly one screen tall and never
+       scrolls as a page (like a real TWS / Bloomberg window). The workspace fills
+       the gap between the header/nav chrome and the footer, and each panel scrolls
+       inside its own body instead of growing the page. */
+    html,
+    body,
+    #root {
+        overflow: hidden;
     }
-    /* Direct grid items (Depth, Trades, and the split third column) fill to the
-       bottom of the screen; nested panels inside the column are sized below. */
+    .app {
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+    }
+    .workspace {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        grid-template-rows: minmax(0, 1fr);
+        align-items: stretch;
+    }
+    /* Direct grid items (Depth, Trades, and the split third column) fill the
+       workspace height; each one's own body owns its scroll from here. */
     .workspace > .panel,
     .workspace > .workspace__col {
-        min-height: calc(100vh - var(--chrome-h));
-        min-height: calc(100dvh - var(--chrome-h));
+        min-height: 0;
+    }
+    /* Footer pinned to the bottom edge on every route (margin-top:auto holds it
+       down even when a route's content is shorter than the viewport). */
+    .terminal-footer {
+        margin-top: auto;
     }
     /* Tape fills its panel; rows scroll only once they reach the bottom. */
     .trade-tape {
@@ -2452,19 +2631,21 @@ body {
         min-height: calc(var(--blotter-row-h) * 7);
     }
 
-    /* On an idle start the Depth and Trades panels are stretched to full screen
-       height, but their content is short, so the panel's grey surface used to show
-       below. Let the dark content fill that space instead: the depth chart grows and
-       its black ground fills (the curve is bottom-anchored via preserveAspectRatio),
-       and the tape body fills with its own near-black ground. Scroll caps stay in the
-       page-scroll model; here the tape simply scrolls once rows exceed the panel. */
-    .panel--depthchart .depth-curve {
-        flex: 1 1 auto;
-        min-height: 0;
+    /* Middle column (2026-10): the depth chart sits on top and takes the larger share
+       of the column height, the trade tape below it the smaller (3:2). Both fill their
+       panels down the column. The chart fills its taller panel (svg height:100%, aspect
+       dropped) so the plot grows with the panel instead of leaving well ground; the tape
+       scrolls once its rows exceed its shorter panel. */
+    /* Depth chart is content-sized (its svg keeps the 720/320 aspect, so the panel is
+       compact); the trade tape takes ALL remaining column height. This makes the tape
+       the taller panel at every width, and avoids the chart's height:100% fill fighting
+       the flex ratio (which let the chart win on wide screens). */
+    .panel--depthchart {
+        flex: 0 0 auto;
     }
-    .panel--depthchart .depth-curve__svg {
-        height: 100%;
-        aspect-ratio: auto;
+    .panel--tape {
+        flex: 1;
+        min-height: 0;
     }
     .trade-tape__rows {
         max-height: none;
@@ -2474,6 +2655,125 @@ body {
         background: var(--well);
         box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
     }
+}
+
+/* ==========================================================================
+   Maximized depth-chart window (2026-10)
+   A free-floating, draggable window (NOT a modal: no backdrop scrim, so the
+   terminal stays live underneath) that hosts the full "walls" DepthCurve at a
+   large size. Chrome follows DESIGN_SYSTEM.md: a thin --head drag header, a
+   light-grey window outline like a popup (§10), and the §10 popup exit button
+   for its close control (header-colour fill, lone --exit-x mark).
+   ========================================================================== */
+.depth-overlay {
+    position: fixed;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    width: min(1040px, 94vw);
+    height: min(560px, 82vh);
+    background: var(--body);
+    border: 1px solid #808080;
+    border-radius: 4px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+}
+
+/* Very thin drag header: the --head band, title left, close right. cursor:grab marks
+   it as the drag handle; the whole strip drags except the close button. */
+.depth-overlay__head {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+    padding: 0 2px 0 10px;
+    background: var(--head);
+    border-bottom: 1px solid #000000;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+/* Title takes the slack so the gear + close pin to the right (the gear's own
+   margin-left:auto also pushes the control cluster right). */
+.depth-overlay__title {
+    margin-right: auto;
+}
+/* The settings gear sits in the thin drag header but is not a drag grip. */
+.depth-overlay__head .term-gear {
+    margin-left: 0;
+}
+.depth-overlay__head:active {
+    cursor: grabbing;
+}
+.depth-overlay__title {
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+
+/* Close: the §10 popup exit button exactly — header-colour fill so it blends, the
+   lone mark a large × in --exit-x, sharp edges, brightening on hover. */
+.depth-overlay__close {
+    appearance: none;
+    flex-shrink: 0;
+    width: 22px;
+    height: 20px;
+    border: 0;
+    border-radius: 0;
+    background: var(--pop-head);
+    color: var(--exit-x);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.depth-overlay__close:hover {
+    color: #d40000;
+}
+
+/* Body hosts the full chart on the sunken well; the chart fills the width and the
+   DepthCurve svg scales to it. */
+.depth-overlay__body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    padding: 10px;
+    background: var(--well);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.depth-overlay__body--light {
+    background: #ffffff;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.14);
+    --well: #ffffff;
+    --hair: #d4d4d4;
+    --text: #222222;
+    --text-dim: #555555;
+    --faint: #8a8a8a;
+    --quote-bid: #1f6fe0;
+    --quote-ask: #d8382c;
+    --quote-bid-wash: rgba(31, 111, 224, 0.12);
+    --quote-ask-wash: rgba(216, 56, 44, 0.12);
+    --chart-ink: #111111;
+}
+.depth-overlay__body .depth-curve {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    background: transparent;
+    box-shadow: none;
+    margin: 0;
+}
+.depth-overlay__body .depth-curve__svg {
+    width: 100%;
+    height: 100%;
 }
 
 /* ==========================================================================

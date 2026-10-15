@@ -39,8 +39,7 @@ and the old blue-grey `--surface` palette is retired.
 |---|---|---|
 | `--body` | `#1b1b1b` | Panel body / working surface |
 | `--head` | `#2c2c2c` | Panel header band (dark grey) |
-| `--well` | `#0d0d0d` | Sunken input and quote wells; also the universal field colour |
-| `--zebra` | `#181818` | Zebra stripe on table rows (kept dark, never too light) |
+| `--well` | `#0d0d0d` | Sunken input and quote wells |
 | `--raise-top` | `#343434` | Raised control, top of bevel |
 | `--raise-bot` | `#262626` | Raised control, bottom of bevel |
 | `--line` | `#333333` | Hairline divider / border |
@@ -58,20 +57,6 @@ and the old blue-grey `--surface` palette is retired.
 | `--bid` | `#5a96ff` | Bid quote value (legible blue on black) |
 | `--ask` | `#ff6a5a` | Ask quote value (legible red on black) |
 | `--focus` | `#5aa6ff` | Focus ring |
-
-### Popup palette (see section 10)
-| Token | Hex | Use |
-|---|---|---|
-| `--pop-head` | `#333333` | Popup header band (darker of the two) |
-| `--pop-body` | `#434343` | Popup body (lighter; both lighter than the panels) |
-| `--exit-x` | `#af0000` | The `×` glyph on a popup's exit button |
-
-### Silver action control
-| Token | Hex | Use |
-|---|---|---|
-| `--silver-top` | `#d6d6d6` | Silver button, top of gradient (lighter grey) |
-| `--silver-bot` | `#9e9e9e` | Silver button, bottom of gradient (darker grey) |
-| `--silver-edge` | `#7d7d7d` | Silver button border |
 
 **Convention:** buy/bid read blue, sell/ask read red. The action buttons use pure
 `#0000ff` / `#ff0000`; quote text uses the lighter, legible variants so prices stay
@@ -163,11 +148,9 @@ This is the heart of the look. Apply it consistently.
 
 1. **Order entry — done.** The reference implementation. Tokens currently scoped as
    `--oe-*` in `src/styles/terminal.css`.
-2. **Open-orders blotter — done.** See section 9 (table panels) and section 10
-   (popups); both are now locked blueprints for the rest of the terminal.
-3. **Next panels** (depth ladder, trade tape, session stats, header) are brought in
-   one at a time.
-4. During rollout, promote `--oe-*` to terminal-wide `:root` tokens, retire the
+2. **Next panels** (depth ladder, trade tape, open-orders blotter, session stats,
+   header) are brought in one at a time.
+3. During rollout, promote `--oe-*` to terminal-wide `:root` tokens, retire the
    legacy blue-grey `--surface` palette and the slate-retheme layer panel by panel,
    and settle the blue-vs-green bid question once for the whole terminal.
 
@@ -183,65 +166,3 @@ This is the heart of the look. Apply it consistently.
   re-skin elements after the base rules. Remove a panel's rules from it as you rework
   that panel.
 - Preserve behaviour and test ids when restyling; the rework is visual only.
-
----
-
-## 9. Table panels — LOCKED
-
-Settled on the open-orders blotter. **Every panel that renders a table of rows uses
-this exact colour scheme**, so tables read as one family across the terminal.
-
-- **Panel header band:** `--head` (`#2c2c2c`). Same as every panel, globally. The
-  panel header carries no status counters or badges — title only.
-- **Column-header row** (the `thead`): sits on the **panel body** colour `--body`
-  (`#1b1b1b`), with a 1px `--line` bottom hairline. Labels are uppercase, bright
-  white `#ffffff`, **weight 600**, ~9px, letter-spacing ~0.08em.
-- **Table body:** the sunken **well** colour `--well` (`#0d0d0d`), with the well's
-  inset shadow. The body fills the panel all the way down; empty space below the rows
-  is well, not a separate surface.
-- **Zebra striping:** alternate rows take `--zebra` (`#181818`). Kept deliberately
-  dark — the lighter stripe must never be too light.
-- **Row data text:** bright white `#ffffff`, **normal weight** (not bold like the
-  column labels). Numbers, IDs, and timestamps are `IBM Plex Mono`, tabular, numeric
-  columns right-aligned.
-- **Side cell (BUY / SELL):** the one coloured data cell, per the bid/ask convention
-  (§2): BUY reads blue (`--quote-bid` `#5a96ff`), SELL red (`--quote-ask` `#ff6a5a`),
-  each on a translucent wash of the same hue (`--quote-bid-wash` / `--quote-ask-wash`).
-  Zebra and row hover sit on the row, not the cell, so the stripe shows through the
-  tinted Side cell rather than flattening it.
-- **Per-row actions** (e.g. a row Cancel button) are small raised charcoal controls:
-  `linear-gradient(var(--raise-top), var(--raise-bot))`, 1px `--line-strong` border,
-  3px radius, a subtle top glint, `--text` label at normal weight.
-- **Panel-level menu** (e.g. the blotter's cancel menu): a **tiny caret in the header
-  band**, right-aligned, that blends into `--head` — only the `▾` glyph contrasts
-  (`--text`). It opens the standard white dropdown (section 5) downward. The option
-  list is all caps where it names an action (`CANCEL BY ID`).
-
----
-
-## 10. Popups — LOCKED (global blueprint)
-
-Settled on the blotter's "Cancel by Order ID" dialog, modelled on the TWS order-
-confirmation window. **Every popup across the terminal looks like this.**
-
-- **Two-tone, lighter than the panels.** Header `--pop-head` (`#333333`) over body
-  `--pop-body` (`#434343`). The **header is darker than the body** (the inverse of a
-  panel card), and both are lighter shades than the charcoal panels.
-- **Light-grey outline.** A 1px light-grey border (`#808080`) around the whole modal,
-  so it reads as a raised window lifted off the dark terminal.
-- **Thin black divider.** A 1px black (`#000000`) rule separates the header band from
-  the body.
-- **Sharp edges everywhere.** Radius `0` on the modal, its header, the exit button,
-  and all input fields. The **one exception is the primary action button**, which
-  keeps its `3px` radius.
-- **Exit button, top-right.** Background is the header colour so the button itself
-  blends in; the only mark is a large `×` in `--exit-x` (`#af0000`).
-- **All popup text** is `#ffffff` at **normal weight** (including the title).
-- **Input fields** use the universal well colour `--well` (`#0d0d0d`), sunken, with
-  the inset shadow and a 1px `--line` border; mono tabular text.
-- **Primary action button** (e.g. "Confirm Cancel"): the **silver control** —
-  `linear-gradient(var(--silver-top), var(--silver-bot))` running **lighter grey at
-  the top to darker grey at the bottom**, 1px `--silver-edge` border, bold black
-  uppercase label (same weight as the order-entry Submit / BUY / SELL buttons), 3px
-  radius, and a light lift shadow: `inset 0 1px 0 rgba(255,255,255,.55), 0 2px 8px
-  rgba(0,0,0,.5)`. Keep it small; do not stretch it full width.

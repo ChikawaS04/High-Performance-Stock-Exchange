@@ -15,12 +15,17 @@ const qty = () => screen.getByTestId("qty-input") as HTMLInputElement;
 // The time-in-force and order-type controls are <select> dropdowns (ticket
 // redesign). Drive them with a change event carrying the option value; the
 // option values are the same wire codes the segmented buttons carried before.
-const tifSelect = () => screen.getByTestId("tif-select") as HTMLSelectElement;
-const ordtypeSelect = () => screen.getByTestId("ordtype-select") as HTMLSelectElement;
-const setTif = (value: "GTC" | "IOC" | "FOK") =>
-    fireEvent.change(tifSelect(), { target: { value } });
-const setOrdType = (value: "LIMIT" | "PEG_MID") =>
-    fireEvent.change(ordtypeSelect(), { target: { value } });
+const tifTrigger = () => screen.getByTestId("tif-trigger") as HTMLButtonElement;
+const ordtypeTrigger = () => screen.getByTestId("ordtype-trigger") as HTMLButtonElement;
+// TIF and Type are custom dropdowns now: click the trigger, then mouse-down an option.
+const setTif = (value: "GTC" | "IOC" | "FOK") => {
+    fireEvent.click(tifTrigger());
+    fireEvent.mouseDown(screen.getByTestId(`tif-opt-${value}`));
+};
+const setOrdType = (value: "LIMIT" | "PEG_MID") => {
+    fireEvent.click(ordtypeTrigger());
+    fireEvent.mouseDown(screen.getByTestId(`ordtype-opt-${value}`));
+};
 
 describe("validateOrderInput", () => {
     it("accepts a valid price and quantity, returning integer units and an int qty", () => {
@@ -130,7 +135,6 @@ describe("<OrderEntry />", () => {
         expect((screen.getByTestId("order-submit") as HTMLButtonElement).disabled).toBe(true);
         expect((screen.getByTestId("chip-bid") as HTMLButtonElement).disabled).toBe(true);
         expect((screen.getByTestId("nudge-up") as HTMLButtonElement).disabled).toBe(true);
-        expect((screen.getByTestId("qty-preset-100") as HTMLButtonElement).disabled).toBe(true);
 
         fireEvent.click(screen.getByTestId("order-submit"));
         expect(onSubmit).not.toHaveBeenCalled();
@@ -148,7 +152,7 @@ describe("<OrderEntry /> time in force (P14-6)", () => {
         const onSubmit = vi.fn();
         render(<OrderEntry onSubmit={onSubmit} />);
 
-        expect(tifSelect().value).toBe("GTC");
+        expect(tifTrigger().textContent).toContain("GTC");
         fillValidOrder();
         expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ tif: "GTC" }));
     });
@@ -158,7 +162,7 @@ describe("<OrderEntry /> time in force (P14-6)", () => {
         render(<OrderEntry onSubmit={onSubmit} />);
 
         setTif("IOC");
-        expect(tifSelect().value).toBe("IOC");
+        expect(tifTrigger().textContent).toContain("IOC");
         fillValidOrder();
         expect(onSubmit).toHaveBeenLastCalledWith(
             expect.objectContaining({ tif: "IOC", ordType: "LIMIT", displayQty: 0 }),
@@ -176,13 +180,13 @@ describe("<OrderEntry /> time in force (P14-6)", () => {
         setTif("FOK");
         fillValidOrder();
         // Only price and qty clear; side and time in force persist for repeat fires.
-        expect(tifSelect().value).toBe("FOK");
+        expect(tifTrigger().textContent).toContain("FOK");
         expect(price().value).toBe("");
     });
 
     it("disables the time-in-force control when the ticket is disabled", () => {
         render(<OrderEntry onSubmit={vi.fn()} disabled />);
-        expect(tifSelect().disabled).toBe(true);
+        expect(tifTrigger().disabled).toBe(true);
     });
 });
 
@@ -263,18 +267,19 @@ describe("<OrderEntry /> tick nudges (P7-7)", () => {
     });
 });
 
-describe("<OrderEntry /> quantity presets (P7-7)", () => {
-    it("fills the quantity when the field is empty", () => {
+describe("<OrderEntry /> quantity quick-pick combobox", () => {
+    it("opens the pick-list on focus and fills the quantity on select", () => {
         render(<OrderEntry onSubmit={vi.fn()} />);
-        fireEvent.click(screen.getByTestId("qty-preset-100"));
-        expect(qty().value).toBe("100");
+        expect(screen.queryByTestId("qty-opt-140")).toBeNull();
+        fireEvent.focus(qty());
+        fireEvent.mouseDown(screen.getByTestId("qty-opt-140")); // 10, 50, 100, then +40
+        expect(qty().value).toBe("140");
     });
 
-    it("does not clobber a typed quantity", () => {
+    it("still allows manual entry", () => {
         render(<OrderEntry onSubmit={vi.fn()} />);
-        fireEvent.change(qty(), { target: { value: "7" } });
-        fireEvent.click(screen.getByTestId("qty-preset-500"));
-        expect(qty().value).toBe("7");
+        fireEvent.change(qty(), { target: { value: "275" } });
+        expect(qty().value).toBe("275");
     });
 });
 
@@ -391,7 +396,7 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
 
     it("defaults the order type to Limit", () => {
         render(<OrderEntry onSubmit={vi.fn()} />);
-        expect(ordtypeSelect().value).toBe("LIMIT");
+        expect(ordtypeTrigger().textContent).toContain("LIMIT");
     });
 
     it("disables the price input, chips and nudges and shows MID when Mid peg is selected", () => {
@@ -464,6 +469,6 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
 
     it("disables the order-type control when the ticket is disabled", () => {
         render(<OrderEntry onSubmit={vi.fn()} disabled />);
-        expect(ordtypeSelect().disabled).toBe(true);
+        expect(ordtypeTrigger().disabled).toBe(true);
     });
 });

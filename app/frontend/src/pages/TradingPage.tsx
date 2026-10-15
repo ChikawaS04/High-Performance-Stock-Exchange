@@ -41,6 +41,7 @@ import type { OrderIntent } from "../protocol/messages";
 
 import { DepthLadder } from "../components/DepthLadder";
 import { DepthCurve } from "../components/DepthCurve";
+import { DepthChartOverlay } from "../components/DepthChartOverlay";
 import { TradeTape } from "../components/TradeTape";
 import { OrderEntry } from "../components/OrderEntry";
 import type { OrderEntryHandle } from "../components/OrderEntry";
@@ -60,6 +61,7 @@ export function TradingPage({
 }: TradingPageProps) {
     const connected = state.connection === "open";
     const [inspectorOpen, setInspectorOpen] = useState(false);
+    const [depthMaxed, setDepthMaxed] = useState(false);
     const entryRef = useRef<OrderEntryHandle>(null);
 
     return (
@@ -79,18 +81,18 @@ export function TradingPage({
             </div>
 
             <main className="workspace">
-                <div className="workspace__col">
-                    <section
-                        tabIndex={-1}
-                        className={`panel panel--ladder${connected ? "" : " panel--stale"}`}
-                        aria-label="Order book"
-                    >
-                        <DepthLadder
-                            book={state.book}
-                            lastPx={state.tape.length > 0 ? state.tape[0].pricePx : -1}
-                        />
-                    </section>
+                <section
+                    tabIndex={-1}
+                    className={`panel panel--ladder${connected ? "" : " panel--stale"}`}
+                    aria-label="Order book"
+                >
+                    <DepthLadder
+                        book={state.book}
+                        lastPx={state.tape.length > 0 ? state.tape[0].pricePx : -1}
+                    />
+                </section>
 
+                <div className="workspace__col">
                     <section
                         tabIndex={-1}
                         className={`panel panel--depthchart${connected ? "" : " panel--stale"}`}
@@ -98,17 +100,36 @@ export function TradingPage({
                     >
                         <div className="depth-chart__head">
                             <span className="depth-chart__panel-title">Depth Chart</span>
+                            <button
+                                type="button"
+                                className="depth-chart__maximize"
+                                data-testid="depth-chart-maximize"
+                                onClick={() => setDepthMaxed(true)}
+                                aria-label="Maximize depth chart"
+                            >
+                                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                                    <path
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"
+                                    />
+                                </svg>
+                            </button>
                         </div>
                         <DepthCurve
                             book={state.book}
                             onPriceSelect={(pricePx) => entryRef.current?.setPrice(pricePx)}
+                            variant="compact"
                         />
                     </section>
-                </div>
 
-                <section tabIndex={-1} className="panel panel--tape" aria-label="Trade tape">
-                    <TradeTape tape={state.tape} />
-                </section>
+                    <section tabIndex={-1} className="panel panel--tape" aria-label="Trade tape">
+                        <TradeTape tape={state.tape} />
+                    </section>
+                </div>
 
                 <div className="workspace__col">
                     <section tabIndex={-1} className="panel panel--entry" aria-label="Order entry">
@@ -130,6 +151,13 @@ export function TradingPage({
                     </section>
                 </div>
             </main>
+
+            <DepthChartOverlay
+                open={depthMaxed}
+                onClose={() => setDepthMaxed(false)}
+                book={state.book}
+                onPriceSelect={(pricePx) => entryRef.current?.setPrice(pricePx)}
+            />
 
             <FixInspector
                 entries={state.inspectorLog}

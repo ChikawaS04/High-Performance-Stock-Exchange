@@ -6,10 +6,13 @@
   <component name="ChangeListManager">
     <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/DESIGN_SYSTEM.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/DESIGN_SYSTEM.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/tradeTape.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tradeTape.test.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -400,7 +403,11 @@
       <workItem from="1791660462506" duration="1288000" />
       <workItem from="1791751043037" duration="275000" />
       <workItem from="1791757432608" duration="22084000" />
-      <workItem from="1791855893950" duration="3984000" />
+      <workItem from="1791855893950" duration="7465000" />
+      <workItem from="1791917357927" duration="865000" />
+      <workItem from="1791928589364" duration="9472000" />
+      <workItem from="1791956954140" duration="2256000" />
+      <workItem from="1792014655057" duration="4167000" />
     </task>
     <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
       <option name="closed" value="true" />

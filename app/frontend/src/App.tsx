@@ -106,6 +106,12 @@ export default function App() {
                     }
                 />
             </Routes>
+
+            <footer className="terminal-footer" aria-label="Terminal status bar">
+                <span className="terminal-footer__item terminal-footer__settings">
+                    Settings
+                </span>
+            </footer>
         </div>
     );
 }

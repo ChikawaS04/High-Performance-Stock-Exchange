@@ -141,6 +141,16 @@ export const TICK_PX = 100;
 /** Round-lot quantity presets. */
 export const QTY_PRESETS = [10, 50, 100, 500] as const;
 
+/**
+ * Quantity quick-pick list for the Qty combobox: 10, 50, 100, then +40 up to 980.
+ * Manual entry is still allowed; this is only the dropdown's suggestions.
+ */
+export const QTY_OPTIONS: readonly number[] = (() => {
+    const out: number[] = [10, 50, 100];
+    for (let q = 140; q <= 980; q += 40) out.push(q);
+    return out;
+})();
+
 /** The time-in-force options, in the order the dropdown renders them. */
 export const TIF_OPTIONS = ["GTC", "IOC", "FOK"] as const satisfies readonly TimeInForce[];
 
@@ -197,6 +207,115 @@ export interface OrderEntryProps {
     readonly bestBidPx?: number;
     /** Live best ask in units for the Ask chip; -1 (default) disables it. */
     readonly bestAskPx?: number;
+}
+
+type MenuOption = { readonly value: string; readonly label: string };
+
+const TIF_MENU: readonly MenuOption[] = TIF_OPTIONS.map((o) => ({ value: o, label: o }));
+const ORD_TYPE_MENU: readonly MenuOption[] = ORD_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
+const QTY_MENU: readonly MenuOption[] = QTY_OPTIONS.map((n) => ({ value: String(n), label: String(n) }));
+
+interface FieldMenuProps {
+    readonly testId: string;
+    readonly ariaLabel: string;
+    readonly options: readonly MenuOption[];
+    readonly value: string;
+    readonly editable?: boolean;
+    readonly numeric?: boolean;
+    readonly placeholder?: string;
+    readonly inputMode?: "numeric" | "decimal";
+    readonly disabled?: boolean;
+    readonly triggerLabel?: string;
+    readonly onSelect: (value: string) => void;
+    readonly onInput?: (text: string) => void;
+}
+
+/**
+ * Standard dropdown / combobox for every order-entry picker (TIF, Type, Qty,
+ * Display). One white scroll pick-list (no visible scrollbar) opens from either a
+ * white button trigger (single-select: TIF, Type) or a sunken editable input
+ * (combobox with manual entry: Qty, Display). Selecting is onMouseDown +
+ * preventDefault so the trigger/input keeps focus; blur closes. See DESIGN_SYSTEM.md.
+ */
+function FieldMenu({
+    testId,
+    ariaLabel,
+    options,
+    value,
+    editable = false,
+    numeric = false,
+    placeholder,
+    inputMode,
+    disabled = false,
+    triggerLabel,
+    onSelect,
+    onInput,
+}: FieldMenuProps) {
+    const [open, setOpen] = useState(false);
+    const close = (): void => setOpen(false);
+    const optClass = `order-entry__opt${numeric ? " order-entry__opt--num" : ""}`;
+    return (
+        <div className="order-entry__combo">
+            {editable ? (
+                <input
+                    className="order-entry__input"
+                    type="text"
+                    inputMode={inputMode}
+                    placeholder={placeholder}
+                    value={value}
+                    data-testid={`${testId}-input`}
+                    aria-label={ariaLabel}
+                    autoComplete="off"
+                    disabled={disabled}
+                    onChange={(e) => onInput?.(e.target.value)}
+                    onFocus={() => setOpen(true)}
+                    onClick={() => setOpen(true)}
+                    onBlur={close}
+                    onKeyDown={(e) => {
+                        if (e.key === "Escape") close();
+                    }}
+                />
+            ) : (
+                <button
+                    type="button"
+                    className="order-entry__trigger"
+                    data-testid={`${testId}-trigger`}
+                    aria-haspopup="listbox"
+                    aria-expanded={open}
+                    aria-label={ariaLabel}
+                    disabled={disabled}
+                    onClick={() => setOpen((o) => !o)}
+                    onBlur={close}
+                    onKeyDown={(e) => {
+                        if (e.key === "Escape") close();
+                    }}
+                >
+                    <span className="order-entry__trigger-val">{triggerLabel ?? value}</span>
+                </button>
+            )}
+            <span className="order-entry__caret" aria-hidden="true">▾</span>
+            {open && !disabled ? (
+                <ul className="order-entry__menu" role="listbox" aria-label={`${ariaLabel} options`}>
+                    {options.map((o) => (
+                        <li
+                            key={o.value}
+                            role="option"
+                            aria-selected={value === o.value}
+                            className={optClass}
+                            data-testid={`${testId}-opt-${o.value}`}
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                onSelect(o.value);
+                                close();
+                            }}
+                        >
+                            {o.label}
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
+        </div>
+    );
 }
 
 export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function OrderEntry(
@@ -289,12 +408,8 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
         applyPrice(nudgePx(current, steps));
     };
 
-    const preset = (value: number): void => {
-        if (disabled) return;
-        setQtyInput((q) => applyPreset(q, value));
-    };
-
     const isPeg = ordType === "PEG_MID";
+    const ordTypeLabel = ORD_TYPE_OPTIONS.find((o) => o.value === ordType)?.label ?? ordType;
     const midPx = midChipPx(bestBidPx, bestAskPx);
     // The iceberg Display slice is meaningful only for a resting (GTC) limit order
     // (D8); a peg or an IOC/FOK order hides it (P14-8).
@@ -369,41 +484,31 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             </div>
 
             <div className="order-entry__controls">
-                <label className="order-entry__control order-entry__control--tif">
+                <div className="order-entry__control order-entry__control--tif">
                     <span className="order-entry__label">TIF</span>
-                    <select
-                        className="order-entry__select"
-                        data-testid="tif-select"
-                        aria-label="Time in force"
+                    <FieldMenu
+                        testId="tif"
+                        ariaLabel="Time in force"
+                        options={TIF_MENU}
                         value={tif}
+                        triggerLabel={tif}
                         disabled={disabled}
-                        onChange={(e) => setTif(e.target.value as TimeInForce)}
-                    >
-                        {TIF_OPTIONS.map((option) => (
-                            <option key={option} value={option}>
-                                {option}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                        onSelect={(v) => setTif(v as TimeInForce)}
+                    />
+                </div>
 
-                <label className="order-entry__control order-entry__control--ordtype">
+                <div className="order-entry__control order-entry__control--ordtype">
                     <span className="order-entry__label">Type</span>
-                    <select
-                        className="order-entry__select"
-                        data-testid="ordtype-select"
-                        aria-label="Order type"
+                    <FieldMenu
+                        testId="ordtype"
+                        ariaLabel="Order type"
+                        options={ORD_TYPE_MENU}
                         value={ordType}
+                        triggerLabel={ordTypeLabel}
                         disabled={disabled}
-                        onChange={(e) => setOrdType(e.target.value as OrdType)}
-                    >
-                        {ORD_TYPE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                                {option.label}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                        onSelect={(v) => setOrdType(v as OrdType)}
+                    />
+                </div>
 
                 <div className="order-entry__control order-entry__control--price">
                     <span className="order-entry__label">Price</span>
@@ -447,62 +552,52 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 <div className="order-entry__qtygroup">
                 <div className="order-entry__control order-entry__control--qty">
                     <span className="order-entry__label">Qty</span>
-                    <input
-                        className="order-entry__input"
-                        type="text"
-                        inputMode="numeric"
-                        placeholder="0"
+                    <FieldMenu
+                        testId="qty"
+                        ariaLabel="Quantity"
+                        options={QTY_MENU}
                         value={qtyInput}
-                        data-testid="qty-input"
-                        aria-label="Quantity"
+                        editable
+                        numeric
+                        placeholder="0"
+                        inputMode="numeric"
                         disabled={disabled}
-                        onChange={(e) => setQtyInput(e.target.value)}
+                        onSelect={setQtyInput}
+                        onInput={setQtyInput}
                     />
-                    <div className="order-entry__presets" role="group" aria-label="Quantity presets">
-                        {QTY_PRESETS.map((p) => (
-                            <button
-                                key={p}
-                                type="button"
-                                className="order-entry__preset"
-                                data-testid={`qty-preset-${p}`}
-                                disabled={disabled}
-                                onClick={() => preset(p)}
-                            >
-                                {p}
-                            </button>
-                        ))}
-                    </div>
                 </div>
 
                 {showDisplay ? (
                     <div className="order-entry__control order-entry__control--display">
                         <span className="order-entry__label">Display</span>
-                        <input
-                            className="order-entry__input"
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="0"
+                        <FieldMenu
+                            testId="display"
+                            ariaLabel="Display quantity"
+                            options={QTY_MENU}
                             value={displayInput}
-                            data-testid="display-input"
-                            aria-label="Display quantity"
+                            editable
+                            numeric
+                            placeholder="0"
+                            inputMode="numeric"
                             disabled={disabled}
-                            onChange={(e) => setDisplayInput(e.target.value)}
+                            onSelect={setDisplayInput}
+                            onInput={setDisplayInput}
                         />
                     </div>
                 ) : null}
                 </div>
-            </div>
 
-            <button
-                type="button"
-                className="order-entry__submit"
-                data-side={side === "BUY" ? "buy" : "sell"}
-                data-testid="order-submit"
-                disabled={disabled}
-                onClick={submit}
-            >
-                Submit {side}
-            </button>
+                <button
+                    type="button"
+                    className="order-entry__submit"
+                    data-side={side === "BUY" ? "buy" : "sell"}
+                    data-testid="order-submit"
+                    disabled={disabled}
+                    onClick={submit}
+                >
+                    Submit {side}
+                </button>
+            </div>
 
             {error !== null ? (
                 <div className="order-entry__error" role="alert" data-testid="order-entry-error">
