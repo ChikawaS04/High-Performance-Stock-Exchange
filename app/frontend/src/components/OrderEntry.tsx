@@ -318,6 +318,114 @@ function FieldMenu({
     );
 }
 
+/**
+ * Order confirmation popup (DESIGN_SYSTEM.md section 10). Opens on Submit, before any
+ * order is sent, showing the resolved order in the scope we actually have: side, qty,
+ * type, price or Mid, time in force, the iceberg display, and an estimated value for a
+ * limit. "Send Order" dispatches it; "Cancel" and the exit drop it. Two-tone popup
+ * chrome with a silver primary action and all-white text, the same blueprint as the
+ * blotter's Cancel-by-ID dialog.
+ */
+function OrderConfirm({
+    intent,
+    onSend,
+    onCancel,
+}: {
+    readonly intent: OrderIntent;
+    readonly onSend: () => void;
+    readonly onCancel: () => void;
+}) {
+    const isPeg = intent.ordType === "PEG_MID";
+    const priceText = isPeg ? "Mid" : formatPrice(intent.pricePx);
+    const typeText = isPeg ? "MIDPOINT PEG" : "LIMIT";
+    const estValue = isPeg
+        ? null
+        : ((intent.pricePx * intent.qty) / 10000).toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+          });
+    return (
+        <div
+            className="order-confirm__overlay"
+            data-testid="order-confirm-overlay"
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) onCancel();
+            }}
+        >
+            <div
+                className="order-confirm__modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="order-confirm-title"
+            >
+                <div className="order-confirm__head">
+                    <span className="order-confirm__title" id="order-confirm-title">
+                        Order Confirmation
+                    </span>
+                    <button
+                        type="button"
+                        className="order-confirm__exit"
+                        aria-label="Close"
+                        data-testid="order-confirm-close"
+                        onClick={onCancel}
+                    >
+                        &times;
+                    </button>
+                </div>
+                <div className="order-confirm__body">
+                    <div className="order-confirm__headline" data-testid="order-confirm-headline">
+                        {intent.side} {intent.qty}
+                    </div>
+                    <dl className="order-confirm__rows">
+                        <div className="order-confirm__row">
+                            <dt>Order type</dt>
+                            <dd>{typeText}</dd>
+                        </div>
+                        <div className="order-confirm__row">
+                            <dt>Price</dt>
+                            <dd className="order-confirm__num">{priceText}</dd>
+                        </div>
+                        <div className="order-confirm__row">
+                            <dt>Time in force</dt>
+                            <dd>{intent.tif}</dd>
+                        </div>
+                        {intent.displayQty > 0 ? (
+                            <div className="order-confirm__row">
+                                <dt>Display</dt>
+                                <dd className="order-confirm__num">{intent.displayQty}</dd>
+                            </div>
+                        ) : null}
+                        {estValue !== null ? (
+                            <div className="order-confirm__row">
+                                <dt>Est. value</dt>
+                                <dd className="order-confirm__num">{estValue} USD</dd>
+                            </div>
+                        ) : null}
+                    </dl>
+                    <div className="order-confirm__actions">
+                        <button
+                            type="button"
+                            className="order-confirm__cancel"
+                            data-testid="order-confirm-cancel"
+                            onClick={onCancel}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="order-confirm__send"
+                            data-testid="order-confirm-send"
+                            onClick={onSend}
+                        >
+                            Send Order
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function OrderEntry(
     { onSubmit, disabled = false, bestBidPx = -1, bestAskPx = -1 },
     ref,
@@ -329,6 +437,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
     const [qtyInput, setQtyInput] = useState("");
     const [displayInput, setDisplayInput] = useState("");
     const [error, setError] = useState<string | null>(null);
+    const [pendingIntent, setPendingIntent] = useState<OrderIntent | null>(null);
 
     // The one seam the chips, the nudges, and (via the ref) the curve all feed: it
     // writes the same priceInput the user types, so single-source-of-truth holds.
@@ -353,7 +462,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 return;
             }
             setError(null);
-            onSubmit({
+            setPendingIntent({
                 side,
                 ordType: "PEG_MID",
                 tif,
@@ -361,9 +470,6 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
                 qty: qtyResult.qty,
                 displayQty: 0,
             });
-            // Clear only the quantity; keep side, time in force, order type, and the
-            // stashed limit price / display for the next order.
-            setQtyInput("");
             return;
         }
         const result = validateOrderInput(priceInput, qtyInput);
@@ -385,8 +491,9 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             displayQty = display.displayQty;
         }
         setError(null);
-        // A single resolved intent (P14-6, decision H).
-        onSubmit({
+        // A single resolved intent (P14-6, decision H), staged for the confirmation
+        // popup; it is only sent when the trader confirms (confirmSend).
+        setPendingIntent({
             side,
             ordType: "LIMIT",
             tif,
@@ -394,12 +501,25 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             qty: result.qty,
             displayQty,
         });
-        // Clear price, qty and display for the next order; keep side and time in
-        // force for repeat fires.
-        setPriceInput("");
-        setQtyInput("");
-        setDisplayInput("");
     };
+
+    // "Send Order" in the confirmation popup dispatches the staged intent, then clears
+    // the ticket (price/qty/display for a limit, qty for a peg) keeping side + time in
+    // force for the next order. "Cancel" just drops the staged intent.
+    const confirmSend = (): void => {
+        if (pendingIntent === null) return;
+        onSubmit(pendingIntent);
+        if (pendingIntent.ordType === "PEG_MID") {
+            setQtyInput("");
+        } else {
+            setPriceInput("");
+            setQtyInput("");
+            setDisplayInput("");
+        }
+        setPendingIntent(null);
+    };
+
+    const cancelSend = (): void => setPendingIntent(null);
 
     const nudge = (steps: number): void => {
         if (disabled) return;
@@ -416,6 +536,7 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
     const showDisplay = ordType === "LIMIT" && tif === "GTC";
 
     return (
+        <>
         <div className="order-entry">
             <div className="order-entry__header">Order entry</div>
             <div className="order-entry__body">
@@ -606,6 +727,11 @@ export const OrderEntry = forwardRef<OrderEntryHandle, OrderEntryProps>(function
             ) : null}
             </div>
         </div>
+
+        {pendingIntent !== null ? (
+            <OrderConfirm intent={pendingIntent} onSend={confirmSend} onCancel={cancelSend} />
+        ) : null}
+        </>
     );
 });
 

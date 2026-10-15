@@ -68,7 +68,6 @@ export function PriceChartPage({
     return (
         <main className="chart-page" aria-label="Price chart">
             <section tabIndex={-1} className="chart-page__region chart-page__region--chart" aria-label="Chart">
-                <h2 className="panel__title">Price chart</h2>
                 <PriceChart
                     tape={state.tape}
                     sessionOpenPx={state.sessionOpenPx}

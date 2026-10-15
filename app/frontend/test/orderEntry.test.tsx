@@ -26,6 +26,13 @@ const setOrdType = (value: "LIMIT" | "PEG_MID") => {
     fireEvent.click(ordtypeTrigger());
     fireEvent.mouseDown(screen.getByTestId(`ordtype-opt-${value}`));
 };
+// Submit now stages the order into a confirmation popup; click submit, then confirm
+// "Send Order" when the popup appears (an invalid or disabled submit opens none).
+const submitOrder = () => {
+    fireEvent.click(screen.getByTestId("order-submit"));
+    const send = screen.queryByTestId("order-confirm-send");
+    if (send) fireEvent.click(send);
+};
 
 describe("validateOrderInput", () => {
     it("accepts a valid price and quantity, returning integer units and an int qty", () => {
@@ -65,7 +72,7 @@ describe("<OrderEntry />", () => {
 
         fireEvent.change(price(), { target: { value: "150.25" } });
         fireEvent.change(qty(), { target: { value: "10" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).toHaveBeenCalledTimes(1);
         expect(onSubmit).toHaveBeenCalledWith({
@@ -85,7 +92,7 @@ describe("<OrderEntry />", () => {
         fireEvent.click(screen.getByTestId("side-sell"));
         fireEvent.change(price(), { target: { value: "1.00" } });
         fireEvent.change(qty(), { target: { value: "2" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).toHaveBeenCalledWith({
             side: "SELL",
@@ -103,7 +110,7 @@ describe("<OrderEntry />", () => {
 
         fireEvent.change(price(), { target: { value: "150.255" } });
         fireEvent.change(qty(), { target: { value: "10" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).not.toHaveBeenCalled();
         expect(screen.getByTestId("order-entry-error").textContent).toMatch(/price/i);
@@ -115,7 +122,7 @@ describe("<OrderEntry />", () => {
 
         fireEvent.change(price(), { target: { value: "150.00" } });
         fireEvent.change(qty(), { target: { value: "5" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(price().value).toBe("");
         expect(qty().value).toBe("");
@@ -136,7 +143,7 @@ describe("<OrderEntry />", () => {
         expect((screen.getByTestId("chip-bid") as HTMLButtonElement).disabled).toBe(true);
         expect((screen.getByTestId("nudge-up") as HTMLButtonElement).disabled).toBe(true);
 
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
         expect(onSubmit).not.toHaveBeenCalled();
     });
 });
@@ -145,7 +152,7 @@ describe("<OrderEntry /> time in force (P14-6)", () => {
     const fillValidOrder = () => {
         fireEvent.change(price(), { target: { value: "150.00" } });
         fireEvent.change(qty(), { target: { value: "5" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
     };
 
     it("defaults to GTC and carries it in the intent", () => {
@@ -210,7 +217,7 @@ describe("<OrderEntry /> reference chips (P7-7)", () => {
 
         fireEvent.change(qty(), { target: { value: "10" } });
         fireEvent.click(screen.getByTestId("chip-mid")); // even tick -> exact 1502500
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).toHaveBeenCalledWith({
             side: "BUY",
@@ -317,7 +324,7 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         fireEvent.change(price(), { target: { value: "150.00" } });
         fireEvent.change(qty(), { target: { value: "100" } });
         fireEvent.change(display(), { target: { value: "10" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).toHaveBeenCalledWith(
             expect.objectContaining({ ordType: "LIMIT", tif: "GTC", qty: 100, displayQty: 10 }),
@@ -330,7 +337,7 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
 
         fireEvent.change(price(), { target: { value: "150.00" } });
         fireEvent.change(qty(), { target: { value: "100" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ displayQty: 0 }));
     });
@@ -342,7 +349,7 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         fireEvent.change(price(), { target: { value: "150.00" } });
         fireEvent.change(qty(), { target: { value: "100" } });
         fireEvent.change(display(), { target: { value: "100" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ displayQty: 0 }));
     });
@@ -354,7 +361,7 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         fireEvent.change(price(), { target: { value: "150.00" } });
         fireEvent.change(qty(), { target: { value: "100" } });
         fireEvent.change(display(), { target: { value: "150" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).not.toHaveBeenCalled();
         expect(screen.getByTestId("order-entry-error").textContent).toMatch(/display/i);
@@ -370,7 +377,7 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         // Switch to IOC: the field unmounts and its value is ignored, so a valid
         // order still sends with no iceberg rather than being blocked.
         setTif("IOC");
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(onSubmit).toHaveBeenCalledTimes(1);
         expect(onSubmit).toHaveBeenCalledWith(
@@ -384,7 +391,7 @@ describe("<OrderEntry /> iceberg display (P14-8)", () => {
         fireEvent.change(price(), { target: { value: "150.00" } });
         fireEvent.change(qty(), { target: { value: "100" } });
         fireEvent.change(display(), { target: { value: "10" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
 
         expect(display().value).toBe("");
     });
@@ -423,7 +430,7 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
         render(<OrderEntry onSubmit={onSubmit} />);
         setOrdType("PEG_MID");
         fireEvent.change(pegQty(), { target: { value: "100" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
         expect(onSubmit).toHaveBeenCalledTimes(1);
         expect(onSubmit).toHaveBeenCalledWith({
             side: "BUY",
@@ -441,7 +448,7 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
         setOrdType("PEG_MID");
         setTif("IOC");
         fireEvent.change(pegQty(), { target: { value: "5" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
         expect(onSubmit).toHaveBeenCalledWith(
             expect.objectContaining({ ordType: "PEG_MID", tif: "IOC", pricePx: -1, displayQty: 0 }),
         );
@@ -452,7 +459,7 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
         render(<OrderEntry onSubmit={onSubmit} />);
         setOrdType("PEG_MID");
         fireEvent.change(pegQty(), { target: { value: "0" } });
-        fireEvent.click(screen.getByTestId("order-submit"));
+        submitOrder();
         expect(onSubmit).not.toHaveBeenCalled();
         expect(screen.getByTestId("order-entry-error").textContent).toMatch(/quantity/i);
     });
@@ -470,5 +477,35 @@ describe("<OrderEntry /> midpoint peg (P14-10)", () => {
     it("disables the order-type control when the ticket is disabled", () => {
         render(<OrderEntry onSubmit={vi.fn()} disabled />);
         expect(ordtypeTrigger().disabled).toBe(true);
+    });
+});
+
+describe("<OrderEntry /> order confirmation (DESIGN_SYSTEM.md section 10)", () => {
+    const fillValid = () => {
+        fireEvent.change(price(), { target: { value: "150.00" } });
+        fireEvent.change(qty(), { target: { value: "5" } });
+    };
+
+    it("opens the confirmation on submit and sends only after Send Order", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+        fillValid();
+        fireEvent.click(screen.getByTestId("order-submit"));
+        expect(screen.queryByTestId("order-confirm-send")).not.toBeNull();
+        expect(onSubmit).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByTestId("order-confirm-send"));
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+        expect(screen.queryByTestId("order-confirm-send")).toBeNull();
+    });
+
+    it("cancels without submitting and keeps the ticket", () => {
+        const onSubmit = vi.fn();
+        render(<OrderEntry onSubmit={onSubmit} />);
+        fillValid();
+        fireEvent.click(screen.getByTestId("order-submit"));
+        fireEvent.click(screen.getByTestId("order-confirm-cancel"));
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(screen.queryByTestId("order-confirm-send")).toBeNull();
+        expect(qty().value).toBe("5");
     });
 });

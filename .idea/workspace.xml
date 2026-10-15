@@ -4,13 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Begun work on Phase 10">
+    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/DESIGN_SYSTEM.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/DESIGN_SYSTEM.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/DepthCurve.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/OrderEntry.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/format.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/format.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/priceSeries.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/priceSeries.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/orderEntry.test.tsx" afterDir="false" />
     </list>
@@ -20,7 +20,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="81" />
+    <option name="cachedIndexableFilesCount" value="96" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
@@ -120,58 +120,59 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;Application.DefaultConfig.executor&quot;: &quot;Run&quot;,
-    &quot;Application.Main.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.All in OrderBookDemo.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.EndToEndPipelineTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.EpochNanoClockTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.FixFrameDecoderTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.FixParserChecksumTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.FixParserPriceTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.FixParserScanTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.FixParserTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.InboundPipelineTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.MarketDataServiceTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.MatchingEngineBookReadTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.MatchingEngineHandlerSnapshotTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.MatchingEngineHandlerTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.MatchingEngineSnapshotTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.OrderGatewayTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.TradeLoggerTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.WebSocketFrameHandlerTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.WebSocketPublisherTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.WebSocketRoundTripTest.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.WebSocketServerTest.executor&quot;: &quot;Run&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;Vitest.TradeTape.executor&quot;: &quot;Run&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_directory_selection&quot;: &quot;C:/Users/ddavi/IdeaProjects/LimitOrderBook/src/test/java&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/ddavi/IdeaProjects/Limit-Order-Management-System&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;project.structure.last.edited&quot;: &quot;Modules&quot;,
-    &quot;project.structure.proportion&quot;: &quot;0.15&quot;,
-    &quot;project.structure.side.proportion&quot;: &quot;0.2&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.general&quot;,
-    &quot;ts.external.directory.path&quot;: &quot;C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.1.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "Application.DefaultConfig.executor": "Run",
+    "Application.Main.executor": "Run",
+    "Application.ParticipantSimMain.executor": "Run",
+    "JUnit.All in OrderBookDemo.executor": "Run",
+    "JUnit.EndToEndPipelineTest.executor": "Run",
+    "JUnit.EpochNanoClockTest.executor": "Run",
+    "JUnit.FixFrameDecoderTest.executor": "Run",
+    "JUnit.FixParserChecksumTest.executor": "Run",
+    "JUnit.FixParserPriceTest.executor": "Run",
+    "JUnit.FixParserScanTest.executor": "Run",
+    "JUnit.FixParserTest.executor": "Run",
+    "JUnit.InboundPipelineTest.executor": "Run",
+    "JUnit.MarketDataServiceTest.executor": "Run",
+    "JUnit.MatchingEngineBookReadTest.executor": "Run",
+    "JUnit.MatchingEngineHandlerSnapshotTest.executor": "Run",
+    "JUnit.MatchingEngineHandlerTest.executor": "Run",
+    "JUnit.MatchingEngineSnapshotTest.executor": "Run",
+    "JUnit.OrderGatewayTest.executor": "Run",
+    "JUnit.TradeLoggerTest.executor": "Run",
+    "JUnit.WebSocketFrameHandlerTest.executor": "Run",
+    "JUnit.WebSocketPublisherTest.executor": "Run",
+    "JUnit.WebSocketRoundTripTest.executor": "Run",
+    "JUnit.WebSocketServerTest.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "Vitest.TradeTape.executor": "Run",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "kotlin-language-version-configured": "true",
+    "last_directory_selection": "C:/Users/ddavi/IdeaProjects/LimitOrderBook/src/test/java",
+    "last_opened_file_path": "C:/Users/ddavi/IdeaProjects/Limit-Order-Management-System",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "project.structure.last.edited": "Modules",
+    "project.structure.proportion": "0.15",
+    "project.structure.side.proportion": "0.2",
+    "settings.editor.selected.configurable": "preferences.general",
+    "ts.external.directory.path": "C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.1.3\\plugins\\javascript-plugin\\jsLanguageServicesImpl\\external",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\ddavi\IdeaProjects\Limit-Order-Management-System" />
@@ -185,7 +186,7 @@
       <recent name="" />
     </key>
   </component>
-  <component name="RunManager" selected="Application.DefaultConfig">
+  <component name="RunManager">
     <configuration name="DefaultConfig" type="Application" factoryName="Application">
       <option name="ALTERNATIVE_JRE_PATH" value="25" />
       <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
@@ -407,15 +408,8 @@
       <workItem from="1791917357927" duration="865000" />
       <workItem from="1791928589364" duration="9472000" />
       <workItem from="1791956954140" duration="2256000" />
-      <workItem from="1792014655057" duration="4167000" />
-    </task>
-    <task id="LOCAL-00018" summary="Add zero-allocation FIX message scanner (Step 3)&#10;&#10;- Add MAX_FIELDS = 32 constant to FixConstants to bound scanner arrays&#10;- Add parallel arrays (tags, valStarts, valEnds) to FixParser for&#10;  allocation-free tokenisation; reuse across messages with no reset needed&#10;- Implement FixParser.scan(): tokenises a raw FIX byte buffer into&#10;  (tag, valueStart, valueEnd) triples; returns field count or -1 on&#10;  any structural reject (missing '=', unterminated value, non-digit tag,&#10;  field overflow)">
-      <option name="closed" value="true" />
-      <created>1784831215539</created>
-      <option name="number" value="00018" />
-      <option name="presentableId" value="LOCAL-00018" />
-      <option name="project" value="LOCAL" />
-      <updated>1784831215539</updated>
+      <workItem from="1792014655057" duration="10255000" />
+      <workItem from="1792050655756" duration="308000" />
     </task>
     <task id="LOCAL-00019" summary="test(gateway): add FixParser tag scanner tests&#10;&#10;Cover the Step 3 scanner: session tags pass through in order,&#10;'='-in-value delimited by SOH, empty/non-numeric tag and missing '='&#10;rejects, empty value accepted (deferred to Step 5), MAX_FIELDS&#10;boundary both sides, and offset/length handling within a larger buffer.">
       <option name="closed" value="true" />
@@ -801,14 +795,21 @@
       <option name="project" value="LOCAL" />
       <updated>1790362497017</updated>
     </task>
-    <option name="localTasksCounter" value="67" />
+    <task id="LOCAL-00067" summary="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(">
+      <option name="closed" value="true" />
+      <created>1792040617981</created>
+      <option name="number" value="00067" />
+      <option name="presentableId" value="LOCAL-00067" />
+      <option name="project" value="LOCAL" />
+      <updated>1792040617982</updated>
+    </task>
+    <option name="localTasksCounter" value="68" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Phase 5 (P5-0): Vite/React/TS scaffold + cents↔dollars format primitives&#10;&#10;Author the empty frontend/ scaffold so the toolchain boots and land the&#10;price-formatting primitives with tests.&#10;&#10;- package.json: Vite 8 / React 19 / Vitest 4 / TS 5, ESM, dev/build/test scripts&#10;- tsconfig.json (strict, src+test) + standalone tsconfig.node.json for the&#10;  config file; no project references / no composite (avoids the tsc -b footgun)&#10;- vite.config.ts via vitest/config, environment: node (jsdom deferred to P5-2)&#10;- index.html, main.tsx (root guard + StrictMode), App.tsx static shell&#10;- .gitignore (keeps base .env tracked), .env with VITE_WS_URL&#10;- src/format.ts: centsToDollars / dollarsToCents — string-based integer math,&#10;  no float; mirrors backend parsePrice policy (&gt;0, &lt;=2 decimals, -1 -&gt; &quot;—&quot;)&#10;- test/format.test.ts: formatting, sentinel/non-finite, round-trip, all&#10;  reject branches&#10;&#10;Pure logic verified by hand; toolchain to be booted locally (no network in&#10;the authoring env). No later-step files created; backend untouched." />
     <MESSAGE value="feat(frontend): P5-1 protocol types, encoders, reducer, socket hook&#10;&#10;- protocol/messages.ts: BookFrame|ExecFrame and NewOrder|CancelOrder unions,&#10;  ExecType (full Java enum names), parseServerFrame as the single JSON-&gt;typed&#10;  narrowing point (rebuilds the object, so extra fields can't ride along)&#10;- protocol/encode.ts: NEW/CANCEL frame builders (integer cents, symbol ASML) and&#10;  a Date.now()-seeded monotonic clOrdId generator, factory-shaped for tests&#10;- state/reducer.ts: pure over {connection, book, tape, myOrders}. BOOK replaces&#10;  book state wholesale and EXEC never touches it; tape capped at 200 newest-first;&#10;  myOrders keyed by clOrdId, registered at send time (no EXEC carries a side)&#10;- state/useOrderBook.ts: socket lifecycle from VITE_WS_URL, capped backoff&#10;  reconnect (250ms-&gt;4s, reset on open), clears book on drop, StrictMode-safe&#10;- vite-env.d.ts for import.meta.env typing&#10;- tests: protocol.test.ts (narrowing + reject branches + encoders),&#10;  reducer.test.ts (BOOK-replaces-not-merges, tape cap, myOrders lifecycle,&#10;  the Q1 passive-fill gap, connection transitions)&#10;&#10;Q1/Q2 resolved against Phase-4 source: the engine fires one onFill per trade&#10;naming the aggressor and is silent on the passive side, and the handler maps&#10;aggressorOrderId straight into EXEC orderId. Resting orders therefore have no&#10;trackable per-order fill progress; encoded in the reducer as a documented gap." />
     <MESSAGE value="feat(frontend): add DepthLadder component (P5-2)&#10;&#10;Presentational depth ladder rendering the authoritative BOOK slice: asks&#10;above bids (both highest-price-first, best price nearest the mid divider),&#10;each row with a cumulative-depth bar. Bars use a shared max across both&#10;sides so bid/ask imbalance is visible.&#10;&#10;- buildLadder: pure, exported width helper (best-first cumulation, shared&#10;  max guarded against divide-by-zero), unit-tested separately from the&#10;  component per the guide.&#10;- spreadLabel: guards bestBid/bestAsk &gt; 0 before subtracting so a -1&#10;  sentinel can't render a bogus spread; exported and asserted directly.&#10;- Cents in, dollars only at the render edge via format.ts; no float math.&#10;- Presentational only (single `book: BookState` prop); no App wiring yet.&#10;&#10;Toolchain: add jsdom + @testing-library/react + @testing-library/dom (dev);&#10;switch vitest environment to jsdom and include .tsx tests. Existing pure&#10;suites unaffected.&#10;&#10;Structural class-name hooks only; terminal theme deferred to P5-5." />
     <MESSAGE value="feat(frontend): add TradeTape component (P5-3)&#10;&#10;Presentational, newest-first trade tape rendering the reducer's fills-only&#10;`tape` slice. Single-slice prop (`tape: readonly TapeEntry[]`), no socket/&#10;hook/state — mirrors DepthLadder. Renders 1:1 with the slice; the reducer&#10;already guarantees fills-only, newest-first, capped at TAPE_CAP.&#10;&#10;- Side omitted: no EXEC frame carries a side and the aggressor side is not on&#10;  the wire; recovering it would need myOrders (partial coverage) and couple a&#10;  presentational component to order state. Resolved &quot;not derivable&quot;; a test&#10;  locks that no BUY/SELL text renders.&#10;- No time column: TapeEntry.timestamp is the backend's System.nanoTime()&#10;  (monotonic, arbitrary origin — not epoch, despite the wire-contract label),&#10;  so it can't honestly render as wall-clock time.&#10;- Prices via format.ts (cents -&gt; dollars); -1 -&gt; EMPTY_PRICE, never negative.&#10;- `mine` fills marked with a structural --mine modifier (no theme; P5-5).&#10;- React key is tradeId (unique, positive on fills). Clean empty state.&#10;&#10;Structural class-name/data-testid hooks only; terminal theme deferred to P5-5.&#10;&#10;test/tradeTape.test.tsx: render-from-fixture (row count = entries given,&#10;order preserved, dollar prices + sentinel-leak guard, quantity, --mine&#10;present/absent, no side text, empty state), explicit afterEach(cleanup).&#10;No new deps; App.tsx / vite.config.ts / backend untouched." />
@@ -833,6 +834,7 @@
     <MESSAGE value="feat(frontend): add CancelTicket and OrderEntry affordances (P7-7)&#10;&#10;Add a manual cancel-by-OrigClOrdID ticket (CancelTicket) that shares the&#10;same handleCancel callback path as per-row OpenOrders cancels, so the two&#10;cancel routes cannot diverge. Enhance OrderEntry with bid/mid/ask reference&#10;chips, one-cent tick nudges, round-lot quantity presets, a display-only&#10;clOrdId (Tag 11) preview field, and an imperative forwardRef setPrice seam&#10;for the upcoming P7-10 depth curve integration. App wires live book tops and&#10;nextClOrdId.peek() as display-only props; consumption still happens only at&#10;send. All new logic is covered by unit tests (cancelTicket, clOrdIdGenerator&#10;peek, orderTicket pure logic) and the OrderEntry test suite is extended for&#10;chips, nudges, sets, and the ref handle." />
     <MESSAGE value="feat(frontend): P7-8 order blotter with passive-fill decrement&#10;&#10;Extend OpenOrders into a full blotter (P7-8):&#10;&#10;- MyOrder gains sentAtNanos (client-assigned epoch-nanos send time,&#10;  captured at dispatch in useOrderBook, rendered via formatClockNanos).&#10;  Optional so all existing SENT fixtures compile unchanged.&#10;- SENT action gains sentAtNanos; applySent stores it on NEW rows only.&#10;- passiveFill(order, filledQty): MyOrder exported from reducer.ts:&#10;  decrements remainingQty locally and transitions to PARTIALLY_FILLED or&#10;  FILLED. Terminal guard mirrors nextOrder. Pure, exported, unit-tested.&#10;- applyExec gains the passive branch: on a fill EXEC whose passiveOrderId&#10;  matches an owned clOrdId (guarded &gt;0, != orderId, isFill), passiveFill&#10;  is applied. EXEC stays authoritative for the aggressor; the passive&#10;  decrement is a documented client-side derivation. Slice-identity&#10;  preserved on no-op paths.&#10;- OpenOrders rewritten as a blotter: ID, Sent (client-assigned), Side,&#10;  Price (limit from SENT), Filled (derived originalQty - remainingQty via&#10;  exported filledOf), Status, Cancel. Every P5-4 class, testid, and&#10;  isCancellable cancel gating preserved.&#10;- terminal.css open-orders section extended (col-time, time cell); every&#10;  other section verbatim.&#10;&#10;Tests: passiveFill pure (partial, full, clamp, terminal guard); reducer&#10;integration (passive decrement, -1 NA never matches, terminal not&#10;resurrected, aggressor-then-passive mixed case); openOrders.logic&#10;(filledOf: normal, zero, negative clamp); openOrders.test extended (send&#10;time renders HH:MM:SS.mmm, empty cell without one, filled/total column).&#10;Revised reducer.test passive block to assert the decrement (closes the&#10;gap). Revised openOrders.test row assertion from remaining to filled/total.&#10;&#10;237 tests green. App.tsx, messages.ts, format.ts, encode.ts, backend&#10;untouched. README derivation note deferred to P7-10." />
     <MESSAGE value="Begun work on Phase 10" />
-    <option name="LAST_COMMIT_MESSAGE" value="Begun work on Phase 10" />
+    <MESSAGE value="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(" />
+    <option name="LAST_COMMIT_MESSAGE" value="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(" />
   </component>
 </project>

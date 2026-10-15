@@ -3323,6 +3323,144 @@ body {
     cursor: not-allowed;
 }
 
+/* ---- Order confirmation popup (global popup blueprint, DESIGN_SYSTEM.md §10) ---
+   Opens on Submit before the order is sent. Same chrome as the Cancel-by-ID dialog:
+   two-tone (header darker than body, both lighter than the panels), 1px light-grey
+   outline, black header/body divider, sharp edges, red exit x, all text white. The
+   one rounded element is the silver "Send Order" primary action. */
+.order-confirm__overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 130;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: var(--scrim);
+}
+.order-confirm__modal {
+    width: min(380px, 100%);
+    background: var(--pop-body);
+    border: 1px solid #808080;
+    border-radius: 0;
+    overflow: hidden;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+}
+.order-confirm__head {
+    position: relative;
+    padding: 10px 40px 10px 14px;
+    background: var(--pop-head);
+    border-bottom: 1px solid #000000;
+}
+.order-confirm__title {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+}
+.order-confirm__exit {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 0;
+    background: var(--pop-head);
+    color: var(--exit-x);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+.order-confirm__exit:hover { background: #2a2a2a; }
+.order-confirm__body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    background: var(--pop-body);
+}
+.order-confirm__headline {
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: #ffffff;
+}
+.order-confirm__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 10px 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.35);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+.order-confirm__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+}
+.order-confirm__row dt {
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+.order-confirm__row dd {
+    margin: 0;
+    font-family: var(--sans);
+    font-size: 12px;
+    color: #ffffff;
+}
+.order-confirm__row dd.order-confirm__num {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+}
+.order-confirm__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 2px;
+}
+/* Secondary action: sharp raised charcoal (popups are sharp except the primary). */
+.order-confirm__cancel {
+    padding: 5px 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: 0;
+    background: linear-gradient(var(--raise-top), var(--raise-bot));
+    color: #ffffff;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    cursor: pointer;
+}
+.order-confirm__cancel:active { background: linear-gradient(var(--raise-bot), var(--raise-top)); }
+/* Primary action: the one rounded element — silver, bold black, light lift shadow. */
+.order-confirm__send {
+    padding: 5px 14px;
+    border: 1px solid var(--silver-edge);
+    border-radius: 3px;
+    background: linear-gradient(var(--silver-top), var(--silver-bot));
+    color: #000000;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.order-confirm__send:active { background: linear-gradient(var(--silver-bot), var(--silver-top)); }
+
 
 /* ==========================================================================
    §11 Shared controls — LOCKED (terminal-wide standards)
@@ -3542,3 +3680,162 @@ body {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 .settings-pop__done:active { background: linear-gradient(var(--silver-bot), var(--silver-top)); }
+
+
+/* ==========================================================================
+   Price chart (PRICE) — Bloomberg-GP rework (P12-R, 2026-10)
+   The chart becomes a self-contained card like the tape/blotter: a --head band
+   over the plot body, so the chart-page region becomes a transparent shell around
+   it (DESIGN_SYSTEM.md §5/§8). The band carries the title plus the §9 caret "view"
+   menu and the §11 settings gear; the gear opens the §10/§11 popup, extended with
+   colour swatches. Sits after the base + slate-retheme rules so it re-skins the
+   chart without editing them. The side (Session) region is untouched.
+   ========================================================================== */
+
+/* The chart region is now a transparent shell around the chart's own card; the
+   card supplies the border and the 4px radius, and the shell takes the radius too
+   so the active-panel focus highlight (§5) curves with it. */
+.chart-page__region--chart {
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+}
+
+/* The card. overflow:visible so the band's popup/menu can escape it (§5). */
+.price-chart {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background: var(--body);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: visible;
+}
+
+/* Header band: --head over the body, bottom hairline, bright-white uppercase title
+   (§3/§5). Relative so the settings popup anchors just below the gear. */
+.price-chart__band {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 30px;
+    padding: 0 8px;
+    background: var(--head);
+    border-bottom: 1px solid #1d1d1d;
+    border-radius: 4px 4px 0 0;
+}
+.price-chart__title {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffffff;
+}
+.price-chart__controls {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+/* The gear's own margin-left:auto would split it from the caret; neutralise it so
+   the caret sits immediately left of the gear, spaced by the flex gap. */
+.price-chart__controls .term-gear { margin-left: 0; }
+
+/* §9 caret "view" menu: a bare glyph that blends into the band, opening the
+   standard white pick-list (§11.5) downward. */
+.price-chart__view { position: relative; display: inline-flex; }
+.price-chart__viewcaret {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 3px 4px;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 11px;
+    line-height: 0;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 3px;
+}
+.price-chart__viewcaret:hover { color: #f0f0f0; }
+.price-chart__view-backdrop { position: fixed; inset: 0; z-index: 35; background: transparent; }
+.price-chart__viewmenu {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    z-index: 40;
+    min-width: 150px;
+    background: #ffffff;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    padding: 2px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+.price-chart__viewopt {
+    appearance: none;
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 2px;
+    color: #000000;
+    font-family: var(--sans);
+    font-size: 12px;
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.price-chart__viewopt:hover { background: #cccccc; }
+
+/* Plot body: the svg fills it; clip to the card's rounded bottom. */
+.price-chart__plot {
+    overflow: hidden;
+    border-radius: 0 0 4px 4px;
+    line-height: 0;
+}
+/* The svg keeps its 12/5 aspect (base rule above); nothing to add here. */
+
+/* Tag text: mono tabular like every other number. */
+.price-chart__tag {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Settings popup, chart variant: a touch wider for the swatch grids. */
+.settings-pop--chart { width: 244px; }
+
+/* Toggle labels that are words, not units, read in sans (§11.3: White / Black). */
+.settings-toggle__opt--sans { font-family: var(--sans); }
+
+/* A setting row whose control stacks under its name (the swatch grids). */
+.settings-pop__row--stack {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+}
+/* Disabled row (fill colour while area fill is off). */
+.settings-pop__row--disabled { opacity: 0.4; pointer-events: none; }
+
+/* Colour swatches: small raised chips; the selected one gets the §11 blue ring. */
+.settings-swatches { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
+.settings-swatch {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.settings-swatch--on {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px var(--pop-body), 0 0 0 3px var(--quote-bid);
+}
