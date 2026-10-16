@@ -108,6 +108,15 @@
     --quote-ask: #ff6a5a;
     --quote-bid-wash: rgba(90, 150, 255, 0.16);
     --quote-ask-wash: rgba(255, 106, 90, 0.16);
+
+    /* Trade-tape price tick colours + translucent washes (tape §9 price cell).
+       Up is pure green, down pure red; each price value sits on a lighter wash of
+       its own hue, the same enclosure treatment as the Side cell. Flat prints are
+       plain white with no wash and no arrow. */
+    --tick-up: #00ff00;
+    --tick-down: #ff0000;
+    --tick-up-wash: rgba(0, 255, 0, 0.13);
+    --tick-down-wash: rgba(255, 0, 0, 0.16);
 }
 
 * {
@@ -1223,19 +1232,38 @@ body {
     color: #ffffff;
 }
 
+/* Price cell: the same wash-enclosure treatment as the Side cell. The value is
+   right-aligned with its direction arrow to the left; the wash of the tick hue
+   fills the cell so it reads as a tinted block (zebra shows through). Flat prints
+   are plain white with no wash and no arrow. */
 .trade-tape__price {
-    text-align: right;
+    justify-self: stretch;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    padding: 0 10px;
     color: #ffffff;
 }
 
-/* Tick direction against the previous print: up green, down red, flat white.
-   Kept as-is from the legacy tape; same ladder tokens, never the focus blue. */
+/* Direction arrow (▲ / ▼), coloured with the value; small so it doesn't crowd it. */
+.trade-tape__arrow {
+    font-size: 8px;
+    line-height: 1;
+    display: inline-block;
+}
+
+/* Tick direction against the previous print: up pure green, down pure red, flat
+   white. Each non-flat value sits on a lighter wash of its hue. */
 .trade-tape__price--up {
-    color: var(--bid);
+    background: var(--tick-up-wash);
+    color: var(--tick-up);
 }
 
 .trade-tape__price--down {
-    color: var(--ask);
+    background: var(--tick-down-wash);
+    color: var(--tick-down);
 }
 
 .trade-tape__price--flat {

@@ -4,11 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange">
+    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Reworked the session panel in price chart page">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/SessionStats.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/SessionStats.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -51,23 +49,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0129958513406274" />
-      <entry key="MS500" value="1.6342999840251287" />
-      <entry key="S2" value="3.8702351257037697" />
-      <entry key="S5" value="6.960917983203527" />
-      <entry key="S10" value="12.535009030716258" />
-      <entry key="S30" value="29.352240136441065" />
-      <entry key="S60" value="39.2435660017282" />
-      <entry key="M2" value="45.87744588548769" />
-      <entry key="M5" value="50.55125368640763" />
-      <entry key="M10" value="52.240413308424095" />
-      <entry key="M15" value="52.82077701058611" />
-      <entry key="M30" value="53.829307467980904" />
-      <entry key="H1" value="62.597538768988144" />
-      <entry key="H2" value="111.19754248032429" />
-      <entry key="H4" value="267.6095728933853" />
-      <entry key="D1" value="1151.5459901193724" />
-      <entry key="W1" value="1775.4432856579951" />
+      <entry key="MS100" value="1.0265744898076792" />
+      <entry key="MS500" value="1.798658872943714" />
+      <entry key="S2" value="4.200256301800497" />
+      <entry key="S5" value="8.483486151422738" />
+      <entry key="S10" value="14.965808226687654" />
+      <entry key="S30" value="34.24097727589266" />
+      <entry key="S60" value="47.039588038216195" />
+      <entry key="M2" value="56.20310056802284" />
+      <entry key="M5" value="62.916805526470384" />
+      <entry key="M10" value="65.3930986537227" />
+      <entry key="M15" value="66.24898646147088" />
+      <entry key="M30" value="67.53787115139252" />
+      <entry key="H1" value="76.43044600309423" />
+      <entry key="H2" value="125.05514736620297" />
+      <entry key="H4" value="281.4437065326443" />
+      <entry key="D1" value="1165.429168789923" />
+      <entry key="W1" value="1789.4176046867244" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -89,23 +87,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9519026022521596" />
-      <entry key="MS500" value="1.6153152968876476" />
-      <entry key="S2" value="3.8593391045279217" />
-      <entry key="S5" value="6.953105149519398" />
-      <entry key="S10" value="12.52710329681219" />
-      <entry key="S30" value="29.344903277990035" />
-      <entry key="S60" value="39.23845886667989" />
-      <entry key="M2" value="45.874405623509844" />
-      <entry key="M5" value="50.54989989310221" />
-      <entry key="M10" value="52.23971148801746" />
-      <entry key="M15" value="52.82030342331886" />
-      <entry key="M30" value="53.8290662130211" />
-      <entry key="H1" value="62.59740071003372" />
-      <entry key="H2" value="111.19742026484109" />
-      <entry key="H4" value="267.6094158979505" />
-      <entry key="D1" value="1151.5458685077433" />
-      <entry key="W1" value="1775.44325868533" />
+      <entry key="MS100" value="0.9644898415936788" />
+      <entry key="MS500" value="1.766223961614133" />
+      <entry key="S2" value="4.1507106886967895" />
+      <entry key="S5" value="8.43208749362068" />
+      <entry key="S10" value="14.924546121996618" />
+      <entry key="S30" value="34.21824131748223" />
+      <entry key="S60" value="47.02581509413149" />
+      <entry key="M2" value="56.19539782747041" />
+      <entry key="M5" value="62.913490993913456" />
+      <entry key="M10" value="65.39139881348466" />
+      <entry key="M15" value="66.24784346749627" />
+      <entry key="M30" value="67.53729313469945" />
+      <entry key="H1" value="76.43013907842574" />
+      <entry key="H2" value="125.05494063972061" />
+      <entry key="H4" value="281.4435072880003" />
+      <entry key="D1" value="1165.4290401311407" />
+      <entry key="W1" value="1789.4175767059091" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -407,15 +405,8 @@
       <workItem from="1791956954140" duration="2256000" />
       <workItem from="1792014655057" duration="10255000" />
       <workItem from="1792050655756" duration="665000" />
-      <workItem from="1792102059515" duration="3092000" />
-    </task>
-    <task id="LOCAL-00020" summary="Add checksum validation for FIX messages (Step 4)&#10;&#10;Verify tag 10 before any message interpretation: sum every byte up to and&#10;including the SOH preceding &quot;10=&quot;, mod 256, and compare against the field's&#10;three-digit value. Operates on raw byte[] so structural trust is&#10;established before the tag scan, independent of the Step 3 scanner arrays.&#10;&#10;Locate the trailer by computing from the end (a complete message ends in&#10;the 7-byte 10=xxx&lt;SOH&gt;) rather than scanning for it, leaning on the frame&#10;decoder's trailer invariant instead of duplicating a scan. Read the three&#10;digits via parseLong, which gives free rejection of a malformed checksum&#10;field: its -1L sentinel can't equal a 0..255 sum, consistent with the&#10;parseLong/parsePrice reject convention.&#10;&#10;Guard length &lt; 8 (no room for a summed byte plus the trailer) before&#10;indexing. The per-byte &amp; 0xFF is kept for clarity but is not load-bearing:&#10;the final &amp; 0xFF already collapses the signed/unsigned difference, since a&#10;high byte differs by exactly 256, i.e. 0 mod 256.&#10;&#10;Static, pure byte[] in; no String, no io.netty, no com.lmax. Runs at the&#10;gateway boundary, off the hot path.&#10;&#10;Tested: known-good message (independently computed checksum), corrupted&#10;body byte, wrong checksum value, non-digit checksum field, too-short&#10;buffer, and the good message embedded in a wider buffer to verify&#10;offset/length bounds.">
-      <option name="closed" value="true" />
-      <created>1784833912263</created>
-      <option name="number" value="00020" />
-      <option name="presentableId" value="LOCAL-00020" />
-      <option name="project" value="LOCAL" />
-      <updated>1784833912263</updated>
+      <workItem from="1792102059515" duration="5863000" />
+      <workItem from="1792109186362" duration="2105000" />
     </task>
     <task id="LOCAL-00021" summary="feat(gateway): implement FixParser.parse for 35=D and 35=F (Step 5)&#10;&#10;Assemble the full message-level parser on top of the Step 1-4 primitives.&#10;parse() runs checksum -&gt; scan -&gt; dispatch on 35= -&gt; per-type validation,&#10;populating a pre-allocated OrderEvent slot only on success.&#10;&#10;- Add OrderEvent carrier and OrderEventType enum in event package&#10;  (framework-free: no com.lmax/io.netty, so both parser and Disruptor&#10;  can depend on it)&#10;- Add MSG_TYPE_NEW_ORDER ('D') / MSG_TYPE_CANCEL ('F') to FixConstants&#10;- Dispatch to parseNewOrder (requires 11,54,44,38,55) and parseCancel&#10;  (requires 11,41) via thin switch on tag 35&#10;- Validate into locals first; target is untouched on reject so the&#10;  gateway only publishes valid messages&#10;- Clear message-type-specific fields per branch to avoid stale reads&#10;  on the reused slot&#10;- eventType set in parser; timestamp deferred to gateway (Step 7) to&#10;  keep parse deterministic and unit-testable&#10;- Add findTag, symbolMatches, mapSide helpers (zero-allocation)&#10;- Reject rules: non-numeric ClOrdID, invalid side (54=3), wrong symbol,&#10;  qty &lt;= 0 (38=0), bad price (0/negative/&gt;2dp), unknown 35= type">
       <option name="closed" value="true" />
@@ -801,14 +792,21 @@
       <option name="project" value="LOCAL" />
       <updated>1792051306330</updated>
     </task>
-    <option name="localTasksCounter" value="69" />
+    <task id="LOCAL-00069" summary="Reworked the session panel in price chart page">
+      <option name="closed" value="true" />
+      <created>1792105640773</created>
+      <option name="number" value="00069" />
+      <option name="presentableId" value="LOCAL-00069" />
+      <option name="project" value="LOCAL" />
+      <updated>1792105640774</updated>
+    </task>
+    <option name="localTasksCounter" value="70" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(frontend): add DepthLadder component (P5-2)&#10;&#10;Presentational depth ladder rendering the authoritative BOOK slice: asks&#10;above bids (both highest-price-first, best price nearest the mid divider),&#10;each row with a cumulative-depth bar. Bars use a shared max across both&#10;sides so bid/ask imbalance is visible.&#10;&#10;- buildLadder: pure, exported width helper (best-first cumulation, shared&#10;  max guarded against divide-by-zero), unit-tested separately from the&#10;  component per the guide.&#10;- spreadLabel: guards bestBid/bestAsk &gt; 0 before subtracting so a -1&#10;  sentinel can't render a bogus spread; exported and asserted directly.&#10;- Cents in, dollars only at the render edge via format.ts; no float math.&#10;- Presentational only (single `book: BookState` prop); no App wiring yet.&#10;&#10;Toolchain: add jsdom + @testing-library/react + @testing-library/dom (dev);&#10;switch vitest environment to jsdom and include .tsx tests. Existing pure&#10;suites unaffected.&#10;&#10;Structural class-name hooks only; terminal theme deferred to P5-5." />
     <MESSAGE value="feat(frontend): add TradeTape component (P5-3)&#10;&#10;Presentational, newest-first trade tape rendering the reducer's fills-only&#10;`tape` slice. Single-slice prop (`tape: readonly TapeEntry[]`), no socket/&#10;hook/state — mirrors DepthLadder. Renders 1:1 with the slice; the reducer&#10;already guarantees fills-only, newest-first, capped at TAPE_CAP.&#10;&#10;- Side omitted: no EXEC frame carries a side and the aggressor side is not on&#10;  the wire; recovering it would need myOrders (partial coverage) and couple a&#10;  presentational component to order state. Resolved &quot;not derivable&quot;; a test&#10;  locks that no BUY/SELL text renders.&#10;- No time column: TapeEntry.timestamp is the backend's System.nanoTime()&#10;  (monotonic, arbitrary origin — not epoch, despite the wire-contract label),&#10;  so it can't honestly render as wall-clock time.&#10;- Prices via format.ts (cents -&gt; dollars); -1 -&gt; EMPTY_PRICE, never negative.&#10;- `mine` fills marked with a structural --mine modifier (no theme; P5-5).&#10;- React key is tradeId (unique, positive on fills). Clean empty state.&#10;&#10;Structural class-name/data-testid hooks only; terminal theme deferred to P5-5.&#10;&#10;test/tradeTape.test.tsx: render-from-fixture (row count = entries given,&#10;order preserved, dollar prices + sentinel-leak guard, quantity, --mine&#10;present/absent, no side text, empty state), explicit afterEach(cleanup).&#10;No new deps; App.tsx / vite.config.ts / backend untouched." />
     <MESSAGE value="feat(frontend): P5-4 order entry + open orders panel&#10;&#10;Add the manual trading interface (SRS §3.7):&#10;&#10;- OrderEntry.tsx: BUY/SELL toggle, text price/qty inputs, client-side&#10;  validation before send (decision 6 — backend gives no reject feedback).&#10;  Exports pure validateOrderInput (mirrors buildLadder); dollars convert to&#10;  integer cents at the component edge via dollarsToCents. onSubmit emits&#10;  (side, priceCents, qty); no HTML &lt;form&gt;, plain onClick/onChange.&#10;- OpenOrders.tsx: myOrders panel (clOrdId, side, price, remaining qty,&#10;  status). Cancel offered only on isCancellable rows (OPEN/PARTIALLY_FILLED),&#10;  emitting the row's clOrdId as origClOrdId via onCancel.&#10;&#10;Both are presentational and callback-driven — no clOrdId generation, frame&#10;building, or socket access (that lives in the P5-5 App wiring over the single&#10;useOrderBook instance, keeping clOrdId generated in exactly one place).&#10;&#10;Tests: orderEntry.test.tsx (pure validation + render), openOrders.test.tsx&#10;(rows, cancellable gating, onCancel id, empty state). No new deps; jsdom + RTL&#10;from P5-2. App.tsx and backend untouched." />
     <MESSAGE value="feat(frontend): P5-5 terminal layout, header, connection badge&#10;&#10;Assemble the single-screen trading terminal (SRS §3.7) around one&#10;useOrderBook instance:&#10;&#10;- Header.tsx: ASML + best bid/ask/mid/spread, derived purely from BOOK.&#10;  Exported pure deriveHeader (mirrors buildLadder). Mid is half-cent-safe&#10;  via integer math (150.00/150.25 -&gt; &quot;150.125&quot;), guarded on the -1&#10;  sentinel; spread reuses P5-2 spreadLabel.&#10;- ConnectionBadge.tsx: live/connecting/reconnecting from the hook state&#10;  (no persistent disconnected — the hook always retries).&#10;- App.tsx: rewrites the P5-0 placeholder into the real layout, the sole&#10;  call site of nextClOrdId + the encoders; gates OrderEntry on an open&#10;  socket.&#10;- styles/terminal.css: dark, dense, tabular-mono terminal theme; depth&#10;  bars as the one bold element; focus ring distinct from side colours;&#10;  motion respects prefers-reduced-motion.&#10;- OrderEntry.tsx: additive optional `disabled` prop (backward-compatible).&#10;&#10;Tests: header.test.ts (pure deriveHeader), connectionBadge.test.tsx&#10;(three statuses), orderEntry disabled case. No new deps; no vite.config&#10;change. Backend untouched." />
@@ -833,6 +831,7 @@
     <MESSAGE value="Begun work on Phase 10" />
     <MESSAGE value="A bunch of stuff. I maxxed out my IDE's AI creds so no more good commit messages :(" />
     <MESSAGE value="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange" />
-    <option name="LAST_COMMIT_MESSAGE" value="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange" />
+    <MESSAGE value="Reworked the session panel in price chart page" />
+    <option name="LAST_COMMIT_MESSAGE" value="Reworked the session panel in price chart page" />
   </component>
 </project>

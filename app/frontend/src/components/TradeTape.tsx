@@ -262,7 +262,12 @@ export function TradeTape({ tape }: TradeTapeProps) {
                   {formatClockNanos(entry.timestamp, precision)}
                 </span>
                                 <span className={`trade-tape__price trade-tape__price--${dir}`}>
-                  {formatPrice(entry.pricePx)}
+                  {dir !== "flat" && (
+                      <span className="trade-tape__arrow" aria-hidden="true">
+                          {dir === "up" ? "▲" : "▼"}
+                      </span>
+                  )}
+                                    {formatPrice(entry.pricePx)}
                 </span>
                                 <span className="trade-tape__qty">{entry.quantity}</span>
                                 <span className={sideClass} data-testid="tape-side">
