@@ -7,6 +7,8 @@ import {
     formatQty,
     midpointPx,
     midpointLabel,
+    formatSignedDollar,
+    formatSignedPercent,
 } from '../src/format'
 
 describe('formatPrice', () => {
@@ -188,6 +190,58 @@ describe('parsePrice', () => {
         expect(parsePrice('12.3abc')).toBeNull()
         expect(parsePrice('1e3')).toBeNull()
         expect(parsePrice('1,000')).toBeNull()
+    })
+})
+
+describe('formatSignedDollar', () => {
+    it('signs a positive delta with "+" and reuses formatPrice for the magnitude', () => {
+        expect(formatSignedDollar(500)).toBe('+0.05')
+        expect(formatSignedDollar(3_832_000)).toBe('+383.20')
+    })
+
+    it('signs a negative delta with "-" and never renders a bare negative price', () => {
+        expect(formatSignedDollar(-700)).toBe('-0.07')
+        expect(formatSignedDollar(-1_502_500)).toBe('-150.25')
+    })
+
+    it('renders an exact-zero delta as "0.00" with no sign', () => {
+        expect(formatSignedDollar(0)).toBe('0.00')
+    })
+
+    it('keeps a sub-penny delta at its real precision, like formatPrice', () => {
+        expect(formatSignedDollar(50)).toBe('+0.005')
+        expect(formatSignedDollar(-25)).toBe('-0.0025')
+    })
+
+    it('rejects a non-integer delta to the empty marker', () => {
+        expect(formatSignedDollar(1.5)).toBe(EMPTY_PRICE)
+        expect(formatSignedDollar(Number.NaN)).toBe(EMPTY_PRICE)
+    })
+})
+
+describe('formatSignedPercent', () => {
+    it('renders a signed two-decimal percentage of the previous price', () => {
+        // +383.20 on a 1616.80 base is +23.70%.
+        expect(formatSignedPercent(3_832_000, 16_168_000)).toBe('+23.70%')
+        // -2000 units ($0.20) on a $100.00 base is -0.20%.
+        expect(formatSignedPercent(-2000, 1_000_000)).toBe('-0.20%')
+    })
+
+    it('rounds a sub-0.005% move to "0.00%" with no misleading sign', () => {
+        // $0.05 on a ~$1782 base is ~0.0028% -> rounds to zero.
+        expect(formatSignedPercent(500, 17_823_500)).toBe('0.00%')
+        // A down move that still rounds to zero must not read "-0.00%".
+        expect(formatSignedPercent(-700, 16_168_000)).toBe('0.00%')
+    })
+
+    it('renders an exact-zero delta as "0.00%"', () => {
+        expect(formatSignedPercent(0, 1_000_000)).toBe('0.00%')
+    })
+
+    it('returns the empty marker when there is no valid previous price', () => {
+        expect(formatSignedPercent(500, 0)).toBe(EMPTY_PRICE)
+        expect(formatSignedPercent(500, -1)).toBe(EMPTY_PRICE)
+        expect(formatSignedPercent(1.5, 1_000_000)).toBe(EMPTY_PRICE)
     })
 })
 

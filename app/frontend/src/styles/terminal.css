@@ -1172,16 +1172,27 @@ body {
 }
 
 /* Column-header row (§9): panel-body colour, bright-white 600 labels, hairline. */
+/* Column layout — one shared grid for the header and every row, via subgrid.
+   .trade-tape__rows owns the single column definition; the header and each row are
+   subgrids spanning all of it. Because the columns are defined ONCE, the header can
+   never drift out of alignment with the body at any panel width (two independent
+   grids used to resolve `auto` / `1fr` differently and misalign). Columns are `auto`
+   (compact, sized to their caption/value) except price, which flexes with `1fr`.
+   Horizontal gutters live on the edge cells (time padding-left, side padding-right),
+   not on a container padding, so the header band's fill and hairline bleed to the
+   card edges while the content stays inset. */
 .trade-tape__head,
 .trade-tape__row {
     display: grid;
-    grid-template-columns: auto 1fr 90px 72px;
-    column-gap: 20px;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
     align-items: center;
-    padding: 0 12px;
 }
 
 .trade-tape__head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     height: 24px;
     font-family: var(--sans);
     font-size: 9px;
@@ -1193,22 +1204,47 @@ body {
     border-bottom: 1px solid var(--hair);
 }
 
+/* Captions never wrap: an auto column must be at least as wide as its caption, so a
+   two-word label like "Change $" keeps the column from collapsing to the value width
+   (which would wrap the caption to two lines). */
+.trade-tape__head > span {
+    white-space: nowrap;
+}
+
+.trade-tape__head-chg,
 .trade-tape__head-price,
 .trade-tape__head-qty,
 .trade-tape__head-side {
     text-align: right;
 }
 
-/* Scrolling body: the sunken well, with its inset shadow; fills the panel. */
+/* Right padding on the numeric captions matches each data cell's own internal right
+   padding (change 8px, price 10px, side 12px), so each caption's right edge lines up
+   with the values beneath it. Size has no internal cell padding, so its caption none. */
+.trade-tape__head-chg {
+    padding-right: 8px;
+}
+.trade-tape__head-price {
+    padding-right: 10px;
+}
+.trade-tape__head-side {
+    padding-right: 12px;
+}
+
+/* Scrolling body: the sunken well, and the grid that defines the shared columns. */
 .trade-tape__rows {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    /* time | change $ | change % | price | size | side */
+    grid-template-columns: auto auto auto 1fr auto auto;
+    column-gap: 14px;
+    align-content: start;
     flex: 1;
     min-height: 0;
     /* Cap the scroll body at --tape-rows (20) rows. The tape was unbounded, so a busy
        session stretched the page instead of scrolling internally; overflow-y + the
        shared P8-3 scrollbar (wired for .trade-tape__rows above) now engage on the 21st
-       print. A shorter tape still sizes to its own rows. */
+       print. A shorter tape still sizes to its own rows. The sticky header above is
+       the first grid row and stays put while the data rows scroll. */
     max-height: calc(var(--tape-rows, 20) * var(--tape-row-h));
     overflow-y: auto;
     background: var(--well);
@@ -1223,31 +1259,50 @@ body {
 }
 
 /* Zebra striping (allowed here, §9): alternate rows take --zebra, kept dark.
-   The stripe sits on the row so the Side cell wash composites over it. */
-.trade-tape__row:nth-of-type(even) {
+   The stripe sits on the row so the Side cell wash composites over it. The header is
+   the first div child, so `odd` keeps the original parity (2nd data row striped). */
+.trade-tape__row:nth-of-type(odd) {
     background: var(--zebra);
+}
+
+/* Left gutter: the time column (header and data) is inset 12px from the card edge,
+   the counterpart to the side cell's right gutter. */
+.trade-tape__head-time,
+.trade-tape__time {
+    padding-left: 12px;
 }
 
 .trade-tape__time {
     color: #ffffff;
 }
 
-/* Price cell: the same wash-enclosure treatment as the Side cell. The value is
-   right-aligned with its direction arrow to the left; the wash of the tick hue
-   fills the cell so it reads as a tinted block (zebra shows through). Flat prints
-   are plain white with no wash and no arrow. */
-.trade-tape__price {
+/* Price and Change cells share the wash-enclosure treatment of the Side cell: the
+   value is right-aligned and the wash of the tick hue fills the cell so it reads as
+   a tinted block (zebra shows through). The price additionally carries a direction
+   arrow to its left. Flat prints are plain white with no wash (and no arrow). The
+   CHANGE $ / CHANGE % cells colour by the same up/down/flat direction as the price,
+   so all three read as one consistent tick colour across the row; they show a
+   signed +/- value instead of an arrow. */
+.trade-tape__price,
+.trade-tape__change {
     justify-self: stretch;
     height: 100%;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 5px;
-    padding: 0 10px;
     color: #ffffff;
 }
+.trade-tape__price {
+    gap: 5px;
+    padding: 0 10px;
+}
+.trade-tape__change {
+    padding: 0 8px;
+    font-size: 12px;
+}
 
-/* Direction arrow (▲ / ▼), coloured with the value; small so it doesn't crowd it. */
+/* Direction arrow (▲ / ▼), coloured with the value; small so it doesn't crowd it.
+   Price only — the change cells use a signed +/- in their text, not an arrow. */
 .trade-tape__arrow {
     font-size: 8px;
     line-height: 1;
@@ -1255,18 +1310,22 @@ body {
 }
 
 /* Tick direction against the previous print: up pure green, down pure red, flat
-   white. Each non-flat value sits on a lighter wash of its hue. */
-.trade-tape__price--up {
+   white. Each non-flat value sits on a lighter wash of its hue. Shared by the price
+   and the two change cells. */
+.trade-tape__price--up,
+.trade-tape__change--up {
     background: var(--tick-up-wash);
     color: var(--tick-up);
 }
 
-.trade-tape__price--down {
+.trade-tape__price--down,
+.trade-tape__change--down {
     background: var(--tick-down-wash);
     color: var(--tick-down);
 }
 
-.trade-tape__price--flat {
+.trade-tape__price--flat,
+.trade-tape__change--flat {
     color: #ffffff;
 }
 
@@ -1285,7 +1344,9 @@ body {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    margin: 0 -12px 0 0;
+    /* No negative margin now: the side column is the last subgrid track and reaches
+       the card edge, so its wash bleeds to the edge on its own; the 12px right padding
+       is the right gutter that insets the BUY/SELL text (matched by the SIDE caption). */
     padding: 0 12px;
     font-family: var(--sans);
     font-size: 11px;
@@ -1314,6 +1375,8 @@ body {
 }
 
 .trade-tape__empty {
+    /* Spans all subgrid columns; it sits in the same grid as the sticky header. */
+    grid-column: 1 / -1;
     background: var(--well);
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }

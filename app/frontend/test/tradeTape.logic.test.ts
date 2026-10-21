@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { passesBlockFilter, tickDirections } from "../src/components/TradeTape";
+import { passesBlockFilter, tickDirections, priceChanges } from "../src/components/TradeTape";
+import { EMPTY_PRICE } from "../src/format";
 import type { TapeEntry } from "../src/state/reducer";
 
 function tapeEntry(tradeId: number, pricePx: number, quantity = 1): TapeEntry {
@@ -57,6 +58,48 @@ describe("tickDirections", () => {
     it("guards the oldest print and single / empty inputs", () => {
         expect(tickDirections(tapeOf([1500000]))).toEqual(["flat"]);
         expect(tickDirections([])).toEqual([]);
+    });
+});
+
+describe("priceChanges", () => {
+    it("computes signed dollar and percent change against the older neighbour", () => {
+        // newest-first units: 1000000 ($100.00), 990000 ($99.00)
+        //   i0: 1000000 vs 990000 -> +10000 units (+$1.00), +1.01%
+        //   i1: oldest -> no previous
+        const changes = priceChanges(tapeOf([1_000_000, 990_000]));
+        expect(changes[0]).toEqual({ dollar: "+1.00", percent: "+1.01%" });
+        expect(changes[1]).toEqual({ dollar: EMPTY_PRICE, percent: EMPTY_PRICE });
+    });
+
+    it("signs a down move negative and reads equal prices as a flat zero change", () => {
+        // newest-first: 990000, 1000000, 1000000
+        //   i0: 990000 vs 1000000 -> -10000 units (-$1.00), -1.00%
+        //   i1: 1000000 vs 1000000 -> 0 ("0.00" / "0.00%")
+        //   i2: oldest -> empty
+        const changes = priceChanges(tapeOf([990_000, 1_000_000, 1_000_000]));
+        expect(changes[0]).toEqual({ dollar: "-1.00", percent: "-1.00%" });
+        expect(changes[1]).toEqual({ dollar: "0.00", percent: "0.00%" });
+        expect(changes[2]).toEqual({ dollar: EMPTY_PRICE, percent: EMPTY_PRICE });
+    });
+
+    it("guards single and empty inputs", () => {
+        expect(priceChanges(tapeOf([1_000_000]))).toEqual([
+            { dollar: EMPTY_PRICE, percent: EMPTY_PRICE },
+        ]);
+        expect(priceChanges([])).toEqual([]);
+    });
+
+    it("compares each visible row to the previous VISIBLE row after filtering", () => {
+        // Filtering to >200 leaves [1000000(q700), 1008000(q300), 1009000(q900)]
+        // newest-first, so i0 1000000 vs 1008000 -> down, i1 1008000 vs 1009000 -> down.
+        const prices = [1_000_000, 1_001_000, 1_008_000, 1_001_000, 1_009_000];
+        const quantities = [700, 100, 300, 50, 900];
+        const tape = tapeOf(prices).map((e, i) => ({ ...e, quantity: quantities[i] }));
+        const shown = tape.filter((e) => passesBlockFilter(e.quantity, "gt200"));
+        const changes = priceChanges(shown);
+        expect(changes[0].dollar).toBe("-0.80"); // 1000000 vs 1008000 = -8000 units
+        expect(changes[1].dollar).toBe("-0.10"); // 1008000 vs 1009000 = -1000 units
+        expect(changes[2]).toEqual({ dollar: EMPTY_PRICE, percent: EMPTY_PRICE });
     });
 });
 

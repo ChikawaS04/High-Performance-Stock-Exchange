@@ -73,26 +73,26 @@ interface Swatch {
 
 // A broad line-colour palette (display config, deliberately literal, not semantic).
 const LINE_COLORS: readonly Swatch[] = [
-    { name: "Amber", hex: "#e0a13c" },
-    { name: "Green", hex: "#2bb673" },
-    { name: "Red", hex: "#e05555" },
-    { name: "Blue", hex: "#3d8bfd" },
-    { name: "Cyan", hex: "#35c9d6" },
-    { name: "Teal", hex: "#2bb39e" },
-    { name: "Violet", hex: "#8a7bff" },
-    { name: "Magenta", hex: "#d26edc" },
-    { name: "Orange", hex: "#ff8c42" },
-    { name: "Yellow", hex: "#e6c84a" },
-    { name: "White", hex: "#e8eaed" },
-    { name: "Slate", hex: "#9aa3b1" },
+    { name: "Amber", hex: "#ffb01f" },
+    { name: "Green", hex: "#12d170" },
+    { name: "Red", hex: "#ff4d4f" },
+    { name: "Blue", hex: "#3b93ff" },
+    { name: "Cyan", hex: "#1fd6e8" },
+    { name: "Teal", hex: "#0fd9b6" },
+    { name: "Violet", hex: "#8a6bff" },
+    { name: "Magenta", hex: "#f14fe6" },
+    { name: "Orange", hex: "#ff7a18" },
+    { name: "Yellow", hex: "#ffe234" },
+    { name: "White", hex: "#ffffff" },
+    { name: "Slate", hex: "#a9b4c4" },
 ];
 
 // A brief fill palette: match the line, or a few presets.
 const FILL_CHOICES: readonly { readonly key: FillChoice; readonly name: string }[] = [
     { key: "line", name: "Match line" },
-    { key: "#e0a13c", name: "Amber" },
-    { key: "#2bb673", name: "Green" },
-    { key: "#3d8bfd", name: "Blue" },
+    { key: "#ffb01f", name: "Amber" },
+    { key: "#12d170", name: "Green" },
+    { key: "#3b93ff", name: "Blue" },
 ];
 
 const WARN = "#e0a13c"; // Alpaca market-open reference line
@@ -116,9 +116,9 @@ function inkFor(bg: ChartBg): Ink {
     return bg === "white"
         ? {
               bg: "#ffffff",
-              grid: "rgba(0,0,0,0.09)",
-              gridV: "rgba(0,0,0,0.05)",
-              axis: "#555555",
+              grid: "rgba(0,0,0,0.15)",
+              gridV: "rgba(0,0,0,0.12)",
+              axis: "#222222",
               ref: "rgba(0,0,0,0.45)",
               cross: "#555555",
               readoutBg: "rgba(255,255,255,0.97)",
@@ -127,9 +127,9 @@ function inkFor(bg: ChartBg): Ink {
           }
         : {
               bg: "#000000",
-              grid: "rgba(255,255,255,0.07)",
-              gridV: "rgba(255,255,255,0.04)",
-              axis: "#9a9a9a",
+              grid: "rgba(255,255,255,0.15)",
+              gridV: "rgba(255,255,255,0.12)",
+              axis: "#ffffff",
               ref: "rgba(255,255,255,0.5)",
               cross: "#9aa3b1",
               readoutBg: "rgba(18,18,18,0.95)",
@@ -179,7 +179,7 @@ export interface PriceChartProps {
 
 export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
     const [bg, setBg] = useState<ChartBg>("black");
-    const [lineColor, setLineColor] = useState<string>("#e0a13c");
+    const [lineColor, setLineColor] = useState<string>("#ffb01f");
     const [gradientOn, setGradientOn] = useState(true);
     const [fill, setFill] = useState<FillChoice>("line");
     const [settingsOpen, setSettingsOpen] = useState(false);

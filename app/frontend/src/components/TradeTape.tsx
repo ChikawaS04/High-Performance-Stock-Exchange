@@ -50,7 +50,13 @@
 
 import { useState } from "react";
 
-import { formatPrice, formatClockNanos } from "../format";
+import {
+    formatPrice,
+    formatClockNanos,
+    formatSignedDollar,
+    formatSignedPercent,
+    EMPTY_PRICE,
+} from "../format";
 import type { ClockPrecision } from "../format";
 import type { TapeEntry } from "../state/reducer";
 
@@ -87,6 +93,36 @@ export function tickDirections(entries: readonly TapeEntry[]): TickDirection[] {
     });
 }
 
+/** Per-row price change against the previous print, in dollars and percent. */
+export interface TapeChange {
+    readonly dollar: string;
+    readonly percent: string;
+}
+
+/**
+ * Per-print price change against the chronologically previous print, the same
+ * comparison tickDirections makes (the tape is newest-first, so the older neighbour
+ * of entry i is entry i+1). Returns the signed dollar and percent change as display
+ * strings via the format.ts helpers; the oldest print (no previous) has no change
+ * and renders EMPTY_PRICE for both. Pure over whatever list it is given, so each
+ * visible row compares to the previous VISIBLE print after filtering. The coloured
+ * direction of each change cell reuses the tickDirections result, so change and
+ * price always read with one consistent up/down/flat colour.
+ */
+export function priceChanges(entries: readonly TapeEntry[]): TapeChange[] {
+    return entries.map((entry, i) => {
+        const prev = entries[i + 1];
+        if (prev === undefined) {
+            return { dollar: EMPTY_PRICE, percent: EMPTY_PRICE };
+        }
+        const deltaUnits = entry.pricePx - prev.pricePx;
+        return {
+            dollar: formatSignedDollar(deltaUnits),
+            percent: formatSignedPercent(deltaUnits, prev.pricePx),
+        };
+    });
+}
+
 const FILTERS: readonly { readonly value: BlockFilter; readonly label: string }[] = [
     { value: "all", label: "All" },
     { value: "gt200", label: ">200" },
@@ -108,6 +144,7 @@ export function TradeTape({ tape }: TradeTapeProps) {
     // subset, no reaccumulation, no refetch, cap and order intact by construction.
     const shown = tape.filter((entry) => passesBlockFilter(entry.quantity, filter));
     const directions = tickDirections(shown);
+    const changes = priceChanges(shown);
 
     const emptyMessage = tape.length === 0 ? "No trades yet" : "No prints at this size";
 
@@ -230,22 +267,27 @@ export function TradeTape({ tape }: TradeTapeProps) {
                 )}
             </div>
 
-            <div className="trade-tape__head" aria-hidden="true">
-                <span className="trade-tape__head-time">Time</span>
-                <span className="trade-tape__head-price">Price</span>
-                <span className="trade-tape__head-qty">Size</span>
-                <span className="trade-tape__head-side" title="Aggressor side, shown for your own trades only">
-          Side
-        </span>
-            </div>
-
-            {shown.length === 0 ? (
-                <div className="trade-tape__empty" data-testid="tape-empty">
-                    {emptyMessage}
+            {/* One grid: the sticky column-header row plus the scrolling data rows.
+                Keeping the header inside the same grid as the rows (via subgrid in the
+                CSS) is what guarantees the captions always line up with their columns. */}
+            <div className="trade-tape__rows">
+                <div className="trade-tape__head" aria-hidden="true">
+                    <span className="trade-tape__head-time">Time</span>
+                    <span className="trade-tape__head-chg">Change $</span>
+                    <span className="trade-tape__head-chg">Change %</span>
+                    <span className="trade-tape__head-price">Price</span>
+                    <span className="trade-tape__head-qty">Size</span>
+                    <span className="trade-tape__head-side" title="Aggressor side, shown for your own trades only">
+                        Side
+                    </span>
                 </div>
-            ) : (
-                <div className="trade-tape__rows">
-                    {shown.map((entry, i) => {
+
+                {shown.length === 0 ? (
+                    <div className="trade-tape__empty" data-testid="tape-empty">
+                        {emptyMessage}
+                    </div>
+                ) : (
+                    shown.map((entry, i) => {
                         const dir = directions[i];
                         const rowClass = entry.mine
                             ? "trade-tape__row trade-tape__row--mine"
@@ -261,6 +303,18 @@ export function TradeTape({ tape }: TradeTapeProps) {
                 <span className="trade-tape__time">
                   {formatClockNanos(entry.timestamp, precision)}
                 </span>
+                                <span
+                                    className={`trade-tape__change trade-tape__change--${dir}`}
+                                    data-testid="tape-change-dollar"
+                                >
+                  {changes[i].dollar}
+                </span>
+                                <span
+                                    className={`trade-tape__change trade-tape__change--${dir}`}
+                                    data-testid="tape-change-percent"
+                                >
+                  {changes[i].percent}
+                </span>
                                 <span className={`trade-tape__price trade-tape__price--${dir}`}>
                   {dir !== "flat" && (
                       <span className="trade-tape__arrow" aria-hidden="true">
@@ -275,9 +329,9 @@ export function TradeTape({ tape }: TradeTapeProps) {
                 </span>
                             </div>
                         );
-                    })}
-                </div>
-            )}
+                    })
+                )}
+            </div>
         </div>
     );
 }

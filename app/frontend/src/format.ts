@@ -48,6 +48,65 @@ export function formatPrice(px: number): string {
 }
 
 /**
+ * Signed dollar change for the trade tape CHANGE $ column.
+ *
+ * Takes a price DELTA in integer units of $0.0001 (this print's price minus the
+ * previous print's) and renders it as a signed dollar string, reusing formatPrice
+ * for the magnitude so a delta never touches float. Zero renders "0.00" with no
+ * sign; a positive delta gets a leading "+", a negative one a leading "-". A
+ * non-integer delta is rejected to EMPTY_PRICE, as every price delta on the wire is
+ * a whole number of units.
+ *
+ *   500   -> "+0.05"
+ *   -700  -> "-0.07"
+ *   0     -> "0.00"
+ *   50    -> "+0.005"
+ */
+export function formatSignedDollar(deltaUnits: number): string {
+    if (!Number.isInteger(deltaUnits)) {
+        return EMPTY_PRICE
+    }
+    if (deltaUnits === 0) {
+        return formatPrice(0)
+    }
+    const sign = deltaUnits > 0 ? '+' : '-'
+    return sign + formatPrice(Math.abs(deltaUnits))
+}
+
+/**
+ * Signed percentage change for the trade tape CHANGE % column, to two decimals.
+ *
+ * Takes the same price DELTA in units and the PREVIOUS print's price in units, and
+ * renders (delta / prev) * 100 as a signed "X.XX%" string. This is the one derived
+ * display metric that needs a division, so it is taken as a single rounded division
+ * into hundredths-of-a-percent rather than carried as a raw float; it is a display
+ * figure only, never a price or an order value. The sign follows the ROUNDED
+ * magnitude, so a sub-0.005% move reads "0.00%" without a misleading "-0.00%".
+ * EMPTY_PRICE when there is no valid previous price to divide by.
+ *
+ *   500,   1000000  -> "+0.05%"
+ *   -2000, 1000000  -> "-0.20%"
+ *   0,     1000000  -> "0.00%"
+ *   500,   17823500 -> "0.00%"   (a sub-0.005% move rounds to zero)
+ */
+export function formatSignedPercent(deltaUnits: number, prevUnits: number): string {
+    if (!Number.isInteger(deltaUnits) || !Number.isInteger(prevUnits) || prevUnits <= 0) {
+        return EMPTY_PRICE
+    }
+    // Hundredths of a percent = delta / prev * 10000, rounded to an integer so the
+    // output is exactly two decimal places.
+    const hundredths = Math.round((deltaUnits * 10000) / prevUnits)
+    if (hundredths === 0) {
+        return '0.00%'
+    }
+    const sign = hundredths > 0 ? '+' : '-'
+    const mag = Math.abs(hundredths)
+    const whole = Math.trunc(mag / 100)
+    const frac = String(mag % 100).padStart(2, '0')
+    return `${sign}${whole}.${frac}%`
+}
+
+/**
  * Group a whole-number quantity with thousands separators (P9-Extras).
  *
  * For counts and sizes, not prices: session volume and the Filled / Rem header

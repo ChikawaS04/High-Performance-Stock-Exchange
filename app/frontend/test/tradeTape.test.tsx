@@ -24,7 +24,9 @@ function entry(overrides: Partial<TapeEntry> = {}): TapeEntry {
 }
 
 function priceOf(row: HTMLElement): string {
-    return row.querySelector(".trade-tape__price")!.textContent ?? "";
+    // The price cell carries a leading ▲/▼ tick arrow (aria-hidden) before the value;
+    // strip it so these assertions compare the formatted price, not the decoration.
+    return (row.querySelector(".trade-tape__price")!.textContent ?? "").replace(/[▲▼]/g, "");
 }
 function qtyOf(row: HTMLElement): string {
     return row.querySelector(".trade-tape__qty")!.textContent ?? "";
@@ -160,6 +162,32 @@ describe("TradeTape", () => {
         expect(priceClassOf(rows[0])).toContain("trade-tape__price--up");
         expect(priceClassOf(rows[1])).toContain("trade-tape__price--flat");
         expect(priceClassOf(rows[2])).toContain("trade-tape__price--flat");
+    });
+
+    it("renders CHANGE $ and CHANGE % against the previous print, coloured like the tick", () => {
+        // newest-first: 150.20 (up vs 150.10 -> +0.10 / +0.07%), 150.10 (oldest -> —)
+        const tape = [
+            entry({ tradeId: 2, pricePx: 1502000 }),
+            entry({ tradeId: 1, pricePx: 1501000 }),
+        ];
+        render(<TradeTape tape={tape} />);
+        const rows = screen.getAllByTestId("tape-row");
+
+        const dollar0 = rows[0].querySelector('[data-testid="tape-change-dollar"]')!;
+        const percent0 = rows[0].querySelector('[data-testid="tape-change-percent"]')!;
+        expect(dollar0.textContent).toBe("+0.10");
+        expect(percent0.textContent).toBe("+0.07%");
+        // Change cells carry the same up/down/flat colour class as the price.
+        expect(dollar0.className).toContain("trade-tape__change--up");
+        expect(percent0.className).toContain("trade-tape__change--up");
+
+        // The oldest print has no previous, so both change cells show the empty marker.
+        expect(
+            rows[1].querySelector('[data-testid="tape-change-dollar"]')!.textContent,
+        ).toBe("—");
+        expect(
+            rows[1].querySelector('[data-testid="tape-change-percent"]')!.textContent,
+        ).toBe("—");
     });
 
     it("renders an empty state cleanly with no rows", () => {
