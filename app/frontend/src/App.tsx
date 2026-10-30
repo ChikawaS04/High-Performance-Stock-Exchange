@@ -40,7 +40,9 @@
  * the connection badge stays inside the Header, visible on every route.
  */
 
-import { Navigate, Route, Routes } from "react-router-dom";
+import { useState } from "react";
+
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import { useOrderBook } from "./state/useOrderBook";
 import { useIgnitionPrice } from "./state/useIgnitionPrice";
@@ -57,6 +59,16 @@ import "./styles/terminal.css";
 export default function App() {
     const { state, send } = useOrderBook();
     const { openPx } = useIgnitionPrice();
+    const navigate = useNavigate();
+    const [priceOverlayOpen, setPriceOverlayOpen] = useState(false);
+
+    // "View in trading" on the price-chart page: jump to the trading terminal and
+    // float the chart there as a draggable window. The state lives here, above the
+    // routes, so the intent survives the navigation that unmounts the chart page.
+    const handleViewInTrading = (): void => {
+        setPriceOverlayOpen(true);
+        navigate("/trading");
+    };
 
     const handleSubmit = (intent: OrderIntent): void => {
         send(newOrderFrame(nextClOrdId(), intent));
@@ -90,8 +102,11 @@ export default function App() {
                     element={
                         <TradingPage
                             state={state}
+                            openPx={openPx}
                             onSubmitOrder={handleSubmit}
                             onCancelOrder={handleCancel}
+                            priceOverlayOpen={priceOverlayOpen}
+                            onClosePriceOverlay={() => setPriceOverlayOpen(false)}
                         />
                     }
                 />
@@ -102,6 +117,7 @@ export default function App() {
                             state={state}
                             openPx={openPx}
                             onSubmitOrder={handleSubmit}
+                            onViewInTrading={handleViewInTrading}
                         />
                     }
                 />

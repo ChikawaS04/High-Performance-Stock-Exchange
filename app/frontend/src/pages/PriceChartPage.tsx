@@ -56,12 +56,15 @@ export interface PriceChartPageProps {
     readonly state: AppState;
     readonly openPx?: number;
     readonly onSubmitOrder: (intent: OrderIntent) => void;
+    /** Opens the floating chart on the trading page (wired by App). */
+    readonly onViewInTrading?: () => void;
 }
 
 export function PriceChartPage({
                                    state,
                                    openPx,
                                    onSubmitOrder,
+                                   onViewInTrading,
                                }: PriceChartPageProps) {
     const connected = state.connection === "open";
 
@@ -72,6 +75,7 @@ export function PriceChartPage({
                     tape={state.tape}
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
+                    onViewInTrading={onViewInTrading}
                 />
             </section>
 

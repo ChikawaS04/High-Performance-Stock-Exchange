@@ -42,6 +42,7 @@ import type { OrderIntent } from "../protocol/messages";
 import { DepthLadder } from "../components/DepthLadder";
 import { DepthCurve } from "../components/DepthCurve";
 import { DepthChartOverlay } from "../components/DepthChartOverlay";
+import { PriceChartOverlay } from "../components/PriceChartOverlay";
 import { TradeTape } from "../components/TradeTape";
 import { OrderEntry } from "../components/OrderEntry";
 import type { OrderEntryHandle } from "../components/OrderEntry";
@@ -50,14 +51,20 @@ import { FixInspector } from "../components/FixInspector";
 
 export interface TradingPageProps {
     readonly state: AppState;
+    readonly openPx?: number;
     readonly onSubmitOrder: (intent: OrderIntent) => void;
     readonly onCancelOrder: (origClOrdId: number) => void;
+    readonly priceOverlayOpen: boolean;
+    readonly onClosePriceOverlay: () => void;
 }
 
 export function TradingPage({
     state,
+    openPx,
     onSubmitOrder,
     onCancelOrder,
+    priceOverlayOpen,
+    onClosePriceOverlay,
 }: TradingPageProps) {
     const connected = state.connection === "open";
     const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -157,6 +164,14 @@ export function TradingPage({
                 onClose={() => setDepthMaxed(false)}
                 book={state.book}
                 onPriceSelect={(pricePx) => entryRef.current?.setPrice(pricePx)}
+            />
+
+            <PriceChartOverlay
+                open={priceOverlayOpen}
+                onClose={onClosePriceOverlay}
+                tape={state.tape}
+                sessionOpenPx={state.sessionOpenPx}
+                openPx={openPx}
             />
 
             <FixInspector

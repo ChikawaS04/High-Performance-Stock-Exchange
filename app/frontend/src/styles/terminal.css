@@ -3979,3 +3979,61 @@ body {
     font-variant-numeric: tabular-nums;
     font-size: 11px;
 }
+
+
+/* ==========================================================================
+   Floating price-chart window (2026-10)
+   The price-chart page's "View in trading" dropdown navigates to the trading
+   terminal and floats the price chart there as a free-floating, draggable window,
+   modelled on the maximized depth chart (DESIGN_SYSTEM.md §5/§10): a light-grey
+   window outline and a §10 exit button. There is no second header: the chart's own
+   --head band is the window title bar and the drag grip.
+   ========================================================================== */
+.price-overlay {
+    position: fixed;
+    z-index: 200;
+    width: min(760px, 94vw);
+    background: var(--body);
+    border: 1px solid #808080;
+    border-radius: 4px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+}
+/* The chart fills the window; the frame supplies the edge, so drop the card's. */
+.price-overlay .price-chart {
+    border: none;
+    border-radius: 0;
+}
+/* The chart's --head band is the window title bar and the drag grip. */
+.price-overlay .price-chart__band {
+    border-radius: 0;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+.price-overlay .price-chart__band:active {
+    cursor: grabbing;
+}
+.price-overlay .price-chart__plot {
+    border-radius: 0;
+}
+
+/* Close button on the band (§10 popup exit button: header-colour fill, lone × in
+   --exit-x, sharp edges, brightening on hover). Rendered only in the overlay. */
+.price-chart__close {
+    appearance: none;
+    flex-shrink: 0;
+    width: 22px;
+    height: 20px;
+    border: 0;
+    border-radius: 0;
+    background: var(--pop-head);
+    color: var(--exit-x);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.price-chart__close:hover { color: #d40000; }

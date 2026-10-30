@@ -4,15 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Fixed reverted code issues in terminal.css and updated trades panel (trade tape) to display color matching for price increment and decrement (green and red)">
+    <list default="true" id="e1aea6c6-22a5-4fbf-ab3b-b1fb46959b08" name="Changes" comment="Minor changes to the price chart color scheme">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/App.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/PriceChart.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/components/TradeTape.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/src/format.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/format.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/PriceChartPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/pages/TradingPage.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/src/styles/terminal.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/format.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/format.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/tradeTape.logic.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tradeTape.logic.test.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/frontend/test/tradeTape.test.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/frontend/test/tradeTape.test.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -176,6 +174,7 @@
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\ddavi\IdeaProjects\Limit-Order-Management-System" />
+      <recent name="C:\Users\ddavi\IdeaProjects\Limit-Order-Management-System\docs" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\ddavi\IdeaProjects\Limit-Order-Management-System\frontend" />
@@ -415,15 +414,11 @@
       <workItem from="1792114700737" duration="3494000" />
       <workItem from="1792177353942" duration="218000" />
       <workItem from="1792523884709" duration="2000" />
-      <workItem from="1792545529982" duration="4094000" />
-    </task>
-    <task id="LOCAL-00022" summary="test(gateway): add message-level tests for FixParser.parse (Step 5)&#10;&#10;Cover the SRS Step 5 cases via a message builder that computes a correct&#10;BodyLength and CheckSum, so rejects are attributable to field validation&#10;rather than a bad trailer.&#10;&#10;- valid 35=D (buy and sell) populates all fields; originalOrderId cleared&#10;- valid 35=F populates orderId/originalOrderId; side/price/quantity cleared&#10;- reject: missing tag 44, invalid side (54=3), wrong symbol, qty 0 (38=0),&#10;  non-numeric ClOrdID, unknown 35= type">
-      <option name="closed" value="true" />
-      <created>1784838888359</created>
-      <option name="number" value="00022" />
-      <option name="presentableId" value="LOCAL-00022" />
-      <option name="project" value="LOCAL" />
-      <updated>1784838888359</updated>
+      <workItem from="1792545529982" duration="5048000" />
+      <workItem from="1792639129792" duration="883000" />
+      <workItem from="1792898070417" duration="779000" />
+      <workItem from="1793391657682" duration="309000" />
+      <workItem from="1793393656936" duration="151000" />
     </task>
     <task id="LOCAL-00023" summary="feat(gateway): add length-prefixed FixFrameDecoder&#10;&#10;Step 6. First Netty-aware class in the parse path. Extends&#10;ByteToMessageDecoder, reads 9=&lt;n&gt;, emits one complete message&#10;(8=..&lt;SOH&gt; 9=&lt;n&gt;&lt;SOH&gt; body 10=xxx&lt;SOH&gt;) at a time as a byte[] copy.&#10;&#10;- frameLength/frameAndEmit are static, byte[]-only, Netty-free, so the&#10;  framing math is unit-testable without EmbeddedChannel&#10;- handoff (a): frame copied to a fresh byte[] before the inbound ring&#10;  buffer, keeping FixParser pure byte[] with no refcount discipline&#10;- MALFORMED (bad/oversized/non-numeric 9=, broken trailer) resyncs to the&#10;  next 8=; NEED_MORE waits for more bytes&#10;- add MAX_FRAME guard and netty-codec dependency (compile scope)&#10;&#10;Boundary rule now: FixFrameDecoder may import io.netty; FixParser may not.">
       <option name="closed" value="true" />
@@ -809,14 +804,21 @@
       <option name="project" value="LOCAL" />
       <updated>1792111390696</updated>
     </task>
-    <option name="localTasksCounter" value="71" />
+    <task id="LOCAL-00071" summary="Minor changes to the price chart color scheme">
+      <option name="closed" value="true" />
+      <created>1792551041087</created>
+      <option name="number" value="00071" />
+      <option name="presentableId" value="LOCAL-00071" />
+      <option name="project" value="LOCAL" />
+      <updated>1792551041088</updated>
+    </task>
+    <option name="localTasksCounter" value="72" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(frontend): P5-4 order entry + open orders panel&#10;&#10;Add the manual trading interface (SRS §3.7):&#10;&#10;- OrderEntry.tsx: BUY/SELL toggle, text price/qty inputs, client-side&#10;  validation before send (decision 6 — backend gives no reject feedback).&#10;  Exports pure validateOrderInput (mirrors buildLadder); dollars convert to&#10;  integer cents at the component edge via dollarsToCents. onSubmit emits&#10;  (side, priceCents, qty); no HTML &lt;form&gt;, plain onClick/onChange.&#10;- OpenOrders.tsx: myOrders panel (clOrdId, side, price, remaining qty,&#10;  status). Cancel offered only on isCancellable rows (OPEN/PARTIALLY_FILLED),&#10;  emitting the row's clOrdId as origClOrdId via onCancel.&#10;&#10;Both are presentational and callback-driven — no clOrdId generation, frame&#10;building, or socket access (that lives in the P5-5 App wiring over the single&#10;useOrderBook instance, keeping clOrdId generated in exactly one place).&#10;&#10;Tests: orderEntry.test.tsx (pure validation + render), openOrders.test.tsx&#10;(rows, cancellable gating, onCancel id, empty state). No new deps; jsdom + RTL&#10;from P5-2. App.tsx and backend untouched." />
     <MESSAGE value="feat(frontend): P5-5 terminal layout, header, connection badge&#10;&#10;Assemble the single-screen trading terminal (SRS §3.7) around one&#10;useOrderBook instance:&#10;&#10;- Header.tsx: ASML + best bid/ask/mid/spread, derived purely from BOOK.&#10;  Exported pure deriveHeader (mirrors buildLadder). Mid is half-cent-safe&#10;  via integer math (150.00/150.25 -&gt; &quot;150.125&quot;), guarded on the -1&#10;  sentinel; spread reuses P5-2 spreadLabel.&#10;- ConnectionBadge.tsx: live/connecting/reconnecting from the hook state&#10;  (no persistent disconnected — the hook always retries).&#10;- App.tsx: rewrites the P5-0 placeholder into the real layout, the sole&#10;  call site of nextClOrdId + the encoders; gates OrderEntry on an open&#10;  socket.&#10;- styles/terminal.css: dark, dense, tabular-mono terminal theme; depth&#10;  bars as the one bold element; focus ring distinct from side colours;&#10;  motion respects prefers-reduced-motion.&#10;- OrderEntry.tsx: additive optional `disabled` prop (backward-compatible).&#10;&#10;Tests: header.test.ts (pure deriveHeader), connectionBadge.test.tsx&#10;(three statuses), orderEntry disabled case. No new deps; no vite.config&#10;change. Backend untouched." />
     <MESSAGE value="P5-6: frontend README + manual e2e checklist — Phase 5 complete&#10;&#10;Add frontend/README.md as the portfolio landing for the React terminal:&#10;one-paragraph architecture summary (JSON &lt;-&gt; FIX &lt;-&gt; rings &lt;-&gt; engine &lt;-&gt;&#10;rings &lt;-&gt; WS, cents-internal, BOOK-authoritative), the full wire contract&#10;(NEW/CANCEL out, BOOK/EXEC in, integer cents, all nine EXEC fields with -1&#10;NA), run instructions (backend via IntelliJ Main on :8080; frontend npm on&#10;:5173, Node 20.19+/22.12+), and screenshot placeholders.&#10;&#10;Documents the carry-forward caveats honestly rather than glossing them:&#10;BOOK is authoritative / EXEC is a notification (independent Disruptor&#10;consumers interleave out of order); a passive resting order receives no EXEC&#10;of its own, so partial consumption shows only as the book shrinking; a fresh&#10;client sees an empty ladder until the next order event (no snapshot-on-&#10;connect); and timestamp is System.nanoTime(), not epoch -- ordering-only, no&#10;wall-clock rendering (the &lt;epochNanos&gt; label in the build guides is&#10;inaccurate).&#10;&#10;Includes the manual end-to-end checklist (connect, rest, cross, cancel,&#10;malformed-input-blocked, disconnect/reconnect) as the Phase 5 acceptance&#10;gate. No application code changed; backend and frontend source untouched.&#10;&#10;Closes Phase 5." />
     <MESSAGE value="Phase 6 kickoff: JMH toolchain + book-depth benchmark&#10;&#10;- pom moved to backend/, sources now resolve by convention (no&#10;  &lt;sourceDirectory&gt; override); stale root target/ removed&#10;- maven.compiler.release=21 (was source/target=25): main artifact is&#10;  21 bytecode so benchmarks can fork on JDK 21 LTS while dev stays on 25&#10;- add jmh-core + jmh-generator-annprocess 1.37 (test) and&#10;  pw.krejci:jmh-maven-plugin 0.2.2&#10;- benchmark/MatchingEngineDepthBenchmark: non-crossing insert vs resting&#10;  depth 1..10000, engine driven directly (no Disruptor/Netty)&#10;- fix WebSocketRoundTripTest: tradeId is IDGenerator-minted and&#10;  JVM-global, so assert it is a real id rather than literal 1 (broke on&#10;  the first full-suite single-JVM run)&#10;&#10;Findings: no measurable depth effect 1..10k (CIs overlap); ~165 B/op&#10;allocation, dominated by Long boxing in TreeMap/HashMap keys." />
@@ -841,6 +843,7 @@
     <MESSAGE value="Implemented two trading algos (maker and taker) to visualize external participant effect on the exchange" />
     <MESSAGE value="Reworked the session panel in price chart page" />
     <MESSAGE value="Fixed reverted code issues in terminal.css and updated trades panel (trade tape) to display color matching for price increment and decrement (green and red)" />
-    <option name="LAST_COMMIT_MESSAGE" value="Fixed reverted code issues in terminal.css and updated trades panel (trade tape) to display color matching for price increment and decrement (green and red)" />
+    <MESSAGE value="Minor changes to the price chart color scheme" />
+    <option name="LAST_COMMIT_MESSAGE" value="Minor changes to the price chart color scheme" />
   </component>
 </project>

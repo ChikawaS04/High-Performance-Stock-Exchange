@@ -175,9 +175,13 @@ export interface PriceChartProps {
     readonly sessionOpenPx: number;
     /** Alpaca market open in units (P11); drawn only when inside the price domain. */
     readonly openPx?: number;
+    /** When set, the view dropdown shows "View in trading" and calls this. */
+    readonly onViewInTrading?: () => void;
+    /** When set (floating overlay), the band shows a close button that calls this. */
+    readonly onClose?: () => void;
 }
 
-export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
+export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClose }: PriceChartProps) {
     const [bg, setBg] = useState<ChartBg>("black");
     const [lineColor, setLineColor] = useState<string>("#ffb01f");
     const [gradientOn, setGradientOn] = useState(true);
@@ -267,6 +271,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
         <div className="price-chart__band">
             <span className="price-chart__title">Price chart</span>
             <div className="price-chart__controls">
+                {onViewInTrading ? (
                 <div className="price-chart__view">
                     <button
                         type="button"
@@ -296,13 +301,16 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
                                 aria-label="Chart views"
                                 data-testid="pc-view-menu"
                             >
-                                {/* Placeholder: no behaviour yet (wired in a later step). */}
+                                {/* Navigates to the trading page and floats this chart there (App wires onViewInTrading). */}
                                 <button
                                     type="button"
                                     role="menuitem"
                                     className="price-chart__viewopt"
                                     data-testid="pc-view-trading"
-                                    onClick={() => setViewOpen(false)}
+                                    onClick={() => {
+                                        setViewOpen(false);
+                                        onViewInTrading?.();
+                                    }}
                                 >
                                     View in trading
                                 </button>
@@ -310,6 +318,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
                         </>
                     )}
                 </div>
+                ) : null}
 
                 <button
                     type="button"
@@ -479,6 +488,18 @@ export function PriceChart({ tape, sessionOpenPx, openPx }: PriceChartProps) {
                         </div>
                     </>
                 )}
+
+                {onClose ? (
+                    <button
+                        type="button"
+                        className="price-chart__close"
+                        aria-label="Close floating chart"
+                        data-testid="pc-close"
+                        onClick={onClose}
+                    >
+                        ×
+                    </button>
+                ) : null}
             </div>
         </div>
     );
