@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
 import util.BookFrameCache;
@@ -48,6 +49,8 @@ public final class WebSocketServer {
     private static final String WEBSOCKET_PATH = "/ws";
     private static final int MAX_HTTP_CONTENT_LENGTH = 64 * 1024;
     private static final long HEARTBEAT_INTERVAL_SECONDS = 30;
+    /** Bound on event-loop termination at stop; no quiet period, so an idle server stops at once. */
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 5;
 
     private final int port;
     private final OrderGateway gateway;
@@ -109,17 +112,29 @@ public final class WebSocketServer {
         log.info("WebSocket server listening on ws://0.0.0.0:{}{}", boundPort(), WEBSOCKET_PATH);
     }
 
+    /**
+     * Stops accepting connections, closes every client, and waits (bounded) for the event loops
+     * to terminate. Once this returns, the worker thread can no longer call the gateway, so
+     * graceful shutdown can drain the inbound ring knowing nothing more will be published (P15-4).
+     */
     public void stop() throws InterruptedException {
         if (serverChannel != null) {
             serverChannel.close().sync();
         }
         channelGroup.close().awaitUninterruptibly();
+        boolean terminated = true;
         if (workerGroup != null) {
-            workerGroup.shutdownGracefully();
+            terminated &= workerGroup.shutdownGracefully(0, SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .awaitUninterruptibly(2 * SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         }
         if (bossGroup != null) {
-            bossGroup.shutdownGracefully();
+            terminated &= bossGroup.shutdownGracefully(0, SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .awaitUninterruptibly(2 * SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         }
-        log.info("WebSocket server stopped");
+        if (terminated) {
+            log.info("WebSocket server stopped");
+        } else {
+            log.warn("WebSocket server event loops did not terminate within {} s", 2 * SHUTDOWN_TIMEOUT_SECONDS);
+        }
     }
 }

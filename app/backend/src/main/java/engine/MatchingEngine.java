@@ -52,6 +52,56 @@ public class MatchingEngine implements BookView {
     }
 
     /**
+     * Hands every resting order to {@code visitor} in restore order (see {@link RestingOrderVisitor}).
+     * This is the snapshot's view of the book (P15-5, SRS §3.10): {@code openOrders} is not
+     * visited, because it holds exactly these orders and is rebuilt from them. Engine thread only,
+     * or after it has stopped. The enhanced-for loops allocate iterators, the same documented
+     * book-structure allocation as {@link #snapshotInto}; this runs only when a snapshot is taken.
+     */
+    public void visitResting(RestingOrderVisitor visitor) {
+        for (Deque<Order> level : bids.values()) {
+            for (Order o : level) visitor.onRestingOrder(o, false);
+        }
+        for (Deque<Order> level : asks.values()) {
+            for (Order o : level) visitor.onRestingOrder(o, false);
+        }
+        for (Order o : pegBids) visitor.onRestingOrder(o, true);
+        for (Order o : pegAsks) visitor.onRestingOrder(o, true);
+    }
+
+    /**
+     * Appends one restored resting order to the back of its structure (P15-5 recovery only): a
+     * pegged order to its side's pool, a lit order to its price level, which is created if
+     * absent. The same instance is registered in {@code openOrders}, so cancel and the queues
+     * share one object graph. Called with the orders in restore order on a pristine engine, this
+     * rebuilds identical queues and pools. Nothing is matched and nothing is reported.
+     *
+     * @throws IllegalStateException if an open order already has this id, or if the order's type
+     *                               contradicts {@code pegged}
+     */
+    public void restoreResting(Order order, boolean pegged) {
+        if ((order.getOrdType() == OrdType.PEG_MID) != pegged) {
+            throw new IllegalStateException("Order " + order.getOrderID() + " of type " + order.getOrdType()
+                    + " restored " + (pegged ? "into a peg pool" : "onto a lit level"));
+        }
+        if (openOrders.putIfAbsent(order.getOrderID(), order) != null) {
+            throw new IllegalStateException("Duplicate resting order id " + order.getOrderID());
+        }
+        if (pegged) {
+            ((order.getSide() == Side.BUY) ? pegBids : pegAsks).addLast(order);
+        } else {
+            TreeMap<Long, Deque<Order>> book = (order.getSide() == Side.BUY) ? bids : asks;
+            book.computeIfAbsent(order.getPrice(), k -> new ArrayDeque<>()).addLast(order);
+        }
+    }
+
+    /** True for an engine that has never held an order or made a trade: the only state recovery restores into. */
+    public boolean isPristine() {
+        return openOrders.isEmpty() && bids.isEmpty() && asks.isEmpty()
+                && pegBids.isEmpty() && pegAsks.isEmpty() && nextTradeId == 1;
+    }
+
+    /**
      * True when {@code orderId} belongs to an order still resting on the book or in a peg pool.
      * The handler checks this before building a NEW's Order, so a duplicate id is rejected without
      * touching the resting order (D3, SRS §3.3).

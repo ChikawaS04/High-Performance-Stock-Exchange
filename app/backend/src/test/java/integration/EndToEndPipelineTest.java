@@ -1,12 +1,8 @@
 package integration;
 
-import engine.MatchingEngine;
-import engine.MatchingEngineHandler;
 import event.CapturingExecutionHandler;
 import event.CapturingExecutionHandler.Observed;
 import event.ExecutionEventType;
-import event.InboundPipeline;
-import event.OutboundPipeline;
 import gateway.FixFrameDecoder;
 import gateway.OrderGateway;
 import io.netty.buffer.Unpooled;
@@ -14,8 +10,10 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,6 +28,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *     -> FixFrameDecoder            (length-prefixed framing, real Netty decode)
  *     -> OrderGateway.onFrame       (parse + timestamp + publish)
  *     -> inbound RingBuffer<OrderEvent>
+ *     -> Sequencer                  (seq, timestamp floor, SBE encode, recorded IPC offer)
+ *     -> Aeron Archive recording    (the journal)
+ *     -> EngineAgent                (gated on the recorded position, SBE decode)
  *     -> MatchingEngineHandler      (build Order, drive matching, publish executions)
  *     -> outbound RingBuffer<ExecutionEvent>
  *     -> CapturingExecutionHandler  (test subscriber)
@@ -40,43 +41,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * (the production adapter is Phase 4): it drains each decoded byte[] frame out
  * of the channel and hands it to gateway.onFrame.
  *
- * Two async hops (inbound + outbound consumer threads), so assertions wait via
- * CapturingExecutionHandler.awaitAtLeast rather than reading synchronously.
- * Event order is deterministic: one inbound consumer processes ring events FIFO
- * and the handler publishes synchronously in-callback, so a single outbound
- * consumer observes executions in submission order.
+ * P15-4: the venue is the production journaled pipeline, built through the shared
+ * JournaledVenue harness over a temporary data directory per test.
+ *
+ * Several async hops (sequencer, archive, engine agent, outbound consumer), so
+ * assertions wait via CapturingExecutionHandler.awaitAtLeast rather than reading
+ * synchronously. Event order is deterministic: the journal fixes one order, the agent
+ * applies it FIFO and the handler publishes synchronously in-callback, so a single
+ * outbound consumer observes executions in submission order.
  */
 class EndToEndPipelineTest {
 
     private static final byte SOH = 0x01;
     private static final char SOH_C = (char) SOH;
 
-    private MatchingEngine engine;
-    private OutboundPipeline outbound;
-    private InboundPipeline inbound;
+    @TempDir
+    Path root;
+
+    private JournaledVenue venue;
     private OrderGateway gateway;
     private CapturingExecutionHandler captured;
     private EmbeddedChannel channel;
 
     @BeforeEach
     void setUp() {
-        engine   = new MatchingEngine();
         captured = new CapturingExecutionHandler();
 
-        // Outbound half first: the engine handler needs a live ring to produce into.
-        outbound = new OutboundPipeline();
-        outbound.handleEventsWith(captured);
-        outbound.start();
-
-        MatchingEngineHandler handler =
-                new MatchingEngineHandler(engine, outbound.getRingBuffer());
-        engine.setExecutionListener(handler);   // caller wires the listener (as in 7.5)
-
-        // Inbound half: the engine handler is the ring's sole consumer.
-        inbound = new InboundPipeline(handler);
-        inbound.start();
-
-        gateway = new OrderGateway(inbound.getRingBuffer());
+        venue = JournaledVenue.create(root);
+        venue.outbound().handleEventsWith(captured);
+        gateway = venue.gateway();
+        venue.start();
 
         // Real decoder, driven off-channel; emits per-frame byte[] copies.
         channel = new EmbeddedChannel(new FixFrameDecoder());
@@ -84,9 +78,8 @@ class EndToEndPipelineTest {
 
     @AfterEach
     void tearDown() {
-        if (channel != null)  channel.finishAndReleaseAll();
-        if (inbound != null)  inbound.shutdown();   // stop feeding outbound first
-        if (outbound != null) outbound.shutdown();
+        if (channel != null) channel.finishAndReleaseAll();
+        if (venue != null)   venue.close();   // graceful drain; fails on any fatal
     }
 
     // --- the Netty->gateway adapter the test stands in for ---

@@ -103,6 +103,67 @@ public class Order {
         refreshDisplay();   // initialise visibleQty consistently (== quantity for a plain order / peg)
     }
 
+    /** Restore form: assigns every field as given, with no normalisation. Only {@link #restore} calls it. */
+    private Order(long orderID, long timeStamp, Side side, int quantity, long price, Status status,
+                  long participantID, TimeInForce tif, int peak, int visibleQty, OrdType ordType) {
+        this.orderID = orderID;
+        this.timeStamp = timeStamp;
+        this.side = side;
+        this.quantity = quantity;
+        this.price = price;
+        this.status = status;
+        this.participantID = participantID;
+        this.tif = tif;
+        this.peak = peak;
+        this.visibleQty = visibleQty;
+        this.ordType = ordType;
+    }
+
+    /**
+     * Rebuilds a resting order from a snapshot exactly as it was (P15-5, SRS §3.10). The
+     * canonical constructor cannot do this: it normalises a peak equal to the quantity to 0,
+     * rejects a peak above the quantity (a partly filled iceberg's remaining quantity can be
+     * below its peak), recomputes the visible slice (an iceberg mid-slice shows less than its
+     * peak) and always starts OPEN.
+     *
+     * Validation here is structural, for a resting order: positive ids, timestamp and
+     * quantity; a resting status (OPEN or PARTIALLY_FILLED); a visible slice in
+     * {@code 1..quantity}, at most the peak for an iceberg and equal to the quantity otherwise;
+     * the price rule of its type; a resting iceberg is GTC; non-null enums.
+     *
+     * @throws IllegalArgumentException naming the first field that cannot belong to a resting order
+     */
+    public static Order restore(long orderID, long timeStamp, Side side, int quantity, long price, Status status,
+                                long participantID, TimeInForce tif, int peak, int visibleQty, OrdType ordType) {
+        if (orderID <= 0) { throw new IllegalArgumentException("Order ID must be positive: " + orderID); }
+        if (timeStamp <= 0) { throw new IllegalArgumentException("Timestamp must be positive: " + timeStamp); }
+        if (participantID <= 0) { throw new IllegalArgumentException("Participant ID must be positive: " + participantID); }
+        if (quantity <= 0) { throw new IllegalArgumentException("A resting order has positive quantity: " + quantity); }
+        if (side == null || tif == null || ordType == null || status == null) {
+            throw new IllegalArgumentException("Side, time in force, order type and status cannot be null");
+        }
+        if (status != Status.OPEN && status != Status.PARTIALLY_FILLED) {
+            throw new IllegalArgumentException("A resting order is OPEN or PARTIALLY_FILLED, not " + status);
+        }
+        if (peak < 0) { throw new IllegalArgumentException("Display quantity cannot be negative: " + peak); }
+        if (visibleQty <= 0 || visibleQty > quantity) {
+            throw new IllegalArgumentException("Visible quantity " + visibleQty + " outside 1.." + quantity);
+        }
+        if (peak > 0) {
+            if (visibleQty > peak) { throw new IllegalArgumentException("Visible quantity " + visibleQty + " exceeds peak " + peak); }
+            if (tif != TimeInForce.GTC) { throw new IllegalArgumentException("A resting iceberg must be GTC"); }
+        } else if (visibleQty != quantity) {
+            throw new IllegalArgumentException("A plain order shows its whole quantity: visible " + visibleQty + ", quantity " + quantity);
+        }
+        if (ordType == OrdType.LIMIT) {
+            if (price <= 0 || !Prices.isOnTick(price)) { throw new IllegalArgumentException("Limit price must be positive and on the tick: " + price); }
+        } else {
+            if (price != Prices.NA) { throw new IllegalArgumentException("A midpoint peg order carries no price: " + price); }
+            if (peak != 0) { throw new IllegalArgumentException("A midpoint peg order cannot be an iceberg"); }
+        }
+        return new Order(orderID, timeStamp, side, quantity, price, status, participantID, tif, peak, visibleQty, ordType);
+    }
+
     public void fill(int fillQty) {
         if (fillQty <= 0) { throw new IllegalArgumentException("Fill quantity must be positive"); }
         if (fillQty > this.quantity) { throw new IllegalArgumentException("Fill quantity exceeds remaining quantity"); }

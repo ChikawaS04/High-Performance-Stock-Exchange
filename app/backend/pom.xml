@@ -116,39 +116,61 @@
                         <goals>
                             <goal>java</goal>
                         </goals>
+                        <configuration>
+                            <mainClass>uk.co.real_logic.sbe.SbeTool</mainClass>
+                            <includeProjectDependencies>false</includeProjectDependencies>
+                            <includePluginDependencies>true</includePluginDependencies>
+                            <blockSystemExit>true</blockSystemExit>
+                            <systemProperties>
+                                <systemProperty>
+                                    <key>sbe.output.dir</key>
+                                    <value>${sbe.output.dir}</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>sbe.target.language</key>
+                                    <value>Java</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>sbe.validation.stop.on.error</key>
+                                    <value>true</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>sbe.validation.warnings.fatal</key>
+                                    <value>true</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>sbe.generate.ir</key>
+                                    <value>false</value>
+                                </systemProperty>
+                            </systemProperties>
+                            <arguments>
+                                <argument>${project.basedir}/src/main/resources/sbe/exchange-schema.xml</argument>
+                                <!-- P15-5: engine snapshots, schema id 2, package codec.snapshot. -->
+                                <argument>${project.basedir}/src/main/resources/sbe/snapshot-schema.xml</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Runs the exchange with the Agrona flag (P15-4), from app/backend:
+                         mvn -q compile exec:exec@exchange
+                         on the JDK Maven runs on (JAVA_HOME), not whichever java is on PATH.
+                         Settings come from environment variables (ExchangeConfig, D9). -->
+                    <execution>
+                        <id>exchange</id>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>--add-exports</argument>
+                                <argument>java.base/jdk.internal.misc=ALL-UNNAMED</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>Main</argument>
+                            </arguments>
+                        </configuration>
                     </execution>
                 </executions>
-                <configuration>
-                    <mainClass>uk.co.real_logic.sbe.SbeTool</mainClass>
-                    <includeProjectDependencies>false</includeProjectDependencies>
-                    <includePluginDependencies>true</includePluginDependencies>
-                    <blockSystemExit>true</blockSystemExit>
-                    <systemProperties>
-                        <systemProperty>
-                            <key>sbe.output.dir</key>
-                            <value>${sbe.output.dir}</value>
-                        </systemProperty>
-                        <systemProperty>
-                            <key>sbe.target.language</key>
-                            <value>Java</value>
-                        </systemProperty>
-                        <systemProperty>
-                            <key>sbe.validation.stop.on.error</key>
-                            <value>true</value>
-                        </systemProperty>
-                        <systemProperty>
-                            <key>sbe.validation.warnings.fatal</key>
-                            <value>true</value>
-                        </systemProperty>
-                        <systemProperty>
-                            <key>sbe.generate.ir</key>
-                            <value>false</value>
-                        </systemProperty>
-                    </systemProperties>
-                    <arguments>
-                        <argument>${project.basedir}/src/main/resources/sbe/exchange-schema.xml</argument>
-                    </arguments>
-                </configuration>
                 <dependencies>
                     <dependency>
                         <groupId>uk.co.real-logic</groupId>

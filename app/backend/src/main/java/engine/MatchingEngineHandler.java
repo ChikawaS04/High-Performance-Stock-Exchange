@@ -30,8 +30,20 @@ import model.TimeInForce;
  * P15-2 determinism (SRS §3.3, §5.8): the handler reads no clock. Every EXEC and BOOK
  * carries the timestamp of the inbound command that caused it, and the outbound seq is
  * handler state, so replaying the same commands regenerates identical events.
+ *
+ * P15-4: the live venue drives {@link #onCommand} from the journal-gated {@link EngineAgent}.
+ * {@link #onEvent} remains for the unit tests and the unjournaled latency benchmark; Main no
+ * longer wires this handler onto a ring.
+ *
+ * P15-5 recovery (SRS §3.10, D13). Between {@link #beginReplay} and {@link #endReplay} the
+ * handler processes commands exactly as live, and every execution event still takes the next
+ * seq, so replay regenerates identical seqs; but an event whose seq is at or below the publish
+ * floor claims no ring slot, and no BOOK is published per command. {@link #endReplay} then
+ * publishes one BOOK of the recovered book. P15-5 replays with the floor at
+ * {@code Long.MAX_VALUE} (nothing records the outbound stream yet); P15-6 sets it to the last
+ * seq in the outbound recording, so only events the recorder never wrote are published.
  */
-public final class MatchingEngineHandler implements EventHandler<OrderEvent>, ExecutionListener {
+public final class MatchingEngineHandler implements EventHandler<OrderEvent>, CommandHandler, ExecutionListener {
 
     /** Demo simplification: the FIX subset carries no participant; the gateway is stateless. */
     private static final long GATEWAY_PARTICIPANT_ID = 1L;
@@ -47,6 +59,12 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
 
     /** Outbound seq of the last published execution event (D12). 0 until the first publish. */
     private long lastSeq;
+
+    /** Events with seq at or below this are not published (D13). 0 outside recovery: suppresses nothing. */
+    private long publishFloor;
+
+    /** True between beginReplay and endReplay: no per-command BOOK. */
+    private boolean replaying;
 
     public MatchingEngineHandler(MatchingEngine engine, RingBuffer<ExecutionEvent> outbound) {
         this(engine, outbound, null);
@@ -77,6 +95,43 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
         this.lastSeq = lastSeq;
     }
 
+    /** Timestamp of the last command processed (or restored); stamps the post-recovery BOOK. */
+    public long getCommandTimestamp() {
+        return commandTimestamp;
+    }
+
+    /** Restores the last command's timestamp from a snapshot (P15-5 recovery only). */
+    public void restoreCommandTimestamp(long timestamp) {
+        this.commandTimestamp = timestamp;
+    }
+
+    /**
+     * Enters replay (P15-5 recovery): events with seq at or below {@code floor} are not
+     * published, and no BOOK is published per command, until {@link #endReplay}.
+     */
+    public void beginReplay(long floor) {
+        if (floor < 0) {
+            throw new IllegalArgumentException("publish floor must be >= 0, got " + floor);
+        }
+        this.publishFloor = floor;
+        this.replaying = true;
+    }
+
+    /**
+     * Leaves replay: the floor drops to the last seq, so no later event is suppressed. With
+     * {@code publishBook}, one BOOK of the recovered book is published, stamped with the last
+     * command's timestamp and seq, so snapshot-on-connect shows the recovered book before any new
+     * command; a venue with no history passes false and publishes nothing, as before P15-5. Call
+     * from the thread that will produce on the rings next, or before that thread starts.
+     */
+    public void endReplay(boolean publishBook) {
+        this.publishFloor = lastSeq;
+        this.replaying = false;
+        if (publishBook) {
+            publishSnapshot();
+        }
+    }
+
     @Override
     public void onEvent(OrderEvent event, long sequence, boolean endOfBatch) {
         onCommand(event);
@@ -91,10 +146,13 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
      * Public so a caller without the Disruptor (the P15-4 engine agent) drives exactly the same
      * path as onEvent.
      */
+    @Override
     public void onCommand(OrderEvent event) {
         commandTimestamp = event.timestamp;
         process(event);
-        publishSnapshot();
+        if (!replaying) {
+            publishSnapshot();
+        }
     }
 
     private void process(OrderEvent event) {
@@ -174,10 +232,14 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
                          long filledQuantity, long remainingQuantity,
                          long aggressorOrderId, long passiveOrderId,
                          Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
+        final long seq = ++lastSeq;   // D12: gap-free from 1, assigned only here, published or not
+        if (seq <= publishFloor) {
+            return;                   // D13: replayed and already accounted for
+        }
         long slot = outbound.next();
         try {
             ExecutionEvent e = outbound.get(slot);
-            e.seq                    = ++lastSeq;   // D12: gap-free from 1, assigned only here
+            e.seq                    = seq;
             e.eventType              = type;
             e.orderId                = orderId;
             e.tradeId                = tradeId;

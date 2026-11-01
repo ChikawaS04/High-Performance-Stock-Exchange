@@ -37,3 +37,7 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Exchange data (Phase 15: Archive recordings and snapshots) ###
+/data/
+/app/backend/data/

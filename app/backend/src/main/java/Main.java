@@ -1,164 +1,145 @@
+import config.ExchangeConfig;
 import engine.MatchingEngine;
-import engine.MatchingEngineHandler;
-import event.InboundPipeline;
-import event.OutboundPipeline;
-import event.SnapshotPipeline;
 import gateway.OrderGateway;
+import journal.JournaledPipeline;
 import market.MarketDataService;
 import net.WebSocketServer;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
 import util.EpochNanoClock;
+import util.FailStop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.CountDownLatch;
 
 /**
- * P4-7 bring-up. Assembles the full pipeline and runs the demo server.
+ * Assembles the venue and runs it until a termination signal.
  *
- * <p>Note: no package declaration — Main sits at the root of {@code src/main/java} per the
+ * <p>Note: no package declaration. Main sits at the root of {@code src/main/java} per the
  * SRS §7 project structure.
  *
- * <p>The wired path, end to end:
+ * <p>The wired path, end to end (P15-4, SRS §1.2):
  * <pre>
  *   React client --ws--> WebSocketFrameHandler --JSON--> JsonToFix --FIX bytes-->
- *   OrderGateway --> [inbound ring] --> MatchingEngineHandler --> MatchingEngine
- *        |                                     |
- *        |                                     +--> [outbound ring]  --> WebSocketPublisher (EXEC)
- *        |                                     |                     --> TradeLogger
- *        |                                     +--> [snapshot ring]  --> WebSocketPublisher (BOOK)
- *        |                                                           --> MarketDataService
+ *   OrderGateway --> [inbound ring] --> Sequencer --> recorded inbound stream (Aeron IPC + Archive)
+ *        --> EngineAgent (gated on the recorded position) --> MatchingEngineHandler --> MatchingEngine
+ *                                              |
+ *                                              +--> [outbound ring]  --> WebSocketPublisher (EXEC)
+ *                                              |                     --> TradeLogger
+ *                                              +--> [snapshot ring]  --> WebSocketPublisher (BOOK)
+ *                                                                    --> MarketDataService
  * </pre>
+ * No command is matched before the Archive has recorded it (SRS §5.7).
  *
- * <p><b>Single-writer discipline (§5.2).</b> Three rings, each with exactly one producer:
- * the gateway on inbound (called only from the Netty worker, which is one thread —
- * guide decision 2), and {@code MatchingEngineHandler} on both outbound rings (same object,
- * same inbound-consumer thread). This class never touches the book directly: every order
- * enters through the gateway, so the engine is mutated only on the inbound consumer thread.
- * That is also why there is no book seeding here — seeding would mean publishing from the
- * main thread. Let a client send the first order.
+ * <p><b>Configuration.</b> Every setting comes from environment variables with development
+ * defaults ({@link ExchangeConfig}, D9). The JVM needs
+ * {@code --add-exports java.base/jdk.internal.misc=ALL-UNNAMED} for Agrona; from
+ * {@code app/backend} run {@code mvn -q compile exec:exec@exchange}, or the shared IntelliJ run
+ * configuration "Exchange Main".
  *
- * <p><b>Startup order matters.</b> Outbound and snapshot consumers must be running before
- * inbound starts, or the engine publishes into rings nobody is draining. Shutdown is the
- * strict reverse: stop accepting input first, then drain inward-out.
+ * <p><b>Single-writer discipline (§5.2).</b> Each ring and stream has one producer: the gateway
+ * on inbound (called only from the single Netty worker), the sequencer on the recorded inbound
+ * stream, and {@code MatchingEngineHandler} on both outbound rings (on the engine agent's
+ * thread). This class never touches the book: every order enters through the gateway.
+ *
+ * <p><b>Startup order</b> ({@link JournaledPipeline} documents its part): journal, recovery
+ * (newest valid snapshot, then replay of the journal after it), inbound publication and
+ * sequencer, engine subscription, rings and agent; then the gateway, server and publisher, with
+ * subscribers registered; then consumers start inward-out, the recovered book is published once
+ * for snapshot-on-connect, and the server accepts connections last, so the engine is subscribed
+ * before the first command is offered. A restart within 10 s of a crash waits and retries the
+ * journal once. A snapshot that disagrees with the journal refuses startup (exit 2) with a
+ * message saying what to do.
+ *
+ * <p><b>Shutdown.</b> On a termination signal: stop the server (no more input), then drain the
+ * pipeline by progress, write a snapshot of the final state and close the journal, so the next
+ * start replays nothing. A fatal error in the sequencer or engine halts the JVM with
+ * {@link FailStop#EXIT_CODE} instead, skipping this hook; the next start recovers from the
+ * newest snapshot and the journal.
  *
  * <p><b>Time (P7-1, extended P7-2).</b> One {@link EpochNanoClock} is constructed here and shared
- * by every timestamp site, so all observable stamps (EXEC, BOOK), the gateway's receipt stamp
- * (Order.timeStamp) and the raw-FIX echo stamp live in one epoch-nanos domain. The clock is
- * affine over System.nanoTime(), so inter-event deltas stay exact and the §6.3 latency benchmark
- * is unaffected. Sharing ONE instance is load-bearing: two anchors would differ by the anchor
- * skew, corrupting a receipt->publish delta.
+ * by the gateway (receipt stamp, which the journal keeps, D1) and the WebSocket edge (raw-FIX echo
+ * stamp), so both live in one epoch-nanos domain. The engine reads no clock (P15-2).
  */
 public final class Main {
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
-    /** Demo default; override with the first CLI arg. */
-    private static final int DEFAULT_PORT = 8080;
+    /** Exit status when the configuration, the journal or recovery refuses startup. */
+    private static final int STARTUP_FAILED = 2;
 
     private Main() {
         // Entry point only.
     }
 
     public static void main(String[] args) throws Exception {
-        final int port = parsePort(args);
+        // --- 1. Configuration --------------------------------------------------------------
+        final ExchangeConfig config;
+        final JournaledPipeline pipeline;
+        try {
+            config = ExchangeConfig.fromEnvironment();
+            log.info("Starting with {}", config);
 
-        // --- 1. Engine ------------------------------------------------------------------
-        MatchingEngine engine = new MatchingEngine();
+            // --- 2. Journal, recovery, sequencer, engine subscription, rings, engine agent ---
+            pipeline = new JournaledPipeline(config, new MatchingEngine(), FailStop.HALT);
+        } catch (RuntimeException e) {
+            log.error("Startup refused: {}", e.getMessage(), e);
+            System.exit(STARTUP_FAILED);
+            return;
+        }
 
-        // --- 2. Clock -------------------------------------------------------------------
-        // One epoch-nanos clock, shared by the gateway (receipt stamp) and the WebSocket edge
-        // (P7-2 raw FIX echo stamp), so the whole system stamps in a single domain. Anchored
-        // once, here, at startup. Must be the SAME instance at every site (P7-1). The engine
-        // handler reads no clock: EXEC and BOOK carry the command's receipt stamp (P15-2).
+        // --- 3. Gateway and network edge ---------------------------------------------------
+        // One epoch-nanos clock, shared by the gateway and the WebSocket edge (P7-1).
         EpochNanoClock clock = new EpochNanoClock();
-
-        // --- 3. Outbound rings (constructed; consumers registered below, started later) ---
-        OutboundPipeline outbound = new OutboundPipeline();
-        SnapshotPipeline snapshots = new SnapshotPipeline();
-
-        // --- 4. Engine handler: sole producer of BOTH outbound rings --------------------
-        MatchingEngineHandler engineHandler = new MatchingEngineHandler(
-                engine,
-                outbound.getRingBuffer(),
-                snapshots.getRingBuffer());
-
-        // Without this the engine reports nothing: fills are surfaced through the
-        // ExecutionListener seam, which defaults to NO_OP.
-        engine.setExecutionListener(engineHandler);
-
-        // --- 5. Inbound ring (attaches its consumer at construction) --------------------
-        InboundPipeline inbound = new InboundPipeline(engineHandler);
-        OrderGateway gateway = new OrderGateway(inbound.getRingBuffer(), clock);
-
-        // --- 6. Network edge ------------------------------------------------------------
-        // Constructed before the publisher: the server owns the ChannelGroup, which exists
-        // at construction time (pre-start) and is the single source of truth for clients.
-        WebSocketServer server = new WebSocketServer(port, gateway, clock);
+        OrderGateway gateway = new OrderGateway(pipeline.inboundRing(), clock);
+        // Constructed before the publisher: the server owns the ChannelGroup and the BOOK cache.
+        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock);
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
 
-        // --- 7. Register outbound subscribers (must precede start) ----------------------
-        // Independent consumers, each with its own sequence counter (§3.4) — none blocks
-        // the others or the engine.
-        TradeLogger tradeLogger = new TradeLogger();
-        MarketDataService marketData = new MarketDataService();
+        // --- 4. Subscribers (must precede start). Independent consumers, each with its own
+        // sequence (§3.4); an exception in one is logged and never stalls the engine. ------
+        pipeline.outbound().handleEventsWith(publisher.executionHandler(), new TradeLogger());
+        pipeline.snapshots().handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
 
-        outbound.handleEventsWith(publisher.executionHandler(), tradeLogger);
-        snapshots.handleEventsWith(publisher.snapshotHandler(), marketData);
-
-        // --- 8. Start: outbound first, then inbound, then accept connections ------------
-        outbound.start();
-        snapshots.start();
-        inbound.start();
+        // --- 5. Start consumers inward-out, then accept connections --------------------------
+        pipeline.start();
         server.start();
 
-        log.info("OMS up. WebSocket endpoint: ws://localhost:{}/ws", server.boundPort());
+        log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws", server.boundPort());
         log.info("Submit an order:  {}", "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\","
                 + "\"price\":1500000,\"qty\":10,\"symbol\":\"ASML\"}");
         log.info("Cancel an order:  {}", "{\"type\":\"CANCEL\",\"clOrdId\":2,\"origClOrdId\":1}");
         log.info("Ctrl+C to stop.");
 
-        awaitShutdown(server, inbound, snapshots, outbound);
+        awaitShutdown(server, pipeline);
     }
 
     /**
-     * Parks the main thread until the JVM is asked to exit, then tears the pipeline down in
-     * the strict reverse of startup: stop accepting input, then drain each ring inward-out.
+     * Parks the main thread until the JVM is asked to exit, then stops input and drains the
+     * pipeline (bounded) before closing the journal.
      */
-    private static void awaitShutdown(WebSocketServer server,
-                                      InboundPipeline inbound,
-                                      SnapshotPipeline snapshots,
-                                      OutboundPipeline outbound) throws InterruptedException {
+    private static void awaitShutdown(WebSocketServer server, JournaledPipeline pipeline) throws InterruptedException {
         CountDownLatch shutdown = new CountDownLatch(1);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
+            boolean clean = false;
             try {
-                server.stop();        // no new frames can enter the gateway
-                inbound.shutdown();   // drain queued orders through the engine
-                snapshots.shutdown(); // then the two outbound streams the engine fed
-                outbound.shutdown();
+                server.stop();                // no new frames can enter the gateway
+                clean = pipeline.shutdown();  // journal and apply everything, snapshot, drain, close
             } catch (Exception e) {
-                log.warn("Error during shutdown", e);
+                log.error("Error during shutdown", e);
             } finally {
                 shutdown.countDown();
             }
-            log.info("Shutdown complete.");
+            if (clean) {
+                log.info("Shutdown complete.");
+            } else {
+                log.error("Shutdown incomplete: see the errors above.");
+            }
         }, "shutdown-hook"));
 
         shutdown.await();
-    }
-
-    private static int parsePort(String[] args) {
-        if (args.length == 0) {
-            return DEFAULT_PORT;
-        }
-        try {
-            return Integer.parseInt(args[0]);
-        } catch (NumberFormatException e) {
-            log.warn("Unparseable port '{}', using default {}", args[0], DEFAULT_PORT);
-            return DEFAULT_PORT;
-        }
     }
 }

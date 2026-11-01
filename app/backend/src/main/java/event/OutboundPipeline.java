@@ -14,6 +14,9 @@ import com.lmax.disruptor.util.DaemonThreadFactory;
  *
  * BlockingWaitStrategy is a demo default (revisit under JMH). Ring size 1024
  * matches the inbound side.
+ *
+ * P15-4: a consumer exception is logged and that consumer moves on to the next event
+ * ({@link LogAndContinueExceptionHandler}), so a failing subscriber can never stall the engine.
  */
 public final class OutboundPipeline {
 
@@ -30,6 +33,8 @@ public final class OutboundPipeline {
                 ProducerType.SINGLE,
                 new BlockingWaitStrategy()
         );
+        disruptor.setDefaultExceptionHandler(new LogAndContinueExceptionHandler<>(
+                "outbound", e -> "eventType=" + e.eventType + " seq=" + e.seq + " orderId=" + e.orderId));
         ringBuffer = disruptor.getRingBuffer();
     }
 
@@ -47,7 +52,24 @@ public final class OutboundPipeline {
         return ringBuffer;
     }
 
+    /**
+     * True once every registered consumer has processed everything published. Graceful shutdown
+     * drains by this, not by {@code Disruptor.shutdown()}, which skips a consumer whose thread
+     * is not running (P15-3 finding).
+     */
+    public boolean isDrained() {
+        return ringBuffer.getMinimumGatingSequence() >= ringBuffer.getCursor();
+    }
+
     public void shutdown() {
         disruptor.shutdown();
+    }
+
+    /**
+     * Stops the consumer threads without waiting for a backlog. For use after draining by
+     * {@link #isDrained()}, so shutdown can never block on a consumer that cannot finish.
+     */
+    public void halt() {
+        disruptor.halt();
     }
 }

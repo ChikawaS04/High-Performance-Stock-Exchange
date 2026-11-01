@@ -2,12 +2,8 @@ package net;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import engine.MatchingEngine;
-import engine.MatchingEngineHandler;
-import event.InboundPipeline;
-import event.OutboundPipeline;
-import event.SnapshotPipeline;
 import gateway.OrderGateway;
+import integration.JournaledVenue;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -33,9 +29,11 @@ import publisher.WebSocketPublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import util.EpochNanoClock;
 
 import java.net.URI;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -81,31 +79,24 @@ class WebSocketRoundTripTest {
     private static final long PX = 1_500_000L;             // $150.00 in units of $0.0001
     private static final long[][] NONE = new long[0][];    // empty side
 
-    private MatchingEngine engine;
-    private OutboundPipeline outbound;
-    private SnapshotPipeline snapshots;
-    private InboundPipeline inbound;
+    @TempDir
+    Path root;
+
+    private JournaledVenue venue;
     private WebSocketServer server;
     private LoopbackClient client;
 
     /**
-     * Full pipeline in Main's load-bearing order, on an ephemeral port. Then connect a client
+     * Full journaled pipeline in Main's load-bearing order (P15-4: through the shared
+     * JournaledVenue harness, which runs Main's JournaledPipeline), on an ephemeral port. Then connect a client
      * and wait until the server has registered it in the ChannelGroup — otherwise the very
      * first snapshot could be published while the group is still empty and
      * {@code WebSocketPublisher}'s empty-group early-out would silently drop that BOOK frame.
      */
     @BeforeEach
     void setUp() throws Exception {
-        engine = new MatchingEngine();
-        outbound = new OutboundPipeline();
-        snapshots = new SnapshotPipeline();
-
-        MatchingEngineHandler handler =
-                new MatchingEngineHandler(engine, outbound.getRingBuffer(), snapshots.getRingBuffer());
-        engine.setExecutionListener(handler);   // silent-failure trap if omitted: no EXEC ever
-
-        inbound = new InboundPipeline(handler);
-        OrderGateway gateway = new OrderGateway(inbound.getRingBuffer());
+        venue = JournaledVenue.create(root);
+        OrderGateway gateway = venue.gateway();
 
         // P7-2: the edge needs a clock for the raw-FIX echo stamp. A real EpochNanoClock here
         // rather than a fixed supplier, so the echo assertions also prove a sane epoch value.
@@ -114,13 +105,11 @@ class WebSocketRoundTripTest {
 
         // Register the two publisher roles on their respective rings, plus the console
         // subscribers, before starting any pipeline.
-        outbound.handleEventsWith(publisher.executionHandler(), new TradeLogger());
-        snapshots.handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
+        venue.outbound().handleEventsWith(publisher.executionHandler(), new TradeLogger());
+        venue.snapshots().handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
 
-        // Outbound rings must be live before inbound can publish into the engine.
-        outbound.start();
-        snapshots.start();
-        inbound.start();
+        // Consumers start inward-out; the server accepts input last.
+        venue.start();
         server.start();
 
         client = new LoopbackClient();
@@ -134,9 +123,7 @@ class WebSocketRoundTripTest {
     void tearDown() throws Exception {
         if (client != null) client.close();
         if (server != null) server.stop();
-        if (inbound != null) inbound.shutdown();
-        if (snapshots != null) snapshots.shutdown();
-        if (outbound != null) outbound.shutdown();
+        if (venue != null) venue.close();   // graceful drain; fails on any fatal
     }
 
     // ------------------------------------------------------------------ tests

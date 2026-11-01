@@ -2,6 +2,7 @@ package event;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.ExceptionHandler;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
@@ -19,6 +20,10 @@ import java.util.concurrent.ThreadFactory;
  * about this class changes when the handler is swapped.
  *
  * The RingBuffer this exposes is what Step 7's OrderGateway produces into.
+ *
+ * P15-4: the live consumer is the journal sequencer, installed with a fail-stop exception
+ * handler, because the Disruptor's default handler kills the consumer thread and leaves the
+ * gateway blocked on a full ring with no exit.
  */
 public final class InboundPipeline {
 
@@ -34,6 +39,16 @@ public final class InboundPipeline {
     /** Canonical constructor: default ring size. */
     public InboundPipeline(EventHandler<OrderEvent> consumer) {
         this(RING_SIZE, consumer);
+    }
+
+    /**
+     * Default ring size and an explicit exception handler for the consumer. The handler must not
+     * return normally from handleEventException unless skipping the slot is acceptable; the
+     * journaled pipeline's handler halts the venue or rethrows.
+     */
+    public InboundPipeline(EventHandler<OrderEvent> consumer, ExceptionHandler<OrderEvent> exceptionHandler) {
+        this(RING_SIZE, consumer);
+        disruptor.setDefaultExceptionHandler(exceptionHandler);
     }
 
     /**
@@ -67,8 +82,25 @@ public final class InboundPipeline {
         disruptor.start();
     }
 
+    /**
+     * True once the consumer has processed everything published. Graceful shutdown drains by
+     * this, not by {@link #shutdown()} alone (P15-3 finding).
+     */
+    public boolean isDrained() {
+        RingBuffer<OrderEvent> ring = disruptor.getRingBuffer();
+        return ring.getMinimumGatingSequence() >= ring.getCursor();
+    }
+
     /** Drains outstanding events and stops the consumer thread. */
     public void shutdown() {
         disruptor.shutdown();
+    }
+
+    /**
+     * Stops the consumer threads without waiting for a backlog. For use after draining by
+     * {@link #isDrained()}, so shutdown can never block on a consumer that cannot finish.
+     */
+    public void halt() {
+        disruptor.halt();
     }
 }

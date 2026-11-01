@@ -18,6 +18,9 @@ import com.lmax.disruptor.util.DaemonThreadFactory;
  *
  * Deliberately mirrors OutboundPipeline: same ring size, same wait strategy, same
  * lifecycle surface. BlockingWaitStrategy is a demo default (revisit under JMH).
+ *
+ * P15-4: a consumer exception is logged and that consumer moves on to the next snapshot
+ * ({@link LogAndContinueExceptionHandler}), so a failing subscriber can never stall the engine.
  */
 public final class SnapshotPipeline {
 
@@ -34,6 +37,8 @@ public final class SnapshotPipeline {
                 ProducerType.SINGLE,
                 new BlockingWaitStrategy()
         );
+        disruptor.setDefaultExceptionHandler(new LogAndContinueExceptionHandler<>(
+                "snapshot", s -> "BOOK lastSeq=" + s.lastSeq + " timestamp=" + s.timestamp));
         ringBuffer = disruptor.getRingBuffer();
     }
 
@@ -51,7 +56,24 @@ public final class SnapshotPipeline {
         return ringBuffer;
     }
 
+    /**
+     * True once every registered consumer has processed everything published. Graceful shutdown
+     * drains by this, not by {@code Disruptor.shutdown()}, which skips a consumer whose thread
+     * is not running (P15-3 finding).
+     */
+    public boolean isDrained() {
+        return ringBuffer.getMinimumGatingSequence() >= ringBuffer.getCursor();
+    }
+
     public void shutdown() {
         disruptor.shutdown();
+    }
+
+    /**
+     * Stops the consumer threads without waiting for a backlog. For use after draining by
+     * {@link #isDrained()}, so shutdown can never block on a consumer that cannot finish.
+     */
+    public void halt() {
+        disruptor.halt();
     }
 }

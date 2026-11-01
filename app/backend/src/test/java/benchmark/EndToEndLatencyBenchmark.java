@@ -51,6 +51,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * Netty/WebSocket I/O is out (§6.3 says "publication", not client receipt; the WebSocket
  * round-trip is the separate §6.2 item covered by {@code WebSocketRoundTripTest}).
  *
+ * <h2>P15-4: still the unjournaled path</h2>
+ * The live venue now runs gateway, sequencer, recorded stream and engine agent; this harness still
+ * wires the engine handler straight onto the inbound ring, so it measures the pre-journal path.
+ * The journaled variant lands with the Phase 15 benchmarks (P15-13).
+ *
  * <h2>P15-2: egress moved to the subscriber</h2>
  * Until P15-2 egress was {@code ExecutionEvent.timestamp}, stamped from a clock at the handler's
  * publish instant. From P15-2 the handler reads no clock and that field carries the inbound
