@@ -1,5 +1,7 @@
 package engine;
 
+import model.Side;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,6 +24,7 @@ final class CapturingExecutionListener implements ExecutionListener {
 
     enum Kind { FILL, ACCEPTED, EXPIRED }
 
+    /** aggressorSide is null and both participant ids are -1 on non-fills (D4). */
     record Observed(
             Kind kind,
             long orderId,
@@ -29,26 +32,33 @@ final class CapturingExecutionListener implements ExecutionListener {
             long tradeId,
             long price,
             long quantity,
-            long remainingQuantity
+            long remainingQuantity,
+            Side aggressorSide,
+            long aggressorParticipantId,
+            long passiveParticipantId
     ) { }
 
     private final List<Observed> events = new ArrayList<>();
 
     @Override
     public void onFill(long aggressorOrderId, long passiveOrderId, long tradeId,
-                       long price, long filledQuantity, long aggressorRemainingQuantity) {
+                       long price, long filledQuantity, long aggressorRemainingQuantity,
+                       Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
         events.add(new Observed(Kind.FILL, aggressorOrderId, passiveOrderId, tradeId,
-                price, filledQuantity, aggressorRemainingQuantity));
+                price, filledQuantity, aggressorRemainingQuantity,
+                aggressorSide, aggressorParticipantId, passiveParticipantId));
     }
 
     @Override
     public void onAccepted(long orderId, long price, long remainingQuantity) {
-        events.add(new Observed(Kind.ACCEPTED, orderId, -1L, -1L, price, -1L, remainingQuantity));
+        events.add(new Observed(Kind.ACCEPTED, orderId, -1L, -1L, price, -1L, remainingQuantity,
+                null, -1L, -1L));
     }
 
     @Override
     public void onExpired(long orderId, long expiredQuantity) {
-        events.add(new Observed(Kind.EXPIRED, orderId, -1L, -1L, -1L, -1L, expiredQuantity));
+        events.add(new Observed(Kind.EXPIRED, orderId, -1L, -1L, -1L, -1L, expiredQuantity,
+                null, -1L, -1L));
     }
 
     // --- queries kept small so tests read declaratively ---

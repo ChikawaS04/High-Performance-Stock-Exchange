@@ -68,10 +68,10 @@ public final class Main {
         MatchingEngine engine = new MatchingEngine();
 
         // --- 2. Clock -------------------------------------------------------------------
-        // One epoch-nanos clock, shared by the gateway (receipt stamp), the engine handler
-        // (EXEC + BOOK stamps) and the WebSocket edge (P7-2 raw FIX echo stamp), so the whole
-        // system stamps in a single domain. Anchored once, here, at startup. Must be the SAME
-        // instance at every site (P7-1).
+        // One epoch-nanos clock, shared by the gateway (receipt stamp) and the WebSocket edge
+        // (P7-2 raw FIX echo stamp), so the whole system stamps in a single domain. Anchored
+        // once, here, at startup. Must be the SAME instance at every site (P7-1). The engine
+        // handler reads no clock: EXEC and BOOK carry the command's receipt stamp (P15-2).
         EpochNanoClock clock = new EpochNanoClock();
 
         // --- 3. Outbound rings (constructed; consumers registered below, started later) ---
@@ -82,8 +82,7 @@ public final class Main {
         MatchingEngineHandler engineHandler = new MatchingEngineHandler(
                 engine,
                 outbound.getRingBuffer(),
-                snapshots.getRingBuffer(),
-                clock);
+                snapshots.getRingBuffer());
 
         // Without this the engine reports nothing: fills are surfaced through the
         // ExecutionListener seam, which defaults to NO_OP.

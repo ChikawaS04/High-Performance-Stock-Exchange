@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * The book is seeded while the engine still holds the default NO_OP listener, so the resting
  * orders' own acknowledgements are swallowed and the capturer records ONLY the aggressor under
- * test. Order ids are local literals (never IDGenerator); trade-id assertions are property
+ * test. Order ids are local literals; trade-id assertions are property
  * checks (&gt; 0), per the project's test discipline.
  */
 class MatchingEngineIcebergTest {
@@ -127,7 +127,7 @@ class MatchingEngineIcebergTest {
     @Test
     void aggressorOf350AgainstLoneIceberg_fourTradesThreeReloads() {
         seed(iceberg(1, Side.SELL, 1000, P100, 100));
-        long tradesBefore = engine.getTrades().size();
+        long nextTradeIdBefore = engine.getNextTradeId();
         capture();
 
         engine.addOrder(limit(2, Side.BUY, 350, P100, TimeInForce.GTC));
@@ -139,7 +139,8 @@ class MatchingEngineIcebergTest {
         assertEquals(50,  cap.get(3).quantity());
         assertEquals(0,   cap.get(3).remainingQuantity()); // aggressor completed
         for (int i = 0; i < 4; i++) assertEquals(P100, cap.get(i).price());   // all at the level price
-        assertEquals(tradesBefore + 4, engine.getTrades().size());
+        assertEquals(nextTradeIdBefore + 4, engine.getNextTradeId());   // four trade ids assigned
+        for (int i = 0; i < 4; i++) assertEquals(nextTradeIdBefore + i, cap.get(i).tradeId());   // consecutive
         assertEquals(P100, engine.getBestAsk());           // the 650 reserve still rests
     }
 
@@ -193,7 +194,7 @@ class MatchingEngineIcebergTest {
     void fokShortEvenCountingTheReserve_expiresAndLeavesBookUnchanged() {
         seed(iceberg(1, Side.SELL, 1000, P100, 100));
         BookSnapshotEvent before = snap();
-        long tradesBefore = engine.getTrades().size();
+        long nextTradeIdBefore = engine.getNextTradeId();
         capture();
 
         engine.addOrder(limit(2, Side.BUY, 1001, P100, TimeInForce.FOK));   // 1001 > 1000 total
@@ -203,7 +204,7 @@ class MatchingEngineIcebergTest {
         assertEquals(1001, cap.get(0).remainingQuantity());
         assertEquals(0, cap.count(Kind.FILL));
         assertSameBook(before, snap());
-        assertEquals(tradesBefore, engine.getTrades().size());
+        assertEquals(nextTradeIdBefore, engine.getNextTradeId());
     }
 
     // =================================================================== domain rules (constructor)

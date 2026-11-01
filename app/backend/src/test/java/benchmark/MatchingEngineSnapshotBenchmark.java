@@ -35,9 +35,9 @@ import java.util.concurrent.TimeUnit;
  *
  * <p><b>Setup strategy — build once, {@code Level.Trial}.</b> Unlike P6-1/P6-3, there is no
  * book-state drift to correct: {@code snapshotInto} is read-only against the book (it reads the two
- * {@code TreeMap}s and the guarded best-bid/ask getters, writes only the target carrier, and
- * self-stamps {@code target.timestamp = System.nanoTime()} — it never mutates book structure, the
- * trade list, or {@code IDGenerator}). So the book is populated once and read on every invocation.
+ * {@code TreeMap}s and the guarded best-bid/ask getters and writes only the target carrier's book
+ * fields; it never mutates book structure or the trade id counter, and from P15-2 reads no clock).
+ * So the book is populated once and read on every invocation.
  *
  * <p><b>Target reuse — the production pattern, and why it must be {@code @Setup}.</b> The
  * {@link BookSnapshotEvent} target is pre-allocated once and its arrays are reused every call,
@@ -61,8 +61,7 @@ import java.util.concurrent.TimeUnit;
  * overwrites each call, so JMH consumes a real data dependency and cannot dead-code the call.
  *
  * <p>Run on JDK 21 ({@code JAVA_HOME}), {@code mvn jmh:benchmark} (plain, then
- * {@code -Djmh.prof=gc}). Ids come from a benchmark-local counter, never {@code util.IDGenerator}
- * (locked decision 4).
+ * {@code -Djmh.prof=gc}). Ids come from a benchmark-local counter (locked decision 4).
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -106,7 +105,7 @@ public class MatchingEngineSnapshotBenchmark {
     public void setup() {
         engine = new MatchingEngine();
 
-        // Benchmark-local id counter — never util.IDGenerator, whose AtomicLong is JVM-global.
+        // Benchmark-local id counter, independent of JVM history.
         long nextId = 1L;
 
         // BUY side: bookLevels distinct price levels, each a deque of ORDERS_PER_LEVEL orders.

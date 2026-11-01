@@ -44,21 +44,21 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * <ul>
  *   <li><b>ingress</b> = {@code System.nanoTime()} the instant the frame is handed to
  *       {@code OrderGateway.onFrame} (≈ gateway receipt; the FIX parse is on the path).</li>
- *   <li><b>egress</b> = {@code ExecutionEvent.timestamp}, the handler's publish-instant
- *       ({@code MatchingEngineHandler.publish} stamps {@code clock.getAsLong()},
- *       default {@code System::nanoTime}) = "execution event publication".</li>
+ *   <li><b>egress</b> = {@code System.nanoTime()} the instant the terminal
+ *       {@link ExecutionEvent} is delivered to the outbound subscriber.</li>
  * </ul>
+ * Both stamps are {@code System.nanoTime()} read on this JVM, so they share one clock domain.
  * Netty/WebSocket I/O is out (§6.3 says "publication", not client receipt; the WebSocket
- * round-trip is the separate §6.2 item covered by {@code WebSocketRoundTripTest}). Outbound-ring
- * *delivery* to the subscriber is also out: the value read is the publish-stamp carried on the
- * carrier, so the span is inbound-ring transport + matching + publish.
+ * round-trip is the separate §6.2 item covered by {@code WebSocketRoundTripTest}).
  *
- * <h2>No production change</h2>
- * The ingress stamp already rides {@code OrderEvent.timestamp} (gateway, Step 7); the egress
- * stamp already rides {@code ExecutionEvent.timestamp} (handler). They live on different
- * carriers and are not linked on one, so this runner correlates them by {@code orderId}.
- * Closed-loop with one order in flight collapses the correlation to a single handoff — no map,
- * no new carrier field, nothing touched in {@code src/main/java}.
+ * <h2>P15-2: egress moved to the subscriber</h2>
+ * Until P15-2 egress was {@code ExecutionEvent.timestamp}, stamped from a clock at the handler's
+ * publish instant. From P15-2 the handler reads no clock and that field carries the inbound
+ * command's receipt stamp (SRS §5.8), so it can no longer mark egress. The span is therefore
+ * inbound-ring transport + matching + publish + outbound-ring delivery: one ring hop more than
+ * the P6-4 span, so results are not comparable with P6-4. Executions are correlated with the
+ * in-flight order by {@code orderId}; closed-loop with one order in flight collapses that to a
+ * single handoff, with no map and nothing touched in {@code src/main/java}.
  *
  * <h2>Measurement mode — honest labelling</h2>
  * Closed-loop ping-pong, one order in flight: this is <b>service-time under no queueing</b>,
@@ -74,7 +74,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * the whole run (the same reason P6-2 chose this shape) — a drifting distribution would make
  * p99.9 meaningless. Two fixed frames are reused every round, so the harness allocates nothing
  * per round; the recorded distribution is therefore bimodal (a lighter accept mode and a
- * heavier fill mode that carries the match + Trade cost), which is reported as one blended
+ * heavier fill mode that carries the match cost), which is reported as one blended
  * distribution per the SRS's single-number framing.
  *
  * <h2>Running it</h2>
@@ -96,7 +96,7 @@ final class EndToEndLatencyBenchmark {
     /** Bound every wait so a dropped frame surfaces as a loud timeout, never a hang. */
     private static final long TIMEOUT_MS = 5_000L;
 
-    /** Fixed positive ClOrdIDs (never {@code util.IDGenerator}); never open simultaneously. */
+    /** Fixed positive ClOrdIDs; never open simultaneously. */
     private static final long REST_ID = 1L;
     private static final long CROSS_ID = 2L;
 
@@ -177,13 +177,12 @@ final class EndToEndLatencyBenchmark {
         return egressNanos - ingressNanos;
     }
 
-    // --- terminal outbound subscriber: reads the publish-stamp, hands it back, paces the loop ---
+    // --- terminal outbound subscriber: stamps delivery, hands it back, paces the loop ---
 
     /**
      * Runs on the outbound-ring consumer thread. Matches the execution to the in-flight order by
-     * {@code orderId}, captures {@code ExecutionEvent.timestamp} (the publish instant), and
-     * releases the producer. The captured stamp is the egress boundary — outbound delivery to
-     * this handler is not part of the recorded value.
+     * {@code orderId}, stamps {@code System.nanoTime()} on delivery (the egress boundary, same
+     * clock as the ingress stamp), and releases the producer.
      */
     private static final class LatencyRecorder implements EventHandler<ExecutionEvent> {
 
@@ -199,14 +198,14 @@ final class EndToEndLatencyBenchmark {
         @Override
         public void onEvent(ExecutionEvent event, long sequence, boolean endOfBatch) {
             if (event.orderId == expectedOrderId) {
-                egressStamp = event.timestamp;   // execution-event publication instant
+                egressStamp = System.nanoTime();   // delivery to the outbound subscriber
                 done.release();
             } else {
                 unexpectedCount++;               // should stay 0 in strict closed-loop
             }
         }
 
-        /** @return the egress publish nanoTime for the armed order, or throws on timeout. */
+        /** @return the egress delivery nanoTime for the armed order, or throws on timeout. */
         long awaitEgress(long timeoutMs) throws InterruptedException {
             if (!done.tryAcquire(timeoutMs, TimeUnit.MILLISECONDS)) {
                 throw new AssertionError("No execution for orderId=" + expectedOrderId
@@ -244,7 +243,7 @@ final class EndToEndLatencyBenchmark {
         final StringBuilder sb = new StringBuilder(1024);
         sb.append("=== P6-4 end-to-end latency (gateway receipt -> execution publication) ===\n");
         sb.append("mode       : closed-loop ping-pong, one order in flight (service-time, NOT saturation)\n");
-        sb.append("span       : nanoTime at OrderGateway.onFrame  ->  ExecutionEvent.timestamp (publish)\n");
+        sb.append("span       : nanoTime at OrderGateway.onFrame  ->  nanoTime at outbound subscriber (P15-2 span)\n");
         sb.append("workload   : 50/50 rest(ACCEPTED)/exact-cross(FILLED), symbol=").append(symbol)
                 .append(", book held 0-1 levels\n");
         sb.append("warmup     : ").append(warmup).append(" rounds (x2 orders, discarded)\n");

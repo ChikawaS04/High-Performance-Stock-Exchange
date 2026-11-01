@@ -6,8 +6,6 @@ import model.OrdType;
 import model.Prices;
 import model.Side;
 import model.TimeInForce;
-import model.Trade;
-import util.IDGenerator;
 
 import java.util.*;
 
@@ -17,8 +15,6 @@ public class MatchingEngine implements BookView {
 
     private final TreeMap<Long, Deque<Order>> asks = new TreeMap<>();
 
-    private final List<Trade> trades = new ArrayList<>();
-
     private final Map<Long, Order> openOrders = new HashMap<>();
 
     /** Resting midpoint peg orders in FIFO order, outside the price maps (Phase 14 D9); one pool per side. */
@@ -27,9 +23,41 @@ public class MatchingEngine implements BookView {
 
     private ExecutionListener executionListener = ExecutionListener.NO_OP;
 
+    /**
+     * The next trade id to assign (D2, SRS §3.3). Engine state, never shared: it is part of every
+     * snapshot (P15-5) and replaces the former JVM-global counter, so two engines fed the same
+     * commands assign the same ids.
+     */
+    private long nextTradeId = 1;
+
     /** Wire the outbound adapter in Step 7.5; defaults to NO_OP for the console/demo path. */
     public void setExecutionListener(ExecutionListener listener) {
         this.executionListener = (listener == null) ? ExecutionListener.NO_OP : listener;
+    }
+
+    /** The trade id the next fill will carry. */
+    public long getNextTradeId() {
+        return nextTradeId;
+    }
+
+    /**
+     * Restores the trade id counter from a snapshot (P15-5 recovery only). The next fill carries
+     * {@code next}. Trade ids are positive, so a value below 1 is rejected.
+     */
+    public void restoreNextTradeId(long next) {
+        if (next < 1) {
+            throw new IllegalArgumentException("nextTradeId must be >= 1, got " + next);
+        }
+        this.nextTradeId = next;
+    }
+
+    /**
+     * True when {@code orderId} belongs to an order still resting on the book or in a peg pool.
+     * The handler checks this before building a NEW's Order, so a duplicate id is rejected without
+     * touching the resting order (D3, SRS §3.3).
+     */
+    public boolean hasOpenOrder(long orderId) {
+        return openOrders.containsKey(orderId);
     }
 
     /**
@@ -82,24 +110,17 @@ public class MatchingEngine implements BookView {
             buyOrder.fill(quantityMatched);
             askOrder.fill(quantityMatched);
 
-            long tradeID = IDGenerator.nextTradeID();
-            trades.add(new Trade(
-                    tradeID,
-                    buyOrder.getOrderID(),
-                    askOrder.getOrderID(),
-                    buyOrder.getParticipantID(),
-                    askOrder.getParticipantID(),
-                    askPrice,
-                    quantityMatched,
-                    System.nanoTime()
-            ));
+            long tradeID = nextTradeId++;
             executionListener.onFill(
                     buyOrder.getOrderID(),   // aggressor
                     askOrder.getOrderID(),   // passive
                     tradeID,
                     askPrice,
                     quantityMatched,
-                    buyOrder.getQuantity()   // aggressor remaining after this fill
+                    buyOrder.getQuantity(),  // aggressor remaining after this fill
+                    Side.BUY,
+                    buyOrder.getParticipantID(),
+                    askOrder.getParticipantID()
             );
 
             if (askOrder.getQuantity() == 0) {
@@ -132,24 +153,17 @@ public class MatchingEngine implements BookView {
             sellOrder.fill(quantityMatched);
             bidOrder.fill(quantityMatched);
 
-            long tradeID = IDGenerator.nextTradeID();
-            trades.add(new Trade(
-                    tradeID,
-                    bidOrder.getOrderID(),
-                    sellOrder.getOrderID(),
-                    bidOrder.getParticipantID(),
-                    sellOrder.getParticipantID(),
-                    bidPrice,
-                    quantityMatched,
-                    System.nanoTime()
-            ));
+            long tradeID = nextTradeId++;
             executionListener.onFill(
                     sellOrder.getOrderID(),  // aggressor
                     bidOrder.getOrderID(),   // passive
                     tradeID,
                     bidPrice,
                     quantityMatched,
-                    sellOrder.getQuantity()  // aggressor remaining after this fill
+                    sellOrder.getQuantity(), // aggressor remaining after this fill
+                    Side.SELL,
+                    sellOrder.getParticipantID(),
+                    bidOrder.getParticipantID()
             );
 
             if (bidOrder.getQuantity() == 0) {
@@ -305,7 +319,7 @@ public class MatchingEngine implements BookView {
     /**
      * Fills an incoming order against the OPPOSITE peg pool at the fixed midpoint {@code mid}, in
      * FIFO order (Phase 14 D10 rules 1-2). The incoming order is the aggressor and each resting peg
-     * is passive; every peg trade is recorded as a {@link Trade} at the mid like any other fill. A
+     * is passive; every peg trade is reported through onFill at the mid like any other fill. A
      * fully consumed resting peg leaves its pool and {@code openOrders}. {@code mid} is passed in
      * because the caller fixed it before any book change, so it is constant across all of these
      * fills even once a lit aggressor continues into the lit book.
@@ -319,21 +333,17 @@ public class MatchingEngine implements BookView {
             aggressor.fill(quantityMatched);
             resting.fill(quantityMatched);
 
-            boolean aggressorBuys = (aggressor.getSide() == Side.BUY);
-            long buyId   = aggressorBuys ? aggressor.getOrderID()       : resting.getOrderID();
-            long sellId  = aggressorBuys ? resting.getOrderID()         : aggressor.getOrderID();
-            long buyPid  = aggressorBuys ? aggressor.getParticipantID() : resting.getParticipantID();
-            long sellPid = aggressorBuys ? resting.getParticipantID()   : aggressor.getParticipantID();
-
-            long tradeID = IDGenerator.nextTradeID();
-            trades.add(new Trade(tradeID, buyId, sellId, buyPid, sellPid, mid, quantityMatched, System.nanoTime()));
+            long tradeID = nextTradeId++;
             executionListener.onFill(
                     aggressor.getOrderID(),   // aggressor
                     resting.getOrderID(),     // passive
                     tradeID,
                     mid,
                     quantityMatched,
-                    aggressor.getQuantity()   // aggressor remaining after this fill
+                    aggressor.getQuantity(),  // aggressor remaining after this fill
+                    aggressor.getSide(),
+                    aggressor.getParticipantID(),
+                    resting.getParticipantID()
             );
 
             if (resting.getQuantity() == 0) {
@@ -382,24 +392,17 @@ public class MatchingEngine implements BookView {
             bid.fill(quantityMatched);
             ask.fill(quantityMatched);
 
-            long tradeID = IDGenerator.nextTradeID();
-            trades.add(new Trade(
-                    tradeID,
-                    bid.getOrderID(),
-                    ask.getOrderID(),
-                    bid.getParticipantID(),
-                    ask.getParticipantID(),
-                    mid,
-                    quantityMatched,
-                    System.nanoTime()
-            ));
+            long tradeID = nextTradeId++;
             executionListener.onFill(
                     aggressor.getOrderID(),
                     passive.getOrderID(),
                     tradeID,
                     mid,
                     quantityMatched,
-                    aggressor.getQuantity()
+                    aggressor.getQuantity(),
+                    aggressor.getSide(),
+                    aggressor.getParticipantID(),
+                    passive.getParticipantID()
             );
 
             if (bid.getQuantity() == 0) {
@@ -452,10 +455,6 @@ public class MatchingEngine implements BookView {
             }
         }
         return true;
-    }
-
-    public List<Trade> getTrades() {
-        return trades;
     }
 
     public void printBook() {
@@ -516,9 +515,11 @@ public class MatchingEngine implements BookView {
      * <p>Both sides are walked best-first (bids reverse-ordered, asks natural, so each map's
      * iteration order is already best→worst), aggregating visible resting quantity per price
      * level, truncated at {@code min(maxLevels, MAX_DEPTH_LEVELS)}. {@code bestBid}/
-     * {@code bestAsk} carry the {@code -1L} empty-side sentinel. Fills all scalar fields and
-     * the valid array prefix every call; array tails beyond the level counts are left as-is
-     * (see the BookSnapshotEvent slot-reuse contract).
+     * {@code bestAsk} carry the {@code -1L} empty-side sentinel. Fills every book field (levels,
+     * counts, tops) and the valid array prefix every call; array tails beyond the level counts are
+     * left as-is (see the BookSnapshotEvent slot-reuse contract). {@code timestamp} and
+     * {@code lastSeq} are not book state: the handler writes them, taking the timestamp from the
+     * inbound command (P15-2, SRS §5.8). The engine reads no clock.
      *
      * <p><b>Allocation note.</b> The enhanced-for loops allocate map/deque iterators that do
      * not escape this method, so C2 escape analysis is expected to scalar-replace them after
@@ -533,7 +534,6 @@ public class MatchingEngine implements BookView {
 
         target.bestBid = getBestBid();
         target.bestAsk = getBestAsk();
-        target.timestamp = System.nanoTime();
     }
 
     /**

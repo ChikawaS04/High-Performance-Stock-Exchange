@@ -9,16 +9,15 @@ import event.OrderEvent;
 import event.OrderEventType;
 import model.Order;
 import model.OrdType;
+import model.Side;
 import model.TimeInForce;
-
-import java.util.function.LongSupplier;
 
 /**
  * Adapts MatchingEngine onto the Disruptor: consumes OrderEvent from the inbound
  * ring buffer and produces ExecutionEvent onto the outbound ring buffer. Sole
  * outbound producer (SRS §3.3), so the outbound ring is ProducerType.SINGLE.
  *
- * onEvent builds the Order from the OrderEvent — THIS is where domain validation
+ * onCommand builds the Order from the OrderEvent. THIS is where domain validation
  * fires (the Order constructor throws on bad fields), since the parser
  * deliberately never builds an Order. Match executions are reported back via the
  * ExecutionListener callbacks and published from there.
@@ -28,8 +27,9 @@ import java.util.function.LongSupplier;
  * engine thread) and publishes it. Two rings, one producer, one thread: both stay
  * SINGLE.
  *
- * The injectable clock mirrors the OrderGateway seam (Step 7) for deterministic
- * tests and future JMH timestamping (SRS §6.3). It stamps BOTH outbound streams.
+ * P15-2 determinism (SRS §3.3, §5.8): the handler reads no clock. Every EXEC and BOOK
+ * carries the timestamp of the inbound command that caused it, and the outbound seq is
+ * handler state, so replaying the same commands regenerates identical events.
  */
 public final class MatchingEngineHandler implements EventHandler<OrderEvent>, ExecutionListener {
 
@@ -41,47 +41,58 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
     private final RingBuffer<ExecutionEvent> outbound;
     /** Nullable: null means "no depth feed wired" (pre-Phase-4 callers, engine-only tests). */
     private final RingBuffer<BookSnapshotEvent> snapshots;
-    private final LongSupplier clock;
+
+    /** Timestamp of the command being processed; stamps every EXEC and the BOOK it causes. */
+    private long commandTimestamp;
+
+    /** Outbound seq of the last published execution event (D12). 0 until the first publish. */
+    private long lastSeq;
 
     public MatchingEngineHandler(MatchingEngine engine, RingBuffer<ExecutionEvent> outbound) {
-        this(engine, outbound, null, System::nanoTime);
+        this(engine, outbound, null);
     }
 
     /** Phase 4 form: both outbound rings. Used by Main (P4-7). */
     public MatchingEngineHandler(MatchingEngine engine,
                                  RingBuffer<ExecutionEvent> outbound,
                                  RingBuffer<BookSnapshotEvent> snapshots) {
-        this(engine, outbound, snapshots, System::nanoTime);
-    }
-
-    // Package-private clock seam for tests (no depth feed).
-    MatchingEngineHandler(MatchingEngine engine, RingBuffer<ExecutionEvent> outbound, LongSupplier clock) {
-        this(engine, outbound, null, clock);
-    }
-
-    /**
-     * Clock injection point: both outbound rings plus an explicit time source.
-     * Public because Main (root package) wires the production EpochNanoClock in through
-     * here (P7-1); it is also the seam tests use to inject a deterministic clock.
-     */
-    public MatchingEngineHandler(MatchingEngine engine,
-                                 RingBuffer<ExecutionEvent> outbound,
-                                 RingBuffer<BookSnapshotEvent> snapshots,
-                                 LongSupplier clock) {
         this.engine = engine;
         this.outbound = outbound;
         this.snapshots = snapshots;
-        this.clock = clock;
+    }
+
+    /** Outbound seq of the last published execution event; 0 before the first. */
+    public long getLastSeq() {
+        return lastSeq;
     }
 
     /**
-     * Processes one inbound event, then publishes exactly one depth snapshot —
-     * on every path, including rejects. "One snapshot per inbound event" is a
-     * simpler invariant than "one per book-mutating event"; a redundant snapshot
-     * after a reject is harmless and costs nothing at demo volume.
+     * Restores the outbound seq from a snapshot (P15-5 recovery only). The next execution
+     * event carries {@code lastSeq + 1}.
      */
+    public void restoreLastSeq(long lastSeq) {
+        if (lastSeq < 0) {
+            throw new IllegalArgumentException("lastSeq must be >= 0, got " + lastSeq);
+        }
+        this.lastSeq = lastSeq;
+    }
+
     @Override
     public void onEvent(OrderEvent event, long sequence, boolean endOfBatch) {
+        onCommand(event);
+    }
+
+    /**
+     * The single processing entry point: takes the command's timestamp, processes it, then
+     * publishes exactly one depth snapshot, on every path including rejects. "One snapshot
+     * per inbound event" is a simpler invariant than "one per book-mutating event"; a redundant
+     * snapshot after a reject is harmless and costs nothing at demo volume.
+     *
+     * Public so a caller without the Disruptor (the P15-4 engine agent) drives exactly the same
+     * path as onEvent.
+     */
+    public void onCommand(OrderEvent event) {
+        commandTimestamp = event.timestamp;
         process(event);
         publishSnapshot();
     }
@@ -90,7 +101,14 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
         if (event.eventType == OrderEventType.CANCEL_ORDER) {
             boolean cancelled = engine.cancelOrder(event.originalOrderId);
             publish(cancelled ? ExecutionEventType.ORDER_CANCELLED : ExecutionEventType.ORDER_REJECTED,
-                    event.originalOrderId, NA, NA, NA, NA, NA, NA);
+                    event.originalOrderId, NA, NA, NA, NA, NA, NA, null, NA, NA);
+            return;
+        }
+
+        // D3 (SRS §3.3): a NEW reusing the id of an order still resting is rejected before any
+        // Order is built, so the resting order stays fillable and cancellable.
+        if (engine.hasOpenOrder(event.orderId)) {
+            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA, null, NA, NA);
             return;
         }
 
@@ -117,7 +135,7 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
                     ordType                // LIMIT or PEG_MID (tag 40)
             );
         } catch (IllegalArgumentException rejected) {
-            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA);
+            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA, null, NA, NA);
             return;
         }
 
@@ -128,52 +146,55 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
 
     @Override
     public void onFill(long aggressorOrderId, long passiveOrderId, long tradeId,
-                       long price, long filledQuantity, long aggressorRemainingQuantity) {
+                       long price, long filledQuantity, long aggressorRemainingQuantity,
+                       Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
         ExecutionEventType type = (aggressorRemainingQuantity == 0)
                 ? ExecutionEventType.ORDER_FILLED
                 : ExecutionEventType.ORDER_PARTIALLY_FILLED;
         publish(type, aggressorOrderId, tradeId, price, filledQuantity,
-                aggressorRemainingQuantity, aggressorOrderId, passiveOrderId);
+                aggressorRemainingQuantity, aggressorOrderId, passiveOrderId,
+                aggressorSide, aggressorParticipantId, passiveParticipantId);
     }
 
     @Override
     public void onAccepted(long orderId, long price, long remainingQuantity) {
-        publish(ExecutionEventType.ORDER_ACCEPTED, orderId, NA, price, NA, remainingQuantity, NA, NA);
+        publish(ExecutionEventType.ORDER_ACCEPTED, orderId, NA, price, NA, remainingQuantity, NA, NA, null, NA, NA);
     }
 
     @Override
     public void onExpired(long orderId, long expiredQuantity) {
         // ORDER_EXPIRED carries the order id and the quantity that expired unexecuted in
         // remainingQuantity; every other field is the NA sentinel (Phase 14 D5, SRS §3.4).
-        publish(ExecutionEventType.ORDER_EXPIRED, orderId, NA, NA, NA, expiredQuantity, NA, NA);
+        publish(ExecutionEventType.ORDER_EXPIRED, orderId, NA, NA, NA, expiredQuantity, NA, NA, null, NA, NA);
     }
 
     // --- single outbound publish point: writes EVERY field (slot-reuse discipline) ---
 
     private void publish(ExecutionEventType type, long orderId, long tradeId, long price,
                          long filledQuantity, long remainingQuantity,
-                         long aggressorOrderId, long passiveOrderId) {
-        long seq = outbound.next();
+                         long aggressorOrderId, long passiveOrderId,
+                         Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
+        long slot = outbound.next();
         try {
-            ExecutionEvent e = outbound.get(seq);
-            e.eventType         = type;
-            e.orderId           = orderId;
-            e.tradeId           = tradeId;
-            e.price             = price;
-            e.filledQuantity    = filledQuantity;
-            e.remainingQuantity = remainingQuantity;
-            e.aggressorOrderId  = aggressorOrderId;
-            e.passiveOrderId    = passiveOrderId;
-            // Phase 15 fields, written as placeholders so no reused slot carries a stale value.
-            // P15-2 assigns seq and the fill side and participants; P15-8 the business date.
-            e.seq                    = NA;
-            e.aggressorSide          = null;
-            e.aggressorParticipantId = NA;
-            e.passiveParticipantId   = NA;
+            ExecutionEvent e = outbound.get(slot);
+            e.seq                    = ++lastSeq;   // D12: gap-free from 1, assigned only here
+            e.eventType              = type;
+            e.orderId                = orderId;
+            e.tradeId                = tradeId;
+            e.price                  = price;
+            e.filledQuantity         = filledQuantity;
+            e.remainingQuantity      = remainingQuantity;
+            e.aggressorOrderId       = aggressorOrderId;
+            e.passiveOrderId         = passiveOrderId;
+            e.aggressorSide          = aggressorSide;
+            e.aggressorParticipantId = aggressorParticipantId;
+            e.passiveParticipantId   = passiveParticipantId;
+            // Written as a placeholder so no reused slot carries a stale value; P15-8 sets it
+            // on SESSION_OPENED / SESSION_CLOSED.
             e.businessDate           = (int) NA;
-            e.timestamp         = clock.getAsLong();
+            e.timestamp              = commandTimestamp;
         } finally {
-            outbound.publish(seq);
+            outbound.publish(slot);
         }
     }
 
@@ -181,22 +202,23 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
      * Reads the book into a claimed snapshot slot and publishes it. Runs on the
      * engine thread — the only thread that may read bids/asks unsynchronized.
      *
-     * snapshotInto fills every scalar and the valid array prefix; the level counts
+     * snapshotInto fills every book field and the valid array prefix; the level counts
      * are authoritative, so array tails beyond them are intentionally left stale
      * (BookSnapshotEvent's reuse contract) and consumers must not read past the
-     * counts. The timestamp is then overwritten from the injected clock so both
-     * outbound streams share one time source.
+     * counts. The handler then writes the command's timestamp and the seq of the last
+     * execution event published before this snapshot.
      */
     private void publishSnapshot() {
         if (snapshots == null) return;   // no depth feed wired
 
-        long seq = snapshots.next();
+        long slot = snapshots.next();
         try {
-            BookSnapshotEvent s = snapshots.get(seq);
+            BookSnapshotEvent s = snapshots.get(slot);
             engine.snapshotInto(s, BookSnapshotEvent.MAX_DEPTH_LEVELS);
-            s.timestamp = clock.getAsLong();
+            s.lastSeq = lastSeq;
+            s.timestamp = commandTimestamp;
         } finally {
-            snapshots.publish(seq);
+            snapshots.publish(slot);
         }
     }
 }

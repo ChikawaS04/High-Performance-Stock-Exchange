@@ -1,5 +1,7 @@
 package engine;
 
+import model.Side;
+
 /**
  * Framework-free seam the MatchingEngine uses to report executions as they
  * happen. Primitive args only, zero allocation, no com.lmax / io.netty — the
@@ -17,9 +19,13 @@ public interface ExecutionListener {
     /**
      * Fired once per trade. aggressorRemainingQuantity is the incoming order's
      * remaining size AFTER this fill (0 means this fill completed it).
+     * aggressorSide and the two participant ids let clearing net every fill per
+     * participant from the outbound record alone (D4, SRS §3.4). In a peg-pool
+     * cross the aggressor is the later-arriving peg.
      */
     void onFill(long aggressorOrderId, long passiveOrderId, long tradeId,
-                long price, long filledQuantity, long aggressorRemainingQuantity);
+                long price, long filledQuantity, long aggressorRemainingQuantity,
+                Side aggressorSide, long aggressorParticipantId, long passiveParticipantId);
 
     /** Fired when an order (or its unfilled remainder) rests on the book. */
     void onAccepted(long orderId, long price, long remainingQuantity);
@@ -35,7 +41,8 @@ public interface ExecutionListener {
 
     /** No-op default so existing callers (Main, prior tests) need no listener. */
     ExecutionListener NO_OP = new ExecutionListener() {
-        @Override public void onFill(long a, long p, long t, long pr, long f, long r) { }
+        @Override public void onFill(long a, long p, long t, long pr, long f, long r,
+                                     Side s, long ap, long pp) { }
         @Override public void onAccepted(long o, long pr, long r) { }
         @Override public void onExpired(long o, long q) { }
     };

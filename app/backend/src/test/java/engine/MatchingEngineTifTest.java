@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * The book is seeded while the engine still holds the default NO_OP listener, so the resting
  * orders' own acknowledgements are swallowed and the capturer records ONLY the aggressor under
- * test. Order ids are local literals (never IDGenerator), and trade-id assertions are property
+ * test. Order ids are local literals, and trade-id assertions are property
  * checks (> 0), per the project's test discipline.
  */
 class MatchingEngineTifTest {
@@ -174,7 +174,7 @@ class MatchingEngineTifTest {
         seed(limit(3, Side.SELL, 100, P101, TimeInForce.GTC));  // beyond the FOK limit below
 
         BookSnapshotEvent before = snap();
-        long tradesBefore = engine.getTrades().size();
+        long nextTradeIdBefore = engine.getNextTradeId();
         capture();
 
         // Limit $100.00: only the two $100.00 orders (100 total) are eligible; the $101.00
@@ -189,7 +189,7 @@ class MatchingEngineTifTest {
         assertEquals(0, cap.count(Kind.ACCEPTED));
 
         assertSameBook(before, snap());                         // prices + quantities + tops
-        assertEquals(tradesBefore, engine.getTrades().size());  // no trade recorded
+        assertEquals(nextTradeIdBefore, engine.getNextTradeId());  // no trade id assigned
         assertFalse(engine.cancelOrder(4));                     // the FOK never entered the book
 
         // Queue order survived: a genuine buy of 50 at $100.00 must hit order 1 first (FIFO).

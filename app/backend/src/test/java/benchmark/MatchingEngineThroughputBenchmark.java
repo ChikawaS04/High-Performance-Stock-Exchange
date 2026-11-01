@@ -44,14 +44,10 @@ import java.util.concurrent.TimeUnit;
  * Pure-insert throughput is not measured separately: it is approximable as the reciprocal of
  * P6-1's insert latency, and measuring it directly would only reintroduce the drift artifact.
  *
- * <p><b>Caveat — the engine accumulates trades, so memory still grows within an iteration.</b>
- * The book stays bounded here, but every cross appends a {@code Trade} to the engine's
- * {@code List<Trade>} (read by {@code getTrades()}, never cleared). Over a one-second iteration
- * that list grows by one entry per aggressive order. This is a <i>constant</i> per-op cost
- * (one {@code Trade} per cross), not a drifting one, and it is bounded <i>across</i> iterations
- * by the fresh {@code MatchingEngine} installed in {@code @Setup(Level.Iteration)}. It also
- * corroborates the P6-1 allocation finding: §5.1's zero-allocation guarantee covers the
- * ring-buffer transport, not the engine's book/trade structures.
+ * <p><b>Trades.</b> Until P15-2 every cross also appended a {@code Trade} record to an engine-held
+ * list, a constant per-op allocation that the Phase 14 baseline includes. From P15-2 the engine
+ * keeps no trade list (SRS §3.3): a cross advances the engine-owned trade id counter and reports
+ * through the listener only, so results from P15-2 on are not like-for-like with that baseline.
  *
  * <p><b>Cross mechanics.</b> A resting BUY at {@code PRICE_UNITS} for {@code QTY} lands in an
  * empty book (no asks). The following SELL at the same price and quantity satisfies
@@ -60,11 +56,8 @@ import java.util.concurrent.TimeUnit;
  * {@code openOrders}, and price level, and — being fully filled — never rests itself. The book
  * returns to empty, ready for the next pair.
  *
- * <p><b>Ids.</b> Order ids come from a benchmark-local counter, never {@code util.IDGenerator}:
- * that class holds static {@code AtomicLong}s global to the JVM and already advanced by whatever
- * ran before, so seeding locally keeps setup deterministic and independent of JVM history.
- * ({@code IDGenerator} still mints the trade id inside the engine on each cross; that is engine
- * behaviour under measurement, not benchmark setup.)
+ * <p><b>Ids.</b> Order ids come from a benchmark-local counter, so setup is deterministic and
+ * independent of JVM history. Trade ids come from the fresh engine's own counter.
  *
  * <p><b>Listener.</b> None is attached, so the engine uses its {@code ExecutionListener.NO_OP}
  * default and no execution escapes toward a ring buffer.
@@ -92,15 +85,14 @@ public class MatchingEngineThroughputBenchmark {
 
     private MatchingEngine engine;
 
-    /** Benchmark-local id source — deliberately not util.IDGenerator (see class javadoc). */
+    /** Benchmark-local id source (see class javadoc). */
     private long nextOrderId;
 
     /** true => submit the resting BUY next; false => submit the crossing SELL next. */
     private boolean restNext;
 
     /**
-     * Fresh engine per iteration. This is what bounds growth across iterations: it drops the
-     * previous iteration's accumulated trade list and any residual book state, and re-seeds the
+     * Fresh engine per iteration: it drops any residual book state, and re-seeds the
      * id counter and phase toggle so every timed iteration starts from an identical empty book.
      */
     @Setup(Level.Iteration)
@@ -115,7 +107,7 @@ public class MatchingEngineThroughputBenchmark {
      * exact-cross so the book oscillates between empty and a single resting order.
      *
      * <p>Returns the {@link Order} so JMH consumes the result and cannot dead-code-eliminate the
-     * call. The engine mutation (and the trade append on a cross) is a side effect on
+     * call. The engine mutation is a side effect on
      * {@code engine} and is not eliminable regardless; returning the value keeps the intent
      * explicit.
      */

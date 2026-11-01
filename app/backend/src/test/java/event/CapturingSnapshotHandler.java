@@ -26,6 +26,7 @@ public final class CapturingSnapshotHandler implements EventHandler<BookSnapshot
             int askLevelCount,
             long bestBid,
             long bestAsk,
+            long lastSeq,
             long timestamp
     ) { }
 
@@ -42,6 +43,7 @@ public final class CapturingSnapshotHandler implements EventHandler<BookSnapshot
                 event.askLevelCount,
                 event.bestBid,
                 event.bestAsk,
+                event.lastSeq,
                 event.timestamp
         ));
     }

@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * The book and any resting pegs are seeded while the engine still holds the default NO_OP
  * listener, so their own acknowledgements are swallowed and the capturer records ONLY the
- * aggressor under test. Order ids are local literals (never IDGenerator); trade-id assertions are
+ * aggressor under test. Order ids are local literals; trade-id assertions are
  * property checks (&gt; 0), per the project's test discipline.
  */
 class MatchingEnginePegTest {
@@ -50,6 +50,15 @@ class MatchingEnginePegTest {
 
     private static Order peg(long id, Side side, int qty, TimeInForce tif) {
         return new Order(id, nextTs(), side, qty, Prices.NA, 1L, tif, 0, OrdType.PEG_MID);
+    }
+
+    /** Participant-bearing factories for the D4 attribution tests: distinct ids catch a transposition. */
+    private static Order limitFor(long id, Side side, int qty, long price, long participantId) {
+        return new Order(id, nextTs(), side, qty, price, participantId, TimeInForce.GTC);
+    }
+
+    private static Order pegFor(long id, Side side, int qty, long participantId) {
+        return new Order(id, nextTs(), side, qty, Prices.NA, participantId, TimeInForce.GTC, 0, OrdType.PEG_MID);
     }
 
     private static long tsSeq = 1L;
@@ -104,8 +113,8 @@ class MatchingEnginePegTest {
         assertEquals(1, fill.passiveOrderId());         // resting peg sell
         assertTrue(fill.tradeId() > 0);
 
-        // the Trade recorded for this fill also carries the exact mid
-        assertEquals(MID_100_005, engine.getTrades().get(engine.getTrades().size() - 1).price());
+        // the fill took the id the engine-owned counter assigned
+        assertEquals(engine.getNextTradeId() - 1, fill.tradeId());
 
         // pegs never touch the lit book
         assertEquals(P100, engine.getBestBid());
@@ -244,6 +253,56 @@ class MatchingEnginePegTest {
         assertFalse(engine.cancelOrder(11));
     }
 
+    // =============================================================== D4: side and participants
+
+    @Test
+    void pegVsPegPool_fillNamesIncomingPegSideAndBothParticipants() {
+        seedTwoSidedBook(10, 10);
+        seed(pegFor(1, Side.SELL, 100, 7L));            // resting peg sell, participant 7
+        capture();
+
+        engine.addOrder(pegFor(2, Side.BUY, 100, 9L));  // incoming peg buy, participant 9
+
+        Observed fill = cap.get(0);
+        assertEquals(Kind.FILL, fill.kind());
+        assertEquals(Side.BUY, fill.aggressorSide());
+        assertEquals(9L, fill.aggressorParticipantId());
+        assertEquals(7L, fill.passiveParticipantId());
+    }
+
+    @Test
+    void litSellCrossingMidIntoPegPool_fillNamesLitSellAndBothParticipants() {
+        seed(limit(901, Side.BUY, 50, P100, TimeInForce.GTC));
+        seed(limit(902, Side.SELL, 50, P100_03, TimeInForce.GTC));
+        seed(pegFor(1, Side.BUY, 30, 7L));              // resting peg buy at the mid, participant 7
+        capture();
+
+        engine.addOrder(limitFor(2, Side.SELL, 20, P100_01, 9L));   // lit sell crossing the mid
+
+        assertEquals(1, cap.count(Kind.FILL));
+        Observed fill = cap.get(0);
+        assertEquals(1_000_150L, fill.price());
+        assertEquals(Side.SELL, fill.aggressorSide());
+        assertEquals(9L, fill.aggressorParticipantId());
+        assertEquals(7L, fill.passiveParticipantId());
+    }
+
+    @Test
+    void poolCross_fillNamesLaterArrivalSideAndParticipantAsAggressor() {
+        seed(pegFor(10, Side.SELL, 50, 7L));            // earlier arrival, participant 7
+        seed(pegFor(11, Side.BUY, 50, 9L));             // later arrival, participant 9
+        seed(limit(901, Side.BUY, 10, P100, TimeInForce.GTC));
+        capture();
+
+        engine.addOrder(limit(902, Side.SELL, 10, P100_01, TimeInForce.GTC));   // creates the mid
+
+        Observed cross = cap.all().stream().filter(o -> o.kind() == Kind.FILL).findFirst().orElseThrow();
+        assertEquals(11, cross.orderId());
+        assertEquals(Side.BUY, cross.aggressorSide());  // the later-arriving peg's side
+        assertEquals(9L, cross.aggressorParticipantId());
+        assertEquals(7L, cross.passiveParticipantId());
+    }
+
     @Test
     void poolsDoNotCrossWithoutMid() {
         seed(peg(10, Side.BUY, 50, TimeInForce.GTC));
@@ -348,7 +407,7 @@ class MatchingEnginePegTest {
         seed(limit(902, Side.SELL, 50, P100_01, TimeInForce.GTC));
         seed(peg(1, Side.SELL, 60, TimeInForce.GTC));
         BookSnapshotEvent before = snap();
-        long tradesBefore = engine.getTrades().size();
+        long nextTradeIdBefore = engine.getNextTradeId();
         capture();
 
         // 111 needed; pool 60 + lit 50 = 110 < 111 => probe fails, nothing trades.
@@ -359,7 +418,7 @@ class MatchingEnginePegTest {
         assertEquals(111, cap.get(0).remainingQuantity());
         assertEquals(0, cap.count(Kind.FILL));
         assertSameBook(before, snap());                   // lit book intact
-        assertEquals(tradesBefore, engine.getTrades().size());
+        assertEquals(nextTradeIdBefore, engine.getNextTradeId());
         assertTrue(engine.cancelOrder(1));                // the peg pool is intact too
     }
 }

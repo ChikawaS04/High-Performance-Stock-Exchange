@@ -35,8 +35,8 @@ import java.util.concurrent.TimeUnit;
  * keeping the harness identical removes any doubt) and the construction <i>time</i> is directly
  * comparable to the depth benchmark's insert time.
  *
- * <p><b>Ids.</b> Benchmark-local counter, never {@code util.IDGenerator} (static JVM-global
- * {@code AtomicLong}s). No engine, no listener, no collections — this touches nothing but the
+ * <p><b>Ids.</b> Benchmark-local counter, independent of JVM history. No engine, no listener,
+ * no collections; this touches nothing but the
  * {@code Order} constructor and its fail-fast validation.
  *
  * <p>Run with JDK 21 on {@code JAVA_HOME}:
@@ -55,7 +55,7 @@ public class OrderAllocationBaselineBenchmark {
     private static final int QTY = 10;
     private static final long PARTICIPANT_ID = 1L;
 
-    /** Benchmark-local id source — deliberately not util.IDGenerator. */
+    /** Benchmark-local id source. */
     private long nextOrderId;
 
     @Setup(Level.Iteration)

@@ -45,7 +45,7 @@ class MatchingEngineHandlerSnapshotTest {
         snapshotPipeline.start();
 
         handler = new MatchingEngineHandler(
-                engine, outbound.getRingBuffer(), snapshotPipeline.getRingBuffer(), () -> TS);
+                engine, outbound.getRingBuffer(), snapshotPipeline.getRingBuffer());
         engine.setExecutionListener(handler);
     }
 
@@ -64,7 +64,7 @@ class MatchingEngineHandlerSnapshotTest {
         e.side = side;
         e.price = price;
         e.quantity = qty;
-        e.timestamp = 1L;
+        e.timestamp = TS;
         e.originalOrderId = -1L;
         return e;
     }
@@ -76,7 +76,7 @@ class MatchingEngineHandlerSnapshotTest {
         e.side = null;
         e.price = -1L;
         e.quantity = -1L;
-        e.timestamp = 1L;
+        e.timestamp = TS;
         e.originalOrderId = origId;
         return e;
     }
@@ -100,7 +100,7 @@ class MatchingEngineHandlerSnapshotTest {
         assertEquals(1_000_000L, s.bestBid());
         assertEquals(0, s.askLevelCount());
         assertEquals(-1L, s.bestAsk());
-        assertEquals(TS, s.timestamp());     // handler clock, not System.nanoTime
+        assertEquals(TS, s.timestamp());     // the command's timestamp, not a clock
     }
 
     @Test
@@ -209,11 +209,52 @@ class MatchingEngineHandlerSnapshotTest {
     void handlerWithoutSnapshotRing_stillProcesses() {
         MatchingEngine e2 = new MatchingEngine();
         MatchingEngineHandler noDepth =
-                new MatchingEngineHandler(e2, outbound.getRingBuffer(), () -> TS);
+                new MatchingEngineHandler(e2, outbound.getRingBuffer());
         e2.setExecutionListener(noDepth);
 
         noDepth.onEvent(newOrder(1, Side.BUY, 1_000_000, 50), 0, true);   // must not NPE
 
         assertEquals(1_000_000L, e2.getBestBid());
+    }
+
+    private static OrderEvent at(OrderEvent e, long timestamp) {
+        e.timestamp = timestamp;
+        return e;
+    }
+
+    // --- P15-2: BOOK carries the command's timestamp and the last EXEC seq ---
+
+    @Test
+    void bookTimestamp_isTheCommandsTimestamp() {
+        submit(at(newOrder(1, Side.BUY, 1_000_000, 50), 1_000L), 0);
+        submit(at(cancel(2, 99), 2_000L), 1);                           // reject path
+        submit(at(newOrder(3, Side.SELL, 1_000_000, 50), 3_000L), 2);
+
+        List<Observed> obs = snaps.awaitAtLeast(3, 1000);
+        assertEquals(1_000L, obs.get(0).timestamp());
+        assertEquals(2_000L, obs.get(1).timestamp());
+        assertEquals(3_000L, obs.get(2).timestamp());
+    }
+
+    @Test
+    void bookLastSeq_isTheSeqOfTheLastExecPublishedBeforeIt() {
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);    // ACCEPTED (seq 1)
+        submit(newOrder(2, Side.SELL, 1_000_000, 70), 1);   // PARTIALLY_FILLED (2) + ACCEPTED (3)
+        submit(cancel(3, 99), 2);                            // REJECTED (4)
+
+        List<Observed> obs = snaps.awaitAtLeast(3, 1000);
+        assertEquals(1L, obs.get(0).lastSeq());
+        assertEquals(3L, obs.get(1).lastSeq());
+        assertEquals(4L, obs.get(2).lastSeq());
+        assertEquals(4L, handler.getLastSeq());
+    }
+
+    @Test
+    void bookLastSeq_continuesFromRestoredSeq() {
+        handler.restoreLastSeq(100);
+        submit(newOrder(1, Side.BUY, 1_000_000, 50), 0);
+
+        List<Observed> obs = snaps.awaitAtLeast(1, 1000);
+        assertEquals(101L, obs.get(0).lastSeq());
     }
 }

@@ -11,6 +11,7 @@ import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.concurrent.GlobalEventExecutor;
+import model.Side;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -119,6 +120,47 @@ class WebSocketPublisherTest {
     }
 
     @Test
+    void execFillCarriesSeqSideAndParticipants() throws Exception {
+        WebSocketPublisher pub = new WebSocketPublisher(
+                new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
+
+        ExecutionEvent e = exec(ExecutionEventType.ORDER_PARTIALLY_FILLED,
+                5L, 1L, 1_502_500L, 10L, 5L, 5L, 3L, 42L);
+        e.seq = 17L;
+        e.aggressorSide = Side.SELL;
+        e.aggressorParticipantId = 9L;
+        e.passiveParticipantId = 7L;
+
+        JsonNode n = parse(pub.serializeExecution(e));
+
+        assertEquals(17L, n.get("seq").asLong());
+        assertEquals("SELL", n.get("aggressorSide").asText());
+        assertEquals(9L, n.get("aggressorParticipantId").asLong());
+        assertEquals(7L, n.get("passiveParticipantId").asLong());
+        assertFalse(n.has("businessDate"));                  // session frames are P15-8
+    }
+
+    @Test
+    void execNonFillCarriesNullSideAndMinusOneParticipants() throws Exception {
+        WebSocketPublisher pub = new WebSocketPublisher(
+                new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
+
+        ExecutionEvent e = exec(ExecutionEventType.ORDER_ACCEPTED,
+                7L, -1L, 1_500_000L, -1L, 25L, -1L, -1L, 99L);
+        e.seq = 3L;
+        e.aggressorSide = null;
+        e.aggressorParticipantId = -1L;
+        e.passiveParticipantId = -1L;
+
+        JsonNode n = parse(pub.serializeExecution(e));
+
+        assertEquals(3L, n.get("seq").asLong());
+        assertTrue(n.get("aggressorSide").isNull());
+        assertEquals(-1L, n.get("aggressorParticipantId").asLong());
+        assertEquals(-1L, n.get("passiveParticipantId").asLong());
+    }
+
+    @Test
     void execAcceptCarriesMinusOneForNaFields() throws Exception {
         WebSocketPublisher pub = new WebSocketPublisher(
                 new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
@@ -152,11 +194,13 @@ class WebSocketPublisherTest {
         s.askLevelCount = 1;
         s.bestBid = 1_502_000L;
         s.bestAsk = 1_503_000L;
+        s.lastSeq = 12L;
         s.timestamp = 7L;
 
         JsonNode n = parse(pub.serializeSnapshot(s));
 
         assertEquals("BOOK", n.get("type").asText());
+        assertEquals(12L, n.get("lastSeq").asLong());
         assertEquals(1_502_000L, n.get("bestBid").asLong());
         assertEquals(1_503_000L, n.get("bestAsk").asLong());
         assertEquals(7L, n.get("timestamp").asLong());

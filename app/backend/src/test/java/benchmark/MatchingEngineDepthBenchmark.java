@@ -47,11 +47,9 @@ import java.util.concurrent.TimeUnit;
  * any ask (there are none), so it can never cross; it lands on its own level near the bottom of
  * the book, which is the honest worst case for a {@code TreeMap} insert.
  *
- * <p><b>Ids.</b> Order ids come from a Matchingenginethroughputbenchmark-local counter, never {@code util.IDGenerator}:
- * that class holds static {@code AtomicLong}s that are global to the JVM and already advanced
- * by whatever ran before, so setup here stays deterministic and independent of JVM history.
- * ({@code IDGenerator} still mints trade ids inside the engine on the crossing path, which this
- * Matchingenginethroughputbenchmark does not exercise.)
+ * <p><b>Ids.</b> Order ids come from a benchmark-local counter, so setup here stays
+ * deterministic and independent of JVM history. This benchmark never crosses, so no trade id
+ * is assigned.
  *
  * <p><b>Listener.</b> None is attached, so the engine uses its {@code ExecutionListener.NO_OP}
  * default and no execution ever escapes toward a ring buffer.
@@ -84,7 +82,7 @@ public class MatchingEngineDepthBenchmark {
 
     private MatchingEngine engine;
 
-    /** Benchmark-local id source — deliberately not util.IDGenerator (see class javadoc). */
+    /** Benchmark-local id source (see class javadoc). */
     private long nextOrderId;
 
     /**

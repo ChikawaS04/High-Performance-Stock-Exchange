@@ -151,6 +151,7 @@ public final class WebSocketPublisher {
     String serializeExecution(ExecutionEvent e) {
         ObjectNode n = mapper.createObjectNode();
         n.put("type", "EXEC");
+        n.put("seq", e.seq);
         n.put("execType", e.eventType.name());
         n.put("orderId", e.orderId);
         n.put("tradeId", e.tradeId);
@@ -159,6 +160,10 @@ public final class WebSocketPublisher {
         n.put("remainingQuantity", e.remainingQuantity);
         n.put("aggressorOrderId", e.aggressorOrderId);
         n.put("passiveOrderId", e.passiveOrderId);
+        // D4: fills name the aggressor's side and both participants; null and -1 otherwise.
+        n.put("aggressorSide", (e.aggressorSide == null) ? null : e.aggressorSide.name());
+        n.put("aggressorParticipantId", e.aggressorParticipantId);
+        n.put("passiveParticipantId", e.passiveParticipantId);
         n.put("timestamp", e.timestamp);
         return write(n);
     }
@@ -183,6 +188,7 @@ public final class WebSocketPublisher {
             level.add(s.askQtys[i]);
         }
 
+        n.put("lastSeq", s.lastSeq);
         n.put("timestamp", s.timestamp);
         return write(n);
     }

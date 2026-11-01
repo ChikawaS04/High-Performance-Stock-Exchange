@@ -47,6 +47,16 @@ public final class BookSnapshotEvent {
     public long bestBid;
     public long bestAsk;
 
-    /** Snapshot time, epoch nanos (System.nanoTime), stamped when the book was read. */
+    /**
+     * Outbound seq of the last execution event published before this snapshot (SRS §3.5), so a
+     * client can align the book with the execution stream. 0 when none has been published yet.
+     * Written by MatchingEngineHandler, not by snapshotInto.
+     */
+    public long lastSeq;
+
+    /**
+     * Epoch nanos of the inbound command that caused this snapshot (SRS §3.5, §5.8). Written by
+     * MatchingEngineHandler, not by snapshotInto: the engine reads no clock.
+     */
     public long timestamp;
 }

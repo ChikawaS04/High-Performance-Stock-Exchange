@@ -58,8 +58,8 @@ import java.util.concurrent.TimeUnit;
  * {@code N} ask levels, one resting order (qty 1) each, at prices {@code BASE_PRICE .. BASE_PRICE+N-1}.
  * One aggressor BUY priced at the top ask (so {@code askPrice <= buyPrice} at every level) with
  * qty {@code N} — best-first it fills one order per level, evicts each, and is exactly consumed
- * at level N, so nothing rests. Ids come from a method-local counter, never {@code util.IDGenerator}
- * (its {@code AtomicLong}s are JVM-global). No {@code ExecutionListener} is attached — the engine
+ * at level N, so nothing rests. Ids come from a method-local counter, independent of JVM
+ * history. No {@code ExecutionListener} is attached: the engine
  * defaults to {@code NO_OP}, so no execution escapes.
  *
  * <h2>FOK availability probe (Phase 14 P14-11)</h2>
@@ -215,7 +215,9 @@ public class MatchingEngineFillWalkBenchmark {
     private static final class CountingExpiryListener implements ExecutionListener {
         long expiries;
         @Override public void onFill(long aggressorOrderId, long passiveOrderId, long tradeId,
-                                     long price, long filledQuantity, long aggressorRemainingQuantity) { }
+                                     long price, long filledQuantity, long aggressorRemainingQuantity,
+                                     Side aggressorSide, long aggressorParticipantId,
+                                     long passiveParticipantId) { }
         @Override public void onAccepted(long orderId, long price, long remainingQuantity) { }
         @Override public void onExpired(long orderId, long expiredQuantity) { expiries++; }
     }
