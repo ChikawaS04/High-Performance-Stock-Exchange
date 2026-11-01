@@ -164,6 +164,13 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Ex
             e.remainingQuantity = remainingQuantity;
             e.aggressorOrderId  = aggressorOrderId;
             e.passiveOrderId    = passiveOrderId;
+            // Phase 15 fields, written as placeholders so no reused slot carries a stale value.
+            // P15-2 assigns seq and the fill side and participants; P15-8 the business date.
+            e.seq                    = NA;
+            e.aggressorSide          = null;
+            e.aggressorParticipantId = NA;
+            e.passiveParticipantId   = NA;
+            e.businessDate           = (int) NA;
             e.timestamp         = clock.getAsLong();
         } finally {
             outbound.publish(seq);

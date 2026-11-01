@@ -1,6 +1,7 @@
 package event;
 
 import com.lmax.disruptor.EventHandler;
+import model.Side;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,6 +15,7 @@ import java.util.List;
 public final class CapturingExecutionHandler implements EventHandler<ExecutionEvent> {
 
     public record Observed(
+            long seq,
             ExecutionEventType eventType,
             long orderId,
             long tradeId,
@@ -22,6 +24,10 @@ public final class CapturingExecutionHandler implements EventHandler<ExecutionEv
             long remainingQuantity,
             long aggressorOrderId,
             long passiveOrderId,
+            Side aggressorSide,
+            long aggressorParticipantId,
+            long passiveParticipantId,
+            int businessDate,
             long timestamp
     ) { }
 
@@ -30,9 +36,11 @@ public final class CapturingExecutionHandler implements EventHandler<ExecutionEv
     @Override
     public void onEvent(ExecutionEvent event, long sequence, boolean endOfBatch) {
         observed.add(new Observed(
-                event.eventType, event.orderId, event.tradeId, event.price,
+                event.seq, event.eventType, event.orderId, event.tradeId, event.price,
                 event.filledQuantity, event.remainingQuantity,
-                event.aggressorOrderId, event.passiveOrderId, event.timestamp
+                event.aggressorOrderId, event.passiveOrderId,
+                event.aggressorSide, event.aggressorParticipantId, event.passiveParticipantId,
+                event.businessDate, event.timestamp
         ));
     }
 

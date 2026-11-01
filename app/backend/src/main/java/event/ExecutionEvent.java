@@ -1,5 +1,7 @@
 package event;
 
+import model.Side;
+
 /**
  * Mutable carrier for the outbound ring buffer (matching engine -> subscribers).
  * Pre-allocated once per Disruptor slot and reused, exactly like OrderEvent.
@@ -11,6 +13,7 @@ package event;
  */
 public final class ExecutionEvent {
 
+    public long seq;                // outbound sequence number (SRS §3.4); assigned from P15-2, -1 until then
     public ExecutionEventType eventType;
     public long orderId;            // the order this report is about (aggressor for fills)
     public long tradeId;            // fills only; -1 otherwise
@@ -19,5 +22,9 @@ public final class ExecutionEvent {
     public long remainingQuantity;  // aggressor remaining (fills) / resting qty (accepted); -1 otherwise
     public long aggressorOrderId;   // fills only; -1 otherwise
     public long passiveOrderId;     // fills only; -1 otherwise
+    public Side aggressorSide;      // fills only; null otherwise (D4)
+    public long aggressorParticipantId; // fills only; -1 otherwise (D4)
+    public long passiveParticipantId;   // fills only; -1 otherwise (D4)
+    public int  businessDate;       // SESSION_OPENED / SESSION_CLOSED only (YYYYMMDD); -1 otherwise
     public long timestamp;          // execution publish time (epoch nanos)
 }

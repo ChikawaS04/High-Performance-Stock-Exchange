@@ -18,6 +18,11 @@
         <netty.version>4.2.16.Final</netty.version>
         <jackson.version>2.18.2</jackson.version>
         <jmh.version>1.37</jmh.version>
+        <!-- Phase 15 journal. Aeron 1.53.3 and SBE 1.40.2 both depend on Agrona 2.6.1,
+             so Agrona arrives transitively and is not pinned here. -->
+        <aeron.version>1.53.3</aeron.version>
+        <sbe.version>1.40.2</sbe.version>
+        <sbe.output.dir>${project.build.directory}/generated-sources/sbe</sbe.output.dir>
     </properties>
 
     <dependencies>
@@ -74,14 +79,116 @@
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
         </dependency>
+
+        <!-- Phase 15 journal: embedded media driver, IPC client and Archive (SRS §3.9). -->
+        <dependency>
+            <groupId>io.aeron</groupId>
+            <artifactId>aeron-client</artifactId>
+            <version>${aeron.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.aeron</groupId>
+            <artifactId>aeron-driver</artifactId>
+            <version>${aeron.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.aeron</groupId>
+            <artifactId>aeron-archive</artifactId>
+            <version>${aeron.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <!-- SBE code generation (Phase 15). SbeTool runs at generate-sources from the
+                 schema in src/main/resources/sbe and writes flyweight codecs into package
+                 `codec` under target/generated-sources/sbe. Generated code is never committed;
+                 a clean checkout regenerates it on every build. sbe-tool is a plugin
+                 dependency only: the generated code needs nothing but Agrona at runtime. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.6.4</version>
+                <executions>
+                    <execution>
+                        <id>sbe-generate</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <mainClass>uk.co.real_logic.sbe.SbeTool</mainClass>
+                    <includeProjectDependencies>false</includeProjectDependencies>
+                    <includePluginDependencies>true</includePluginDependencies>
+                    <blockSystemExit>true</blockSystemExit>
+                    <systemProperties>
+                        <systemProperty>
+                            <key>sbe.output.dir</key>
+                            <value>${sbe.output.dir}</value>
+                        </systemProperty>
+                        <systemProperty>
+                            <key>sbe.target.language</key>
+                            <value>Java</value>
+                        </systemProperty>
+                        <systemProperty>
+                            <key>sbe.validation.stop.on.error</key>
+                            <value>true</value>
+                        </systemProperty>
+                        <systemProperty>
+                            <key>sbe.validation.warnings.fatal</key>
+                            <value>true</value>
+                        </systemProperty>
+                        <systemProperty>
+                            <key>sbe.generate.ir</key>
+                            <value>false</value>
+                        </systemProperty>
+                    </systemProperties>
+                    <arguments>
+                        <argument>${project.basedir}/src/main/resources/sbe/exchange-schema.xml</argument>
+                    </arguments>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>uk.co.real-logic</groupId>
+                        <artifactId>sbe-tool</artifactId>
+                        <version>${sbe.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <id>add-sbe-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${sbe.output.dir}</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+                <configuration>
+                    <!-- Agrona 2.x (UnsafeApi, behind UnsafeBuffer and every SBE flyweight) uses
+                         jdk.internal.misc.Unsafe, which java.base does not export: without this,
+                         BufferUtil fails to initialise with IllegalAccessError. Valid on JDK 21
+                         and 25. Any JVM that runs the exchange needs the same flag. -->
+                    <argLine>--add-exports java.base/jdk.internal.misc=ALL-UNNAMED</argLine>
+                </configuration>
             </plugin>
 
             <!-- Runs JMH benchmarks from src/test/java. Explicit invocation only

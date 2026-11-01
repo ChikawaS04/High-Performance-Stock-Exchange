@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Journal encoding for the exchange (SRS §3.8, §3.9, §4). Little-endian, same field types
+    and units as the in-memory events: prices in long units of $0.0001, timestamps in epoch
+    nanoseconds, business dates as int YYYYMMDD. The -1 sentinel is an ordinary int64 value
+    here; SBE's own int64 null is not used.
+
+    Field order in every message: int64 first, then int32, then uint8 enums, then char arrays,
+    so every int64 sits on an 8-byte boundary.
+
+    Commands (templates 1 to 4) are written by the sequencer to the recorded inbound stream.
+    The command type is the template id, so commands carry no eventType field. Executions
+    (template 10) are written by the outbound recorder.
+
+    Version 0 until the first real recording exists (P15-3). After that, changes are additive
+    only, with sinceVersion.
+-->
+<sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
+                   package="codec"
+                   id="1"
+                   version="0"
+                   semanticVersion="15.1"
+                   description="High Performance Stock Exchange journal"
+                   byteOrder="littleEndian">
+    <types>
+        <composite name="messageHeader" description="Message identifiers and length of message root">
+            <type name="blockLength" primitiveType="uint16"/>
+            <type name="templateId" primitiveType="uint16"/>
+            <type name="schemaId" primitiveType="uint16"/>
+            <type name="version" primitiveType="uint16"/>
+        </composite>
+
+        <type name="Symbol" primitiveType="char" length="8" characterEncoding="US-ASCII"
+              description="Instrument symbol, ASCII, NUL-padded"/>
+
+        <enum name="SideCode" encodingType="uint8">
+            <validValue name="BUY">0</validValue>
+            <validValue name="SELL">1</validValue>
+        </enum>
+        <enum name="OrdTypeCode" encodingType="uint8">
+            <validValue name="LIMIT">0</validValue>
+            <validValue name="PEG_MID">1</validValue>
+        </enum>
+        <enum name="TimeInForceCode" encodingType="uint8">
+            <validValue name="GTC">0</validValue>
+            <validValue name="IOC">1</validValue>
+            <validValue name="FOK">2</validValue>
+        </enum>
+        <enum name="ExecTypeCode" encodingType="uint8">
+            <validValue name="ORDER_ACCEPTED">0</validValue>
+            <validValue name="ORDER_FILLED">1</validValue>
+            <validValue name="ORDER_PARTIALLY_FILLED">2</validValue>
+            <validValue name="ORDER_CANCELLED">3</validValue>
+            <validValue name="ORDER_REJECTED">4</validValue>
+            <validValue name="ORDER_EXPIRED">5</validValue>
+            <validValue name="SESSION_OPENED">6</validValue>
+            <validValue name="SESSION_CLOSED">7</validValue>
+        </enum>
+    </types>
+
+    <sbe:message name="NewOrderCommand" id="1" description="NEW order (FIX 35=D)">
+        <field name="seq" id="1" type="int64"/>
+        <field name="timestamp" id="2" type="int64"/>
+        <field name="orderId" id="3" type="int64"/>
+        <field name="price" id="4" type="int64"/>
+        <field name="quantity" id="5" type="int64"/>
+        <field name="maxFloor" id="6" type="int64"/>
+        <field name="side" id="7" type="SideCode"/>
+        <field name="ordType" id="8" type="OrdTypeCode"/>
+        <field name="tif" id="9" type="TimeInForceCode"/>
+    </sbe:message>
+
+    <sbe:message name="CancelOrderCommand" id="2" description="CANCEL (FIX 35=F)">
+        <field name="seq" id="1" type="int64"/>
+        <field name="timestamp" id="2" type="int64"/>
+        <field name="orderId" id="3" type="int64"/>
+        <field name="originalOrderId" id="4" type="int64"/>
+    </sbe:message>
+
+    <sbe:message name="SessionOpenCommand" id="3" description="SESSION_OPEN (SRS §3.12)">
+        <field name="seq" id="1" type="int64"/>
+        <field name="timestamp" id="2" type="int64"/>
+        <field name="tickSize" id="3" type="int64"/>
+        <field name="lotSize" id="4" type="int64"/>
+        <field name="priceScale" id="5" type="int64"/>
+        <field name="businessDate" id="6" type="int32"/>
+        <field name="symbol" id="7" type="Symbol"/>
+    </sbe:message>
+
+    <sbe:message name="SessionCloseCommand" id="4" description="SESSION_CLOSE (SRS §3.12)">
+        <field name="seq" id="1" type="int64"/>
+        <field name="timestamp" id="2" type="int64"/>
+        <field name="businessDate" id="3" type="int32"/>
+    </sbe:message>
+
+    <sbe:message name="ExecutionEventMessage" id="10" description="Execution event (SRS §3.4)">
+        <field name="seq" id="1" type="int64"/>
+        <field name="timestamp" id="2" type="int64"/>
+        <field name="orderId" id="3" type="int64"/>
+        <field name="tradeId" id="4" type="int64"/>
+        <field name="price" id="5" type="int64"/>
+        <field name="filledQuantity" id="6" type="int64"/>
+        <field name="remainingQuantity" id="7" type="int64"/>
+        <field name="aggressorOrderId" id="8" type="int64"/>
+        <field name="passiveOrderId" id="9" type="int64"/>
+        <field name="aggressorParticipantId" id="10" type="int64"/>
+        <field name="passiveParticipantId" id="11" type="int64"/>
+        <field name="businessDate" id="12" type="int32"/>
+        <field name="eventType" id="13" type="ExecTypeCode"/>
+        <field name="aggressorSide" id="14" type="SideCode"/>
+    </sbe:message>
+</sbe:messageSchema>

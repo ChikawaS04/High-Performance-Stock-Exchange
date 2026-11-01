@@ -315,6 +315,7 @@ final class FixParser {
         target.quantity        = qty;
         target.maxFloor        = maxFloor;
         target.originalOrderId = -1L;                      // unused by D; clear stale
+        target.clearSessionFields();                       // unused by D; clear stale
 
         return true;
     }
@@ -340,6 +341,7 @@ final class FixParser {
         target.price           = -1L;
         target.quantity        = -1L;
         target.maxFloor        = 0L;                       // unused by F; clear stale
+        target.clearSessionFields();                       // unused by F; clear stale
         return true;
     }
 

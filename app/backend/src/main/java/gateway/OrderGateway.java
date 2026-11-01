@@ -44,8 +44,9 @@ public final class OrderGateway {
      * into a claimed slot would force publishing rejects (or push reject-awareness
      * into the engine, breaking boundary separation, SRS §5.5). So we parse into a
      * reusable scratch, decide, and only claim+copy on success. The parser clears
-     * type-specific fields per branch (Step 5) and this copies all ten, so a
-     * reused slot never bleeds stale data.
+     * type-specific fields per branch (Step 5) and this copies every field, the
+     * Phase 15 session fields included, so a reused slot never bleeds stale data.
+     * OrderGatewayCopyGuardTest fails if a field is added to OrderEvent and not here.
      */
     private static final EventTranslatorOneArg<OrderEvent, OrderEvent> COPY_INTO_SLOT =
             (slot, sequence, src) -> {
@@ -59,6 +60,11 @@ public final class OrderGateway {
                 slot.maxFloor        = src.maxFloor;
                 slot.timestamp       = src.timestamp;
                 slot.originalOrderId = src.originalOrderId;
+                slot.businessDate    = src.businessDate;
+                System.arraycopy(src.symbol, 0, slot.symbol, 0, OrderEvent.SYMBOL_LENGTH);
+                slot.tickSize        = src.tickSize;
+                slot.lotSize         = src.lotSize;
+                slot.priceScale      = src.priceScale;
             };
 
     private final RingBuffer<OrderEvent> ringBuffer;
