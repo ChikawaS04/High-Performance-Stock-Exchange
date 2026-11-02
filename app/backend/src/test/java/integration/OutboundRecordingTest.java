@@ -20,6 +20,7 @@ import recovery.SnapshotStore;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongConsumer;
 
 import static integration.RecoveryScenario.await;
@@ -273,20 +274,31 @@ class OutboundRecordingTest {
         // One ACCEPTED each: just past the 1,024-slot outbound ring, and well inside what the inbound
         // ring and stream hold behind the stalled engine, so this thread (the gateway) never blocks.
         int orders = 1_100;
+        AtomicLong entered = new AtomicLong();   // commands the engine has started to process
         JournaledVenue venue = JournaledVenue.create(JournaledVenue.config(root),
-                new JournaledPipeline.Seams(null, null, failAt(1)));
+                new JournaledPipeline.Seams(command -> entered.incrementAndGet(), null, failAt(1)));
         OrderGateway gateway = venue.gateway();
         venue.start();
         for (int i = 1; i <= orders; i++) gateway.onFrame(FixMessages.limit(i, '1', "100.00", 1));
         await(() -> !venue.fatals().isEmpty(), "the recorder failure reported");
-        // The dead recorder never frees a slot: the engine fills the 1,024-slot ring and parks in next().
-        await(() -> venue.pipeline().publishedSeq() == 1_024, "the outbound ring full");
-        assertTrue(venue.pipeline().appliedSeq() < orders, "the engine is held by the full outbound ring");
+        // The dead recorder never frees a slot: the engine fills the 1,024-slot ring, then parks in
+        // next() inside command 1,025. Waiting for that command to be entered, not just for the ring to
+        // be full, rules out an engine that merely caught up with the journal and is idle.
+        await(() -> entered.get() == 1_025, "the engine inside command 1,025");
+        assertEquals(1_024, venue.pipeline().publishedSeq(), "the outbound ring is full");
+        assertEquals(1_024, venue.pipeline().appliedSeq(), "the engine is held mid-command by the full ring");
 
         long start = System.nanoTime();
         venue.closeAfterFatal();
         long tookMs = (System.nanoTime() - start) / 1_000_000L;
         assertTrue(tookMs < 30_000, "shutdown returned after " + tookMs + " ms");
+        // The engine thread was abandoned inside an image poll, so the journal was left open rather
+        // than unmapped under it (production exits here; the next start recovers as after a crash).
+        assertFalse(venue.journal().isClosed(), "the journal is not closed under an abandoned engine thread");
+
+        // Test cleanup standing in for process exit: safe here only because the abandoned thread is
+        // parked for good in next() on a ring whose consumers are halted, so it never reads again.
+        venue.journal().close();
 
         // Every journaled command is applied and its event published and recorded on recovery.
         CapturingExecutionHandler captured = new CapturingExecutionHandler();

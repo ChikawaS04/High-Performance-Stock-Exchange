@@ -41,3 +41,6 @@ build/
 ### Exchange data (Phase 15: Archive recordings and snapshots) ###
 /data/
 /app/backend/data/
+
+### JVM crash logs ###
+hs_err_pid*.log

@@ -226,6 +226,11 @@ public final class Journal implements AutoCloseable {
         return config;
     }
 
+    /** True once {@link #close()} has run. */
+    public boolean isClosed() {
+        return closed;
+    }
+
     /** The connected Archive client, for replays. */
     public AeronArchive archive() {
         return archive;

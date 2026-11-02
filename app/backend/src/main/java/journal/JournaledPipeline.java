@@ -496,14 +496,32 @@ public final class JournaledPipeline implements AutoCloseable {
     /** Recovery failed: nothing was accepted yet; stop the consumers and close the journal. */
     private void abortStart() {
         closed = true;
+        boolean engineStopped = false;
         try {
-            closeAgent();
+            engineStopped = closeAgent();
             outbound.halt();
             snapshots.halt();
         } finally {
             snapshotWriter.close();
-            journal.close();
+            closeJournalUnless(!engineStopped);
         }
+    }
+
+    /**
+     * Closes the journal, unless a thread that reads its mapped buffers may still run. The engine
+     * thread reads the inbound image's term buffers; one abandoned by {@link #closeAgent()} is
+     * parked inside an image poll, and closing the journal under it would leave it pointing at
+     * unmapped memory if it ever resumed (an access violation, not an exception). The process is
+     * exiting in that case anyway, so the journal is left open, which a crash leaves it too, and the
+     * next start recovers from it.
+     */
+    private void closeJournalUnless(boolean engineAbandoned) {
+        if (engineAbandoned) {
+            log.error("Not closing the journal: the engine thread did not stop and may still read its mapped"
+                    + " buffers. Exit the process; the next start recovers from the journal as after a crash.");
+            return;
+        }
+        journal.close();
     }
 
     /** {@link #shutdown()}, ignoring whether every drain completed. */
@@ -523,6 +541,8 @@ public final class JournaledPipeline implements AutoCloseable {
         if (closed) return true;
         closed = true;
         boolean clean = true;
+        // Not started: there is no engine thread. Started: false until the agent is known to have stopped.
+        boolean engineStopped = !started;
         try {
             if (started) {
                 if (fatal) {
@@ -541,7 +561,8 @@ public final class JournaledPipeline implements AutoCloseable {
                     clean &= await(() -> agent.appliedSeq() >= target, "the engine to apply seq " + target,
                             () -> "applied seq " + agent.appliedSeq());
                 }
-                closeAgent();
+                engineStopped = closeAgent();
+                clean &= engineStopped;
 
                 if (!fatal) {
                     // Before the snapshot: the recorder has then offered every event the snapshot covers.
@@ -575,7 +596,7 @@ public final class JournaledPipeline implements AutoCloseable {
             }
         } finally {
             snapshotWriter.close();
-            journal.close();
+            closeJournalUnless(!engineStopped);
         }
         return clean && !fatal;
     }
@@ -587,24 +608,41 @@ public final class JournaledPipeline implements AutoCloseable {
      * interrupts, and Agrona's close retries for as long as the thread lives. So after a fatal the
      * close runs on a helper thread joined for {@link #DRAIN_TIMEOUT_MS}; if it has not finished, a
      * WARN is logged and the daemon engine thread is abandoned (production has halted already).
+     * The engine thread itself is then joined, bounded, which also covers a recovery that stalled
+     * before the agent ever ran (its runner closes at once while the thread is still replaying).
+     *
+     * @return true if the engine thread has stopped; false if it was abandoned, in which case the
+     *         journal must not be closed ({@link #closeJournalUnless})
      */
-    private void closeAgent() {
+    private boolean closeAgent() {
+        long deadline = System.currentTimeMillis() + DRAIN_TIMEOUT_MS;
         if (!fatal) {
             agentRunner.close();
-            return;
+        } else {
+            Thread closer = new Thread(() -> agentRunner.close(AgentRunner.RETRY_CLOSE_TIMEOUT_MS, t -> { }),
+                    "engine-agent-close");
+            closer.setDaemon(true);
+            closer.start();
+            join(closer, deadline);
         }
-        Thread closer = new Thread(() -> agentRunner.close(AgentRunner.RETRY_CLOSE_TIMEOUT_MS, t -> { }),
-                "engine-agent-close");
-        closer.setDaemon(true);
-        closer.start();
-        try {
-            closer.join(DRAIN_TIMEOUT_MS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        if (engineThread != null) {
+            join(engineThread, deadline);
         }
-        if (closer.isAlive()) {
+        boolean stopped = engineThread == null || !engineThread.isAlive();
+        if (!stopped) {
             log.warn("The engine thread did not stop within {} ms after the fatal error (it is likely blocked on a"
                     + " full outbound ring); abandoning it", DRAIN_TIMEOUT_MS);
+        }
+        return stopped;
+    }
+
+    private static void join(Thread thread, long deadlineMs) {
+        long remaining = deadlineMs - System.currentTimeMillis();
+        if (remaining <= 0) return;
+        try {
+            thread.join(remaining);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
