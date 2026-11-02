@@ -101,7 +101,8 @@ public final class Main {
         // RESEND: replays the outbound recording with the live EXEC serializer; the server owns it.
         ResendService resend = new ResendService(pipeline.outboundHistory(), new ExecutionFrames()::toJson);
         // Constructed before the publisher: the server owns the ChannelGroup and the BOOK cache.
-        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend);
+        // The pipeline is what GET /health reports (P15-7).
+        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend, pipeline);
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
 
         // --- 4. Subscribers (must precede start). Independent consumers, each with its own
@@ -120,7 +121,8 @@ public final class Main {
         }
         server.start();
 
-        log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws", server.boundPort());
+        log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws, health: http://localhost:{}/health",
+                server.boundPort(), server.boundPort());
         log.info("Submit an order:  {}", "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\","
                 + "\"price\":1500000,\"qty\":10,\"symbol\":\"ASML\"}");
         log.info("Cancel an order:  {}", "{\"type\":\"CANCEL\",\"clOrdId\":2,\"origClOrdId\":1}");

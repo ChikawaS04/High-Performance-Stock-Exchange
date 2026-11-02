@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
@@ -378,5 +379,21 @@ class WebSocketFrameHandlerTest {
         channel.writeInbound(new TextWebSocketFrame(
                 "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\",\"ordType\":\"MARKET\",\"price\":1502500,\"qty\":100,\"symbol\":\"ASML\"}"));
         assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS), "unknown ordType dropped at the edge");
+    }
+
+    // --- exceptionCaught (P15-7, carried from P15-4) ---
+
+    @Test
+    void connectionResetClosesTheChannelWithoutPropagating() {
+        channel.pipeline().fireExceptionCaught(new IOException("Connection reset"));
+        assertFalse(channel.isOpen());
+        assertDoesNotThrow(() -> channel.checkException(), "handled, not fired to the tail");
+    }
+
+    @Test
+    void unexpectedExceptionClosesTheChannelWithoutPropagating() {
+        channel.pipeline().fireExceptionCaught(new IllegalStateException("boom"));
+        assertFalse(channel.isOpen());
+        assertDoesNotThrow(() -> channel.checkException(), "handled, not fired to the tail");
     }
 }

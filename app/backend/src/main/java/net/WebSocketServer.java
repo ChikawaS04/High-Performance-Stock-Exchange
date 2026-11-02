@@ -25,9 +25,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
 import util.BookFrameCache;
+import util.VenueStatus;
 
 /**
- * Netty WebSocket server (SRS §3.6). Exposes {@code /ws}, registers handshaken clients in a
+ * Netty WebSocket server (SRS §3.6). Exposes {@code /ws} and, through {@link HttpRouter}, {@code /health} on the same port (P15-7); registers handshaken clients in a
  * shared {@link ChannelGroup}, and feeds inbound manual orders to the FIX gateway (P4-5).
  *
  * <p><b>Single-writer invariant (decision 2).</b> The worker group is <b>one thread</b>, so every
@@ -35,7 +36,7 @@ import util.BookFrameCache;
  * {@code ProducerType.SINGLE} (§5.2). Do not widen the worker group. The P7-2 per-channel echo
  * counter also relies on this: with one worker thread it needs no synchronization.
  *
- * <p>{@code ws://}, no TLS (§3.6). One shared {@link ObjectMapper} — only ever touched by the
+ * <p>{@code ws://}, no TLS (§3.6). One shared {@link ObjectMapper}, only ever touched by the
  * single worker thread.
  *
  * <p><b>Clock (P7-2).</b> The server does not stamp anything itself; it holds the shared
@@ -67,6 +68,9 @@ public final class WebSocketServer {
     /** Serves RESEND (P15-6); null means RESEND frames are logged and dropped. Closed by {@link #stop()}. */
     private final ResendService resend;
 
+    /** What {@code /health} reports (P15-7); null when this server serves no {@code /health}. */
+    private final VenueStatus status;
+
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock) {
         this(port, gateway, clock, null);
     }
@@ -76,10 +80,21 @@ public final class WebSocketServer {
      *               {@link #stop()}, after the clients, so nothing reads the journal once stop returns
      */
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend) {
+        this(port, gateway, clock, resend, null);
+    }
+
+    /**
+     * @param resend serves RESEND requests, as in the four-argument constructor
+     * @param status what {@code GET /health} reports (P15-7); null means this server serves no
+     *               {@code /health} route and answers it with 404
+     */
+    public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend,
+                           VenueStatus status) {
         this.port = port;
         this.gateway = gateway;
         this.clock = clock;
         this.resend = resend;
+        this.status = status;
     }
 
     /** Shared connected-client registry; P4-6's publisher writes execution/book frames to this. */
@@ -114,6 +129,8 @@ public final class WebSocketServer {
                         ChannelPipeline p = ch.pipeline();
                         p.addLast(new HttpServerCodec());
                         p.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH));
+                        // Exact /ws passes to the handshake; /health and every other path end here.
+                        p.addLast(new HttpRouter(WEBSOCKET_PATH, status, objectMapper));
                         p.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH));
                         p.addLast(new WebSocketHeartbeatHandler(HEARTBEAT_INTERVAL_SECONDS));
                         p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock, bookFrameCache,
@@ -122,7 +139,8 @@ public final class WebSocketServer {
                 });
 
         serverChannel = b.bind(port).sync().channel();
-        log.info("WebSocket server listening on ws://0.0.0.0:{}{}", boundPort(), WEBSOCKET_PATH);
+        log.info("WebSocket server listening on ws://0.0.0.0:{}{}{}", boundPort(), WEBSOCKET_PATH,
+                status == null ? "" : ", health on http://0.0.0.0:" + boundPort() + HttpRouter.HEALTH_PATH);
     }
 
     /**

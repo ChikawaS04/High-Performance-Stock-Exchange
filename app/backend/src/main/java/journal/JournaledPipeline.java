@@ -30,6 +30,7 @@ import recovery.SnapshotSink;
 import recovery.SnapshotStore;
 import recovery.SnapshotWriter;
 import util.FailStop;
+import util.VenueStatus;
 
 import java.io.IOException;
 import java.util.concurrent.locks.LockSupport;
@@ -88,7 +89,7 @@ import java.util.function.Supplier;
  * offered every event; then the snapshot of that state; then the journal closes, waiting for
  * both recordings to reach their publications. The caller stops input (the server) first.
  */
-public final class JournaledPipeline implements AutoCloseable {
+public final class JournaledPipeline implements AutoCloseable, VenueStatus {
 
     private static final Logger log = LoggerFactory.getLogger(JournaledPipeline.class);
 
@@ -356,17 +357,29 @@ public final class JournaledPipeline implements AutoCloseable {
         return outboundHistory;
     }
 
+    /**
+     * Recovery has completed and no stage has reported a fail-stop. Any thread: reads only volatile
+     * fields. It does not track shutdown; the server that reports it is stopped first (Main).
+     */
+    @Override
+    public boolean running() {
+        return recovered && !fatal && recoveryFailure == null;
+    }
+
     /** The last inbound seq the sequencer journaled. Any thread. */
+    @Override
     public long journaledSeq() {
         return sequencer.journaledSeq();
     }
 
     /** The last inbound seq the engine applied. Any thread. */
+    @Override
     public long appliedSeq() {
         return agent.appliedSeq();
     }
 
     /** The last outbound seq offered to the outbound recording. Any thread. */
+    @Override
     public long recordedSeq() {
         return recorder.recordedSeq();
     }
@@ -387,6 +400,7 @@ public final class JournaledPipeline implements AutoCloseable {
      * or below {@code L} claiming no slot, and a replay ending below {@code L} refuses startup. If
      * that invariant broke, RESEND would stop short of events already broadcast.
      */
+    @Override
     public long publishedSeq() {
         return outboundFloor + 1 + outbound.getRingBuffer().getCursor();
     }

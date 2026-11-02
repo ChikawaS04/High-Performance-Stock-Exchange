@@ -32,21 +32,21 @@ import util.BookFrameCache;
  * channelActive, so a still-upgrading HTTP channel never joins the broadcast group.
  * {@code DefaultChannelGroup} auto-removes on close, so there is no deregistration to maintain.
  *
- * <p>Not {@code @Sharable} — the server initializer creates one per channel.
+ * <p>Not {@code @Sharable}: the server initializer creates one per channel.
  *
  * <p><b>Raw inbound FIX echo (P7-2).</b> The inspector must show the bytes the server actually
- * parsed, not a browser-side reconstruction — there is no FIX encoder in the frontend, and
+ * parsed, not a browser-side reconstruction: there is no FIX encoder in the frontend, and
  * rebuilding {@code 9=BodyLength} / {@code 10=CheckSum} client-side would invent exactly the two
  * fields most likely to diverge. So after {@link OrderGateway#onFrame} consumes the byte array,
  * the same array is serialized to a {@code FIX} JSON frame and written back to the originating
  * channel <i>only</i>, never the group: another client's inspector must not show this client's
  * packets. The echo is emitted after {@code onFrame} so observability never delays the inbound
- * path, and only on a path that actually produced bytes — malformed JSON, an unknown type and an
+ * path, and only on a path that actually produced bytes. Malformed JSON, an unknown type and an
  * invalid side all return or throw before {@code fix} exists, so none of them echoes.
  *
  * <p><b>seqNum.</b> A per-channel outbound counter for this echo stream, incremented only when an
- * echo is actually emitted. It is deliberately <i>not</i> the FIX {@code 34=} MsgSeqNum — the
- * produced-and-parsed subset carries no tag 34/49/56/52 at all (P7-0/Q7-4) — and it mirrors no
+ * echo is actually emitted. It is deliberately <i>not</i> the FIX {@code 34=} MsgSeqNum (the
+ * produced-and-parsed subset carries no tag 34/49/56/52 at all, P7-0/Q7-4), and it mirrors no
  * existing counter: EXEC frames carry the venue's outbound seq and BOOK frames its lastSeq
  * (P15-2), but this echo stream is per-channel and separate from both. Because
  * this handler is per-channel and the worker group is one thread, the counter is
@@ -132,7 +132,7 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
      * on its own consumer thread; that field is volatile, so this worker-thread read sees a safely
      * published value with no lock and with no cross-thread read of the live book (which the
      * single-writer design forbids). A null cache or a null value means nothing has been published
-     * yet (empty venue) — the client waits for the first live snapshot, exactly as before. BOOK is
+     * yet (empty venue): the client waits for the first live snapshot, exactly as before. BOOK is
      * wholesale-replace, so if a live broadcast races in right after this send, whichever the client
      * applies last wins and the next event reconciles anyway.
      */
@@ -155,9 +155,19 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
     }
 
     /**
+     * A dropped client is logged quietly and anything else at WARN; the channel is closed either
+     * way ({@link ChannelErrors}, P15-7). Socket errors usually stop at {@link HttpRouter}, which
+     * sits ahead of this handler; this covers what is raised at or after the protocol handler.
+     */
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        ChannelErrors.closeOnException(ctx, cause, log);
+    }
+
+    /**
      * Edge translation (§5.5): JSON -> FIX 4.2 bytes -> the existing FIX inbound authority.
      * Runs on the single worker thread, so {@link OrderGateway} stays the single inbound producer
-     * (§5.2). FixFrameDecoder is not needed — each WS frame is already exactly one message, so the
+     * (§5.2). FixFrameDecoder is not needed: each WS frame is already exactly one message, so the
      * JsonToFix output goes straight to onFrame. Malformed input is logged and dropped at the
      * boundary (§5.4); onFrame independently logs+drops FIX-invalid frames.
      *
