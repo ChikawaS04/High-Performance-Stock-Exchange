@@ -57,6 +57,19 @@ class SnapshotStoreTest {
     }
 
     @Test
+    void snapshotsAheadOfTheOutboundRecordingAreSkipped() throws IOException {
+        SnapshotStore store = new SnapshotStore(dir);
+        write(store, 10);   // this helper records outbound seq = inbound seq
+        write(store, 20);
+        write(store, 30);
+        assertEquals(20L, store.loadNewestValid(25).inboundSeq(), "30 is ahead of a recording ending at 25");
+        assertEquals(20L, store.loadNewestValid(20).inboundSeq(), "at the recording's last seq is accepted");
+        assertNull(store.loadNewestValid(9), "none is covered: recovery replays from the start");
+        assertEquals(30L, store.loadNewestValid().inboundSeq(), "unbounded load is unchanged");
+        assertTrue(Files.exists(file(30)), "a skipped snapshot is left in place");
+    }
+
+    @Test
     void aCorruptNewestSnapshotFallsBackToThePreviousOne() throws IOException {
         SnapshotStore store = new SnapshotStore(dir);
         write(store, 10);

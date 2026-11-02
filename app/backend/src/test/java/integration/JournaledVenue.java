@@ -46,24 +46,29 @@ public final class JournaledVenue implements AutoCloseable {
     private final JournaledPipeline pipeline;
     private boolean closed;
 
-    private JournaledVenue(ExchangeConfig config, CommandHandler tap, SnapshotSink snapshotSink) {
+    private JournaledVenue(ExchangeConfig config, JournaledPipeline.Seams seams) {
         FailStop capture = (component, cause) -> fatals.add(new AssertionError(component + " failed", cause));
-        this.pipeline = new JournaledPipeline(config, engine, capture, tap, snapshotSink);
+        this.pipeline = new JournaledPipeline(config, engine, capture, seams);
     }
 
     /** A venue over {@code root} (a {@code @TempDir}). */
     public static JournaledVenue create(Path root) {
-        return new JournaledVenue(config(root), null, null);
+        return new JournaledVenue(config(root), JournaledPipeline.Seams.NONE);
     }
 
     /** A venue on the given configuration, with an optional tap and periodic-snapshot sink. */
     public static JournaledVenue create(ExchangeConfig config, CommandHandler tap, SnapshotSink snapshotSink) {
-        return new JournaledVenue(config, tap, snapshotSink);
+        return new JournaledVenue(config, new JournaledPipeline.Seams(tap, snapshotSink, null));
+    }
+
+    /** A venue on the given configuration with the given test seams (P15-6: the recorder seam). */
+    public static JournaledVenue create(ExchangeConfig config, JournaledPipeline.Seams seams) {
+        return new JournaledVenue(config, seams);
     }
 
     /** As {@link #create}, with a tap that sees every decoded command before the engine. */
     public static JournaledVenue create(Path root, CommandHandler tap) {
-        return new JournaledVenue(config(root), tap, null);
+        return new JournaledVenue(config(root), new JournaledPipeline.Seams(tap, null, null));
     }
 
     /** Data and driver directories under {@code root}, small journal buffers. */

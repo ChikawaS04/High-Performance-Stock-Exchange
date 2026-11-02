@@ -64,10 +64,22 @@ public final class WebSocketServer {
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
 
+    /** Serves RESEND (P15-6); null means RESEND frames are logged and dropped. Closed by {@link #stop()}. */
+    private final ResendService resend;
+
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock) {
+        this(port, gateway, clock, null);
+    }
+
+    /**
+     * @param resend serves RESEND requests; the server owns it from here and closes it in
+     *               {@link #stop()}, after the clients, so nothing reads the journal once stop returns
+     */
+    public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend) {
         this.port = port;
         this.gateway = gateway;
         this.clock = clock;
+        this.resend = resend;
     }
 
     /** Shared connected-client registry; P4-6's publisher writes execution/book frames to this. */
@@ -104,7 +116,8 @@ public final class WebSocketServer {
                         p.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH));
                         p.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH));
                         p.addLast(new WebSocketHeartbeatHandler(HEARTBEAT_INTERVAL_SECONDS));
-                        p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock, bookFrameCache));
+                        p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock, bookFrameCache,
+                                resend));
                     }
                 });
 
@@ -113,15 +126,19 @@ public final class WebSocketServer {
     }
 
     /**
-     * Stops accepting connections, closes every client, and waits (bounded) for the event loops
-     * to terminate. Once this returns, the worker thread can no longer call the gateway, so
-     * graceful shutdown can drain the inbound ring knowing nothing more will be published (P15-4).
+     * Stops accepting connections, closes every client, stops the resend thread, and waits
+     * (bounded) for the event loops to terminate. Once this returns, the worker thread can no
+     * longer call the gateway, so graceful shutdown can drain the inbound ring knowing nothing more
+     * will be published (P15-4), and no resend reads the journal it is about to close (P15-6).
      */
     public void stop() throws InterruptedException {
         if (serverChannel != null) {
             serverChannel.close().sync();
         }
         channelGroup.close().awaitUninterruptibly();
+        if (resend != null) {
+            resend.close();   // a resend in progress sees its channel closed and stops
+        }
         boolean terminated = true;
         if (workerGroup != null) {
             terminated &= workerGroup.shutdownGracefully(0, SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)

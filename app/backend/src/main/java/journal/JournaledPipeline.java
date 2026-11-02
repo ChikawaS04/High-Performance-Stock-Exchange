@@ -1,6 +1,5 @@
 package journal;
 
-import com.lmax.disruptor.ExceptionHandler;
 import com.lmax.disruptor.RingBuffer;
 import config.ExchangeConfig;
 import engine.CommandApplier;
@@ -8,6 +7,8 @@ import engine.CommandHandler;
 import engine.EngineAgent;
 import engine.MatchingEngine;
 import engine.MatchingEngineHandler;
+import event.ExecutionHistory;
+import event.FailStopExceptionHandler;
 import event.InboundPipeline;
 import event.OrderEvent;
 import event.OutboundPipeline;
@@ -33,142 +34,187 @@ import util.FailStop;
 import java.io.IOException;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 /**
  * The venue's journaled core (SRS §1.2): inbound ring, sequencer, recorded inbound stream,
- * journal-gated engine agent, outbound and snapshot rings. Main and the integration tests both
- * build the venue through this class, so the tests run Main's startup and shutdown order.
+ * journal-gated engine agent, outbound and snapshot rings, and the outbound recorder writing the
+ * recorded outbound stream. Main and the integration tests both build the venue through this
+ * class, so the tests run Main's startup and shutdown order.
  *
  * <pre>
  *   gateway --> [inbound ring] --> Sequencer --> recorded IPC stream 1001 --> EngineAgent
- *       --> MatchingEngineHandler --> [outbound ring] / [snapshot ring] --> subscribers
+ *       --> MatchingEngineHandler --> [outbound ring] --> OutboundRecorder --> recorded stream 1002
+ *                                                     --> subscribers (publisher, TradeLogger)
+ *                                 --> [snapshot ring] --> subscribers
  * </pre>
  *
- * Startup (constructor, then {@link #start()}), with recovery (P15-5, SRS §3.10):
+ * Construction (SRS §3.10, D13):
  * <ol>
  *   <li>launch the journal, retrying once if a crashed run's heartbeat is still fresh;</li>
- *   <li>load the newest valid snapshot, if any, and check it names this journal's inbound
- *       recording;</li>
- *   <li>open the recorded inbound publication (extending the recording) and the sequencer on it,
- *       which reads the journal's last seq; check the snapshot is not beyond the journal;</li>
- *   <li>subscribe the engine to the stream and wait for its image, which joins at the
- *       publication's position; resolve the D11 gate on the recording's position counter;</li>
- *   <li>build the engine handler, the three rings, the snapshot writer and scheduler, and the
- *       {@link CommandApplier} shared by replay and the agent;</li>
- *   <li>restore the snapshot into the engine and handler, then replay the inbound recording
- *       from the snapshot's position to the join position through the applier, with every
- *       replayed execution event suppressed (publish floor {@link #REPLAY_PUBLISH_FLOOR}); check
- *       the applied seq now equals the journal's last seq;</li>
- *   <li>build the agent on the applier. The caller then builds the gateway on
- *       {@link #inboundRing()} and registers outbound and snapshot subscribers;</li>
- *   <li>{@link #start()}: outbound and snapshot consumers; then the agent, which first publishes
- *       one BOOK of the recovered book on its own thread (the rings keep one producer thread),
- *       waited for until the depth subscribers have it (snapshot-on-connect); then the
- *       sequencer.</li>
+ *   <li>open (start or extend, D10) the outbound recording and read its last event: its seq
+ *       {@code L} is the publish floor;</li>
+ *   <li>load the newest valid snapshot whose outbound seq is at or below {@code L}, so replay
+ *       always regenerates every event the recording lacks; check it names this journal's
+ *       inbound recording;</li>
+ *   <li>open the recorded inbound publication and the sequencer on it; check the snapshot is not
+ *       beyond the journal and the journal is not behind the outbound recording;</li>
+ *   <li>subscribe the engine and resolve the D11 gate;</li>
+ *   <li>build the handler, the three rings (the recorder registered on the outbound ring with a
+ *       fail-stop policy), the snapshot writer and scheduler, and the {@link CommandApplier};
+ *       restore the snapshot into the engine and handler.</li>
  * </ol>
- * Nothing reaches the sequencer before the caller starts accepting input after {@link #start()},
- * and the engine's image exists from step 4 and does not move during replay, so the engine sees
- * every command exactly once, from replay or live. Any mismatch between snapshot and journal is a
- * {@link RecoveryException} whose message tells the operator what to do; Main exits with 2.
+ * {@link #start()}: the outbound and snapshot consumers start, so the recorder is consuming; then
+ * the engine thread replays the inbound recording from the snapshot through the applier with
+ * every event at or below {@code L} suppressed and the recorded event at {@code L} checked, so
+ * events produced before a stop but never recorded are published (and recorded) exactly once;
+ * then it publishes the recovered BOOK and becomes the agent. Replay runs on the engine thread so
+ * each ring keeps a single producer thread. {@code start()} waits, with no fixed timeout, until
+ * recovery is done, then (bounded) until the recovered events and book have reached every
+ * subscriber, then starts the sequencer. Every replay failure stops startup with a
+ * {@link RecoveryException} telling the operator what to do; Main exits with 2.
  *
  * Snapshots: every {@code SNAPSHOT_INTERVAL} applied commands and on request
  * ({@link SnapshotScheduler}, encoded on the engine thread, written by the snapshot writer
  * thread), and on graceful shutdown.
  *
- * Fail-stop. A fatal sequencer offer and any unexpected engine-agent exception go to the
- * {@link FailStop}; neither thread ever advances past the failing command.
+ * Fail-stop. A fatal sequencer or recorder offer, a recorder gap, and any unexpected engine-agent
+ * exception go to the {@link FailStop}; none of those threads ever advances past the failure.
  *
  * Graceful shutdown ({@link #shutdown()}) drains by progress, every wait bounded: the inbound
  * ring until the sequencer has journaled everything the gateway published, then the agent until
- * it has applied the last journaled seq; then the snapshot of that state is written; then the
- * outbound and snapshot rings drain and the journal closes. The caller stops input (the server)
- * first.
+ * it has applied the last journaled seq; then the outbound and snapshot rings, so the recorder has
+ * offered every event; then the snapshot of that state; then the journal closes, waiting for
+ * both recordings to reach their publications. The caller stops input (the server) first.
  */
 public final class JournaledPipeline implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(JournaledPipeline.class);
 
-    /** Bound on each shutdown drain. */
+    /** Bound on each shutdown drain and on the post-recovery drains in {@link #start()}. */
     static final long DRAIN_TIMEOUT_MS = 10_000L;
 
     /**
-     * Publish floor while replaying (D13): every replayed execution event is suppressed. Nothing
-     * records the outbound stream before P15-6, so republishing would only repeat TradeLogger
-     * lines and reach no client (none is connected during recovery). P15-6 replaces this with the
-     * last seq in the outbound recording.
+     * Test seams, all null in production.
+     *
+     * @param commandTap   called on the applying thread with every decoded command (replayed or
+     *                     live) before the engine handler
+     * @param snapshotSink where periodic and requested snapshots go instead of the snapshot
+     *                     directory; the shutdown snapshot and recovery always use the directory
+     * @param beforeRecord called by the outbound recorder with each seq before it is recorded; may
+     *                     block (a slow recorder) or throw (a recorder failure)
      */
-    static final long REPLAY_PUBLISH_FLOOR = Long.MAX_VALUE;
+    public record Seams(CommandHandler commandTap, SnapshotSink snapshotSink, LongConsumer beforeRecord) {
+        public static final Seams NONE = new Seams(null, null, null);
+    }
 
     private final Journal journal;
     private final Sequencer sequencer;
+    private final OutboundRecorder recorder;
+    private final OutboundHistory outboundHistory;
     private final InboundPipeline inbound;
     private final OutboundPipeline outbound;
     private final SnapshotPipeline snapshots;
+    private final MatchingEngine engine;
     private final MatchingEngineHandler handler;
+    private final CommandApplier applier;
     private final EngineAgent agent;
     private final AgentRunner agentRunner;
     private final FailStop failStop;
     private final SnapshotWriter snapshotWriter;
     private final SnapshotScheduler snapshotScheduler;
+    private final ExchangeConfig config;
+    private final RecordedPublication inboundRecorded;
     private final long recoveredSnapshotSeq;
-    private final long replayedCommands;
+    private final long replayFromSeq;
+    private final long replayFromPosition;
+    private final long outboundFloor;
+    private final long constructedNanos;
 
     private volatile boolean fatal;
-    /** Set on the agent thread once the recovered book is on the snapshot ring. */
-    private volatile boolean recoveredBookPublished;
+    /** Set on the engine thread once replay has finished and the recovered book is on the snapshot ring. */
+    private volatile boolean recovered;
+    /** Set on the engine thread if replay failed; the agent then never runs. */
+    private volatile Throwable recoveryFailure;
+    private volatile long replayedCommands;
+    private Thread engineThread;
     private boolean started;
     private boolean closed;
 
     /** The production pipeline. */
     public JournaledPipeline(ExchangeConfig config, MatchingEngine engine, FailStop failStop) {
-        this(config, engine, failStop, null);
+        this(config, engine, failStop, Seams.NONE);
     }
 
-    /**
-     * @param tap test seam: when non-null, called on the applying thread with every decoded
-     *            command (replayed or live) before the engine handler. Null in production.
-     */
+    /** With a command tap (see {@link Seams#commandTap()}). */
     public JournaledPipeline(ExchangeConfig config, MatchingEngine engine, FailStop failStop, CommandHandler tap) {
-        this(config, engine, failStop, tap, null);
+        this(config, engine, failStop, new Seams(tap, null, null));
     }
 
-    /**
-     * @param snapshotSink test seam: when non-null, periodic and requested snapshots go here
-     *                     instead of the snapshot directory. The shutdown snapshot and recovery
-     *                     always use the directory. Null in production.
-     */
+    /** With a command tap and a periodic-snapshot sink (see {@link Seams}). */
     public JournaledPipeline(ExchangeConfig config, MatchingEngine engine, FailStop failStop, CommandHandler tap,
                              SnapshotSink snapshotSink) {
+        this(config, engine, failStop, new Seams(tap, snapshotSink, null));
+    }
+
+    public JournaledPipeline(ExchangeConfig config, MatchingEngine engine, FailStop failStop, Seams seams) {
         this.failStop = (component, cause) -> {
             fatal = true;
             failStop.fatal(component, cause);
         };
-        long startNanos = System.nanoTime();
+        this.config = config;
+        this.engine = engine;
+        this.constructedNanos = System.nanoTime();
         Journal launched = Journal.launchRetryingOnce(config, Journal.CRASH_RETRY_DELAY_MS);
         SnapshotWriter writer = null;
         try {
+            // The newest snapshot is checked against the journal before anything is opened, so a
+            // deleted or replaced journal refuses startup without a recording being started.
             SnapshotStore store = new SnapshotStore(config.snapshotDir());
-            RestoredSnapshot snapshot = loadSnapshot(store);
-            checkRecording(snapshot, launched, config);
+            RestoredSnapshot newest = loadSnapshot(store, Long.MAX_VALUE);
+            checkRecording(newest, launched, config);
+
+            RecordedPublication outboundRecorded = launched.openRecordedPublication(Journal.OUTBOUND_STREAM_ID);
+            this.recorder = OutboundRecorder.open(launched, outboundRecorded, new BackoffIdleStrategy(),
+                    seams.beforeRecord());
+            this.outboundFloor = recorder.lastSeqAtOpen();
 
             RecordedPublication recorded = launched.openRecordedPublication(Journal.INBOUND_STREAM_ID);
+            this.inboundRecorded = recorded;
             this.sequencer = Sequencer.open(launched, recorded, new BackoffIdleStrategy());
-            checkNotBeyondJournal(snapshot, recorded, sequencer.lastSeq(), config);
+            checkNotBeyondJournal(newest, recorded, sequencer.lastSeq(), config);
+            checkJournalCoversOutbound(sequencer.lastSeq(), outboundFloor, config);
+
+            // Rule 3: recover from a snapshot the outbound recording covers, so replay regenerates
+            // every event the recording lacks. A newer one is skipped (logged by the store).
+            RestoredSnapshot snapshot = newest;
+            if (newest != null && newest.outboundLastSeq() > outboundFloor) {
+                snapshot = loadSnapshot(store, outboundFloor);
+                checkRecording(snapshot, launched, config);
+                checkNotBeyondJournal(snapshot, recorded, sequencer.lastSeq(), config);
+            }
+            if (outboundFloor == 0 && sequencer.lastSeq() > 0) {
+                log.warn("No outbound recording while the inbound journal holds {} commands (data from before P15-6,"
+                        + " or the outbound recording was removed): rebuilding the outbound record by replaying the"
+                        + " journal from seq 1", sequencer.lastSeq());
+            }
             Image image = launched.subscribe(recorded);
             RecordingPositionGate gate = launched.recordingPositionGate(recorded);
 
             this.outbound = new OutboundPipeline();
+            this.outbound.handleEventsWith(recorder, new FailStopExceptionHandler<>("outbound-recorder", this.failStop));
             this.snapshots = new SnapshotPipeline();
             this.handler = new MatchingEngineHandler(engine, outbound.getRingBuffer(), snapshots.getRingBuffer());
             // Without this the engine reports nothing: fills surface through the listener seam.
             engine.setExecutionListener(handler);
 
+            CommandHandler tap = seams.commandTap();
             CommandHandler sink = (tap == null) ? handler : command -> {
                 tap.onCommand(command);
                 handler.onCommand(command);
             };
-            writer = new SnapshotWriter(snapshotSink == null ? store : snapshotSink);
+            writer = new SnapshotWriter(seams.snapshotSink() == null ? store : seams.snapshotSink());
             this.snapshotWriter = writer;
             this.snapshotScheduler = new SnapshotScheduler(engine, handler, writer, store,
                     config.snapshotInterval(), recorded.recordingId());
@@ -180,34 +226,19 @@ public final class JournaledPipeline implements AutoCloseable {
                 fromSeq = snapshot.inboundSeq();
                 fromPosition = snapshot.inboundPosition();
             }
-            CommandApplier applier = new CommandApplier(sink, snapshotScheduler, fromSeq, fromPosition);
-            handler.beginReplay(REPLAY_PUBLISH_FLOOR);
-            this.replayedCommands = replay(launched, recorded, fromPosition, applier);
-            if (applier.appliedSeq() != sequencer.lastSeq()) {
-                throw new RecoveryException("Replay ended at inbound seq " + applier.appliedSeq()
-                        + " but the journal's last seq is " + sequencer.lastSeq() + " (recording "
-                        + recorded.recordingId() + ", positions " + fromPosition + " to " + recorded.joinPosition()
-                        + "). The journal is not a gap-free sequence; do not delete it, keep " + config.dataDir()
-                        + " for investigation.");
-            }
+            this.replayFromSeq = fromSeq;
+            this.replayFromPosition = fromPosition;
             this.recoveredSnapshotSeq = (snapshot == null) ? -1L : snapshot.inboundSeq();
+            this.applier = new CommandApplier(sink, snapshotScheduler, fromSeq, fromPosition);
 
-            // The recovered BOOK is published on the agent's thread, the rings' only producer thread.
-            final boolean publishBook = applier.appliedSeq() > 0;
-            this.agent = new EngineAgent(image, gate, applier, recorded.joinPosition(), () -> {
-                handler.endReplay(publishBook);
-                recoveredBookPublished = true;
-            });
+            // The engine thread replays, publishes the recovered BOOK itself, then runs this agent.
+            this.agent = new EngineAgent(image, gate, applier, recorded.joinPosition(), null);
             this.agentRunner = new AgentRunner(idleStrategy(config.engineIdle()),
                     t -> this.failStop.fatal("engine-agent", unwrap(t)), null, agent);
-            this.inbound = new InboundPipeline(sequencer, new SequencerFailStop(this.failStop));
+            this.inbound = new InboundPipeline(sequencer, new FailStopExceptionHandler<>("sequencer", this.failStop));
+            this.outboundHistory = new OutboundHistory(launched.archive(), outboundRecorded,
+                    launched.recordingPositionGate(outboundRecorded), this::publishedSeq);
             this.journal = launched;
-            log.info("Recovered in {} ms: {}, replayed {} commands (seq {} to {}); inbound recording {} joined at"
-                            + " position {}, outbound seq {}, next trade id {}, engine idle {}",
-                    (System.nanoTime() - startNanos) / 1_000_000L,
-                    snapshot == null ? "no snapshot" : "snapshot at seq " + snapshot.inboundSeq(),
-                    replayedCommands, fromSeq + 1, applier.appliedSeq(), recorded.recordingId(),
-                    recorded.joinPosition(), handler.getLastSeq(), engine.getNextTradeId(), config.engineIdle().value());
         } catch (RuntimeException e) {
             if (writer != null) writer.close();
             launched.close();
@@ -215,9 +246,9 @@ public final class JournaledPipeline implements AutoCloseable {
         }
     }
 
-    private static RestoredSnapshot loadSnapshot(SnapshotStore store) {
+    private static RestoredSnapshot loadSnapshot(SnapshotStore store, long maxOutboundSeq) {
         try {
-            return store.loadNewestValid();
+            return store.loadNewestValid(maxOutboundSeq);
         } catch (IOException e) {
             throw new RecoveryException("Cannot read the snapshot directory " + store.dir() + ": " + e
                     + ". Fix its permissions, or move it aside to recover by replaying the whole journal.", e);
@@ -261,16 +292,29 @@ public final class JournaledPipeline implements AutoCloseable {
         }
     }
 
-    /** Replays the journal tail through the applier, failing on the first command that does not apply. */
-    private static long replay(Journal journal, RecordedPublication recorded, long from, CommandApplier applier) {
+    /** Executions recorded with no command journal behind them: the inbound journal is missing or empty. */
+    private static void checkJournalCoversOutbound(long journalSeq, long outboundSeq, ExchangeConfig config) {
+        if (journalSeq == 0 && outboundSeq > 0) {
+            throw new RecoveryException("The outbound recording holds executions up to seq " + outboundSeq
+                    + " but the inbound journal in " + config.archiveDir() + " is missing or empty, so no execution"
+                    + " can be regenerated. Do not delete the archive. Restore " + config.archiveDir()
+                    + " from a backup in which both recordings are consistent, or move " + config.dataDir()
+                    + " aside to start a fresh trading history.");
+        }
+    }
+
+    /** Replays the inbound journal tail through the applier, failing on the first command that does not apply. */
+    private long replay() {
+        RecordedPublication recorded = inboundRecorded;
         try {
             return new JournalReader(journal.archive()).replayFailFast(
-                    recorded.recordingId(), from, recorded.joinPosition(), applier::apply);
+                    recorded.recordingId(), replayFromPosition, recorded.joinPosition(), applier::apply);
         } catch (IllegalStateException e) {
-            throw new RecoveryException("Recovery replay of inbound recording " + recorded.recordingId() + " from position "
-                    + from + " to " + recorded.joinPosition() + " failed: " + e.getMessage() + ". The journal or the"
-                    + " snapshot does not match this build's engine; keep " + journal.config().dataDir()
-                    + " for investigation.", e);
+            throw new RecoveryException("Recovery replay of inbound recording " + recorded.recordingId()
+                    + " from position " + replayFromPosition + " to " + recorded.joinPosition() + " failed: "
+                    + e.getMessage() + ". The journal, the snapshot or the outbound recording does not match this"
+                    + " build's engine, which must regenerate the recorded executions exactly; keep "
+                    + config.dataDir() + " for investigation and run the build that wrote it.", e);
         }
     }
 
@@ -307,6 +351,11 @@ public final class JournaledPipeline implements AutoCloseable {
         return journal;
     }
 
+    /** The recorded execution history RESEND reads (D16). */
+    public ExecutionHistory outboundHistory() {
+        return outboundHistory;
+    }
+
     /** The last inbound seq the sequencer journaled. Any thread. */
     public long journaledSeq() {
         return sequencer.journaledSeq();
@@ -317,12 +366,37 @@ public final class JournaledPipeline implements AutoCloseable {
         return agent.appliedSeq();
     }
 
+    /** The last outbound seq offered to the outbound recording. Any thread. */
+    public long recordedSeq() {
+        return recorder.recordedSeq();
+    }
+
+    /** The last seq in the outbound recording when this run opened it: recovery's publish floor (D13). */
+    public long outboundFloor() {
+        return outboundFloor;
+    }
+
+    /**
+     * The highest outbound seq published on the outbound ring so far, from any thread, without
+     * touching engine state: {@code L + 1 + cursor}, where {@code L} is {@link #outboundFloor()}
+     * and the cursor is the ring sequence of the last published slot (-1 before the first).
+     *
+     * This holds only because the first slot this run claims carries seq {@code L + 1}: recovery
+     * restores a snapshot whose outbound seq is at or below {@code L} (rule 3, {@link
+     * SnapshotStore#loadNewestValid(long)}), replay regenerates every seq from there with those at
+     * or below {@code L} claiming no slot, and a replay ending below {@code L} refuses startup. If
+     * that invariant broke, RESEND would stop short of events already broadcast.
+     */
+    public long publishedSeq() {
+        return outboundFloor + 1 + outbound.getRingBuffer().getCursor();
+    }
+
     /** The inbound seq of the snapshot recovery started from, or -1 if it started from an empty book. */
     public long recoveredSnapshotSeq() {
         return recoveredSnapshotSeq;
     }
 
-    /** Commands recovery replayed from the journal after the snapshot. */
+    /** Commands recovery replayed from the journal after the snapshot. Valid once {@link #start()} returns. */
     public long replayedCommands() {
         return replayedCommands;
     }
@@ -338,24 +412,98 @@ public final class JournaledPipeline implements AutoCloseable {
     }
 
     /**
-     * Starts consumers inward-out: outbound and snapshot, then the engine agent, which first
-     * publishes the recovered book once (on its own thread); that is waited for (bounded) until
-     * the depth subscribers have it, so snapshot-on-connect shows it before any new command; then
-     * the sequencer.
+     * Starts the venue: outbound consumers (the recorder among them) and snapshot consumers; then
+     * the engine thread, which replays the journal tail and publishes the recovered book before
+     * running the agent; waits for that with no fixed timeout (a full rebuild can take long), then
+     * bounded until the recovered events and book have reached every subscriber; then the
+     * sequencer.
+     *
+     * @throws RecoveryException if replay failed; the venue is then closed and must not be used
+     * @throws IllegalStateException if a fail-stop was reported during recovery (tests; production halts)
      */
     public void start() {
         if (started) throw new IllegalStateException("already started");
         started = true;
         outbound.start();
         snapshots.start();
-        AgentRunner.startOnThread(agentRunner, r -> {
-            Thread t = new Thread(r, "engine-agent");
-            t.setDaemon(true);   // a forgotten close must not wedge the JVM
-            return t;
-        });
-        await(() -> fatal || (recoveredBookPublished && snapshots.isDrained()),
-                "the depth subscribers to take the recovered book", () -> "not drained");
+        engineThread = new Thread(this::runEngine, "engine-agent");
+        engineThread.setDaemon(true);   // a forgotten close must not wedge the JVM
+        engineThread.start();
+
+        while (!recovered && recoveryFailure == null && !fatal && engineThread.isAlive()) {
+            LockSupport.parkNanos(1_000_000L);
+        }
+        if (!recovered || recoveryFailure != null) {
+            Throwable cause = recoveryFailure;
+            abortStart();
+            if (cause instanceof RecoveryException recovery) throw recovery;
+            if (cause != null) {
+                throw new RecoveryException("Recovery failed: " + cause + ". Keep " + config.dataDir()
+                        + " for investigation.", cause);
+            }
+            throw new IllegalStateException("The venue failed during recovery (fail-stop reported)");
+        }
+        await(() -> fatal || (outbound.isDrained() && snapshots.isDrained()),
+                "the recovered events and book to reach every subscriber", () -> "recorded seq " + recorder.recordedSeq());
         inbound.start();
+    }
+
+    /**
+     * The engine thread: recovery replay, then the agent. Every throwable from recovery is caught
+     * here, so a failed replay never leaves a half-started venue: the agent never runs and
+     * {@link #start()} closes everything. A recorder fail-stop during replay is reported by the
+     * recorder's own thread and halts as usual.
+     */
+    private void runEngine() {
+        try {
+            handler.beginReplay(outboundFloor, recorder.lastRecordedAtOpen());
+            long replayed = replay();
+            if (applier.appliedSeq() != sequencer.lastSeq()) {
+                throw new RecoveryException("Replay ended at inbound seq " + applier.appliedSeq()
+                        + " but the journal's last seq is " + sequencer.lastSeq() + " (recording "
+                        + inboundRecorded.recordingId() + ", positions " + replayFromPosition + " to "
+                        + inboundRecorded.joinPosition() + "). The journal is not a gap-free sequence; do not delete it,"
+                        + " keep " + config.dataDir() + " for investigation.");
+            }
+            long regenerated = handler.getLastSeq();
+            if (regenerated < outboundFloor) {
+                throw new RecoveryException("The outbound recording ends at seq " + outboundFloor
+                        + " but replaying the inbound journal regenerates only up to seq " + regenerated
+                        + ". The inbound journal lost commands (a machine crash lost its page-cache tail, or "
+                        + config.archiveDir() + " was restored from an inconsistent copy). Clients may hold executions "
+                        + (regenerated + 1) + " to " + outboundFloor + " that no longer exist. Do not delete the archive."
+                        + " Restore " + config.archiveDir() + " from a consistent backup, or move " + config.dataDir()
+                        + " aside to start a fresh trading history.");
+            }
+            handler.endReplay(applier.appliedSeq() > 0);
+            replayedCommands = replayed;
+            log.info("Recovered in {} ms: {}, replayed {} commands (seq {} to {}); inbound recording {} joined at"
+                            + " position {}; outbound recording ends at seq {}, published {} events above it; outbound"
+                            + " seq {}, next trade id {}, engine idle {}",
+                    (System.nanoTime() - constructedNanos) / 1_000_000L,
+                    recoveredSnapshotSeq < 0 ? "no snapshot" : "snapshot at seq " + recoveredSnapshotSeq,
+                    replayed, replayFromSeq + 1, applier.appliedSeq(), inboundRecorded.recordingId(),
+                    inboundRecorded.joinPosition(), outboundFloor, regenerated - outboundFloor, regenerated,
+                    engine.getNextTradeId(), config.engineIdle().value());
+            recovered = true;
+        } catch (Throwable t) {
+            recoveryFailure = t;
+            return;
+        }
+        agentRunner.run();
+    }
+
+    /** Recovery failed: nothing was accepted yet; stop the consumers and close the journal. */
+    private void abortStart() {
+        closed = true;
+        try {
+            closeAgent();
+            outbound.halt();
+            snapshots.halt();
+        } finally {
+            snapshotWriter.close();
+            journal.close();
+        }
     }
 
     /** {@link #shutdown()}, ignoring whether every drain completed. */
@@ -378,8 +526,9 @@ public final class JournaledPipeline implements AutoCloseable {
         try {
             if (started) {
                 if (fatal) {
-                    log.error("Shutting down after a fatal error: drains skipped at journaled seq {}, applied seq {}",
-                            sequencer.journaledSeq(), agent.appliedSeq());
+                    log.error("Shutting down after a fatal error: drains skipped at journaled seq {}, applied seq {},"
+                            + " recorded outbound seq {}", sequencer.journaledSeq(), agent.appliedSeq(),
+                            recorder.recordedSeq());
                     clean = false;
                 } else {
                     clean &= await(inbound::isDrained, "the sequencer to journal every published command",
@@ -392,7 +541,14 @@ public final class JournaledPipeline implements AutoCloseable {
                     clean &= await(() -> agent.appliedSeq() >= target, "the engine to apply seq " + target,
                             () -> "applied seq " + agent.appliedSeq());
                 }
-                agentRunner.close();
+                closeAgent();
+
+                if (!fatal) {
+                    // Before the snapshot: the recorder has then offered every event the snapshot covers.
+                    clean &= await(outbound::isDrained, "the outbound ring to drain",
+                            () -> "recorded outbound seq " + recorder.recordedSeq());
+                    clean &= await(snapshots::isDrained, "the snapshot ring to drain", () -> "not drained");
+                }
 
                 if (!fatal) {
                     // The agent's thread has stopped between two commands, so this is a consistent cut.
@@ -412,20 +568,44 @@ public final class JournaledPipeline implements AutoCloseable {
                     clean &= written;
                 }
 
-                if (!fatal) {
-                    clean &= await(outbound::isDrained, "the outbound ring to drain", () -> "not drained");
-                    clean &= await(snapshots::isDrained, "the snapshot ring to drain", () -> "not drained");
-                }
                 outbound.halt();
                 snapshots.halt();
-                log.info("Pipeline drained: journaled seq {}, applied seq {}",
-                        sequencer.journaledSeq(), agent.appliedSeq());
+                log.info("Pipeline drained: journaled seq {}, applied seq {}, recorded outbound seq {}",
+                        sequencer.journaledSeq(), agent.appliedSeq(), recorder.recordedSeq());
             }
         } finally {
             snapshotWriter.close();
             journal.close();
         }
         return clean && !fatal;
+    }
+
+    /**
+     * Stops the agent. Normally {@link AgentRunner#close()}, which waits for the agent's thread.
+     * After a fatal that wait could be endless: once the recorder (or another consumer) has died,
+     * the engine thread can be parked in the outbound ring's {@code next()}, which ignores
+     * interrupts, and Agrona's close retries for as long as the thread lives. So after a fatal the
+     * close runs on a helper thread joined for {@link #DRAIN_TIMEOUT_MS}; if it has not finished, a
+     * WARN is logged and the daemon engine thread is abandoned (production has halted already).
+     */
+    private void closeAgent() {
+        if (!fatal) {
+            agentRunner.close();
+            return;
+        }
+        Thread closer = new Thread(() -> agentRunner.close(AgentRunner.RETRY_CLOSE_TIMEOUT_MS, t -> { }),
+                "engine-agent-close");
+        closer.setDaemon(true);
+        closer.start();
+        try {
+            closer.join(DRAIN_TIMEOUT_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (closer.isAlive()) {
+            log.warn("The engine thread did not stop within {} ms after the fatal error (it is likely blocked on a"
+                    + " full outbound ring); abandoning it", DRAIN_TIMEOUT_MS);
+        }
     }
 
     private static boolean await(BooleanSupplier done, String what, Supplier<String> progress) {
@@ -438,36 +618,5 @@ public final class JournaledPipeline implements AutoCloseable {
             LockSupport.parkNanos(1_000_000L);
         }
         return true;
-    }
-
-    /**
-     * The sequencer's exception policy: report to fail-stop, then rethrow so the Disruptor stops
-     * the consumer with the slot unconsumed, even when the FailStop returns (tests). Returning
-     * normally from handleEventException would make the processor skip the slot.
-     */
-    private static final class SequencerFailStop implements ExceptionHandler<OrderEvent> {
-        private final FailStop failStop;
-
-        SequencerFailStop(FailStop failStop) {
-            this.failStop = failStop;
-        }
-
-        @Override
-        public void handleEventException(Throwable ex, long sequence, OrderEvent event) {
-            failStop.fatal("sequencer", ex);
-            if (ex instanceof RuntimeException runtime) throw runtime;
-            if (ex instanceof Error error) throw error;
-            throw new IllegalStateException(ex);
-        }
-
-        @Override
-        public void handleOnStartException(Throwable ex) {
-            failStop.fatal("sequencer", ex);
-        }
-
-        @Override
-        public void handleOnShutdownException(Throwable ex) {
-            log.error("Sequencer failed on shutdown", ex);
-        }
     }
 }

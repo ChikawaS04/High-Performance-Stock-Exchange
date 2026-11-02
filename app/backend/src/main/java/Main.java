@@ -3,7 +3,9 @@ import engine.MatchingEngine;
 import gateway.OrderGateway;
 import journal.JournaledPipeline;
 import market.MarketDataService;
+import net.ResendService;
 import net.WebSocketServer;
+import publisher.ExecutionFrames;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
 import util.EpochNanoClock;
@@ -25,12 +27,14 @@ import java.util.concurrent.CountDownLatch;
  *   OrderGateway --> [inbound ring] --> Sequencer --> recorded inbound stream (Aeron IPC + Archive)
  *        --> EngineAgent (gated on the recorded position) --> MatchingEngineHandler --> MatchingEngine
  *                                              |
- *                                              +--> [outbound ring]  --> WebSocketPublisher (EXEC)
+ *                                              +--> [outbound ring]  --> OutboundRecorder --> recorded outbound stream
+ *                                              |                     --> WebSocketPublisher (EXEC)
  *                                              |                     --> TradeLogger
  *                                              +--> [snapshot ring]  --> WebSocketPublisher (BOOK)
  *                                                                    --> MarketDataService
  * </pre>
- * No command is matched before the Archive has recorded it (SRS §5.7).
+ * No command is matched before the Archive has recorded it (SRS §5.7). Every execution event is
+ * recorded on the outbound stream (P15-6), which RESEND replays to the requesting client only.
  *
  * <p><b>Configuration.</b> Every setting comes from environment variables with development
  * defaults ({@link ExchangeConfig}, D9). The JVM needs
@@ -43,12 +47,13 @@ import java.util.concurrent.CountDownLatch;
  * stream, and {@code MatchingEngineHandler} on both outbound rings (on the engine agent's
  * thread). This class never touches the book: every order enters through the gateway.
  *
- * <p><b>Startup order</b> ({@link JournaledPipeline} documents its part): journal, recovery
- * (newest valid snapshot, then replay of the journal after it), inbound publication and
- * sequencer, engine subscription, rings and agent; then the gateway, server and publisher, with
- * subscribers registered; then consumers start inward-out, the recovered book is published once
- * for snapshot-on-connect, and the server accepts connections last, so the engine is subscribed
- * before the first command is offered. A restart within 10 s of a crash waits and retries the
+ * <p><b>Startup order</b> ({@link JournaledPipeline} documents its part): journal, outbound
+ * recording (its last seq is the replay publish floor), newest valid snapshot, inbound
+ * publication and sequencer, engine subscription, rings, recorder and agent; then the gateway,
+ * resend service, server and publisher, with subscribers registered; then consumers start, the
+ * engine thread replays the journal tail (publishing and recording only the events the outbound
+ * recording lacks) and the recovered book, and the server accepts connections last, so the
+ * engine is subscribed before the first command is offered. A restart within 10 s of a crash waits and retries the
  * journal once. A snapshot that disagrees with the journal refuses startup (exit 2) with a
  * message saying what to do.
  *
@@ -81,7 +86,7 @@ public final class Main {
             config = ExchangeConfig.fromEnvironment();
             log.info("Starting with {}", config);
 
-            // --- 2. Journal, recovery, sequencer, engine subscription, rings, engine agent ---
+            // --- 2. Journal, recordings, snapshot, sequencer, engine subscription, rings, agent --
             pipeline = new JournaledPipeline(config, new MatchingEngine(), FailStop.HALT);
         } catch (RuntimeException e) {
             log.error("Startup refused: {}", e.getMessage(), e);
@@ -93,8 +98,10 @@ public final class Main {
         // One epoch-nanos clock, shared by the gateway and the WebSocket edge (P7-1).
         EpochNanoClock clock = new EpochNanoClock();
         OrderGateway gateway = new OrderGateway(pipeline.inboundRing(), clock);
+        // RESEND: replays the outbound recording with the live EXEC serializer; the server owns it.
+        ResendService resend = new ResendService(pipeline.outboundHistory(), new ExecutionFrames()::toJson);
         // Constructed before the publisher: the server owns the ChannelGroup and the BOOK cache.
-        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock);
+        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend);
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
 
         // --- 4. Subscribers (must precede start). Independent consumers, each with its own
@@ -102,14 +109,22 @@ public final class Main {
         pipeline.outbound().handleEventsWith(publisher.executionHandler(), new TradeLogger());
         pipeline.snapshots().handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
 
-        // --- 5. Start consumers inward-out, then accept connections --------------------------
-        pipeline.start();
+        // --- 5. Start consumers, recover on the engine thread, then accept connections -------
+        try {
+            pipeline.start();
+        } catch (RuntimeException e) {
+            log.error("Startup refused: {}", e.getMessage(), e);
+            resend.close();
+            System.exit(STARTUP_FAILED);
+            return;
+        }
         server.start();
 
         log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws", server.boundPort());
         log.info("Submit an order:  {}", "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\","
                 + "\"price\":1500000,\"qty\":10,\"symbol\":\"ASML\"}");
         log.info("Cancel an order:  {}", "{\"type\":\"CANCEL\",\"clOrdId\":2,\"origClOrdId\":1}");
+        log.info("Resend history:   {}", "{\"type\":\"RESEND\",\"fromSeq\":1}");
         log.info("Ctrl+C to stop.");
 
         awaitShutdown(server, pipeline);
@@ -126,7 +141,7 @@ public final class Main {
             log.info("Shutting down...");
             boolean clean = false;
             try {
-                server.stop();                // no new frames can enter the gateway
+                server.stop();                // no new frames can enter the gateway; resend stopped
                 clean = pipeline.shutdown();  // journal and apply everything, snapshot, drain, close
             } catch (Exception e) {
                 log.error("Error during shutdown", e);

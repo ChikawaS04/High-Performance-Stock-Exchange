@@ -24,6 +24,7 @@ import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketVersion;
 import market.MarketDataService;
 import model.Side;
+import publisher.ExecutionFrames;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
 import org.junit.jupiter.api.AfterEach;
@@ -100,7 +101,9 @@ class WebSocketRoundTripTest {
 
         // P7-2: the edge needs a clock for the raw-FIX echo stamp. A real EpochNanoClock here
         // rather than a fixed supplier, so the echo assertions also prove a sane epoch value.
-        server = new WebSocketServer(0, gateway, new EpochNanoClock());
+        // P15-6: RESEND wired as Main wires it; the server owns the service and stops it.
+        ResendService resend = new ResendService(venue.pipeline().outboundHistory(), new ExecutionFrames()::toJson);
+        server = new WebSocketServer(0, gateway, new EpochNanoClock(), resend);
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup());
 
         // Register the two publisher roles on their respective rings, plus the console
@@ -233,6 +236,42 @@ class WebSocketRoundTripTest {
         JsonNode echo = client.awaitFrame(fix(), 2000);
         assertNotNull(echo, "the valid order should echo");
         assertEquals(1, echo.path("seqNum").asLong(), "a dropped frame must not consume a seqNum");
+    }
+
+    /**
+     * P15-6: RESEND over real sockets. Client A replays the history and receives every EXEC again,
+     * equal to the live frames, then RESEND_COMPLETE; client B, connected throughout, receives the
+     * live frames once and none of A's resend.
+     */
+    @Test
+    void resend_reachesTheRequestingClientOnly() throws Exception {
+        LoopbackClient other = new LoopbackClient();
+        other.connect(server.boundPort());
+        try {
+            assertTrue(awaitGroupSize(2, 2000), "both clients registered");
+            client.send(newOrder(1, "BUY", PX, 10));
+            client.send(newOrder(2, "SELL", PX, 4));
+            JsonNode liveAccepted = client.awaitFrame(exec("ORDER_ACCEPTED", 1), 2000);
+            JsonNode liveFilled = client.awaitFrame(exec("ORDER_FILLED", 2), 2000);
+            assertNotNull(liveAccepted);
+            assertNotNull(liveFilled);
+            assertNotNull(other.awaitFrame(exec("ORDER_ACCEPTED", 1), 2000), "B sees the live broadcast");
+            assertNotNull(other.awaitFrame(exec("ORDER_FILLED", 2), 2000));
+
+            client.send("{\"type\":\"RESEND\",\"fromSeq\":1}");
+            assertEquals(liveAccepted, client.awaitFrame(exec("ORDER_ACCEPTED", 1), 2000), "resent seq 1, identical");
+            assertEquals(liveFilled, client.awaitFrame(exec("ORDER_FILLED", 2), 2000), "resent seq 2, identical");
+            JsonNode done = client.awaitFrame(n -> "RESEND_COMPLETE".equals(n.path("type").asText()), 2000);
+            assertNotNull(done, "the resend ends with RESEND_COMPLETE");
+            assertEquals(1, done.path("fromSeq").asLong());
+            assertEquals(2, done.path("toSeq").asLong());
+            assertEquals(2, done.path("count").asLong());
+
+            other.assertNoFrame(n -> "EXEC".equals(n.path("type").asText())
+                    || n.path("type").asText().startsWith("RESEND"), 500);
+        } finally {
+            other.close();
+        }
     }
 
     // ------------------------------------------------------------ JSON builders

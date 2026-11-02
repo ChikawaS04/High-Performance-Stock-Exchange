@@ -13,7 +13,8 @@ import java.util.function.Function;
  * next publish. Losing one WebSocket frame or log line is acceptable: the journal is the record
  * and clients recover by snapshot.
  *
- * Not for a consumer whose loss is unacceptable: the P15-6 outbound recorder needs fail-stop.
+ * Not for a consumer whose loss is unacceptable: the outbound recorder (P15-6) is registered
+ * with {@link FailStopExceptionHandler} instead, overriding this default for that consumer only.
  * Runs on the failing consumer's thread, on the error path only, so allocating the description
  * and logging here is off the hot path.
  */

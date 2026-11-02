@@ -2,6 +2,8 @@ package engine;
 
 import event.CapturingExecutionHandler;
 import event.CapturingSnapshotHandler;
+import event.ExecutionEvent;
+import event.ExecutionEventType;
 import event.OrderEvent;
 import event.OrderEventType;
 import event.OutboundPipeline;
@@ -132,6 +134,62 @@ class MatchingEngineHandlerReplayTest {
         handler.endReplay(false);
         drained();
         assertTrue(books.snapshot().isEmpty(), "a venue with no history publishes no BOOK, as before P15-5");
+    }
+
+    /** The recorded fill at seq 4 of {@link #fourEvents()}: order 3 sells 5 more against order 2. */
+    private static ExecutionEvent recordedSeq4() {
+        ExecutionEvent e = new ExecutionEvent();
+        e.seq = 4;
+        e.eventType = ExecutionEventType.ORDER_FILLED;
+        e.orderId = 3;
+        e.tradeId = 2;
+        e.price = PRICE;
+        e.filledQuantity = 5;
+        e.remainingQuantity = 0;
+        e.aggressorOrderId = 3;
+        e.passiveOrderId = 2;
+        e.aggressorSide = Side.SELL;
+        e.aggressorParticipantId = 1;
+        e.passiveParticipantId = 1;
+        e.businessDate = -1;
+        e.timestamp = 300;
+        return e;
+    }
+
+    @Test
+    void theRegeneratedEventAtTheFloorMatchingTheRecordingPasses() {
+        handler.beginReplay(4, recordedSeq4());
+        fourEvents();
+        handler.endReplay(false);
+        drained();
+        assertTrue(execs.snapshot().isEmpty(), "everything at or below the floor suppressed");
+        assertEquals(4L, handler.getLastSeq());
+    }
+
+    @Test
+    void anyFieldThatDiffersFromTheRecordingAtTheFloorThrows() {
+        ExecutionEvent recorded = recordedSeq4();
+        recorded.filledQuantity = 6;
+        handler.beginReplay(4, recorded);
+        handler.onCommand(order(1, Side.BUY, 10, 100));
+        handler.onCommand(order(2, Side.BUY, 10, 200));
+        IllegalStateException diverged = assertThrows(IllegalStateException.class,
+                () -> handler.onCommand(order(3, Side.SELL, 15, 300)));
+        assertTrue(diverged.getMessage().contains("different event at outbound seq 4"), diverged.getMessage());
+        assertTrue(diverged.getMessage().contains("filled=6"), diverged.getMessage());
+
+        ExecutionEvent wrongTimestamp = recordedSeq4();
+        wrongTimestamp.timestamp = 301;
+        MatchingEngine second = new MatchingEngine();
+        MatchingEngineHandler replaying = new MatchingEngineHandler(second, new OutboundPipeline().getRingBuffer());
+        second.setExecutionListener(replaying);
+        replaying.beginReplay(4, wrongTimestamp);
+        replaying.onCommand(order(1, Side.BUY, 10, 100));
+        replaying.onCommand(order(2, Side.BUY, 10, 200));
+        assertThrows(IllegalStateException.class, () -> replaying.onCommand(order(3, Side.SELL, 15, 300)));
+
+        assertThrows(IllegalArgumentException.class, () -> handler.beginReplay(5, recordedSeq4()),
+                "the expected event must carry the floor seq");
     }
 
     @Test

@@ -47,7 +47,8 @@ import util.BookFrameCache;
  * <p><b>seqNum.</b> A per-channel outbound counter for this echo stream, incremented only when an
  * echo is actually emitted. It is deliberately <i>not</i> the FIX {@code 34=} MsgSeqNum — the
  * produced-and-parsed subset carries no tag 34/49/56/52 at all (P7-0/Q7-4) — and it mirrors no
- * existing counter, because neither EXEC nor BOOK carries a sequence number on the wire. Because
+ * existing counter: EXEC frames carry the venue's outbound seq and BOOK frames its lastSeq
+ * (P15-2), but this echo stream is per-channel and separate from both. Because
  * this handler is per-channel and the worker group is one thread, the counter is
  * single-thread-confined and needs no atomic.
  *
@@ -77,6 +78,9 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
      */
     private final BookFrameCache bookCache;
 
+    /** Serves RESEND requests (P15-6); null when the server wired none, and RESEND is then dropped. */
+    private final ResendService resend;
+
     /** Per-channel echo counter; single-thread-confined to this channel's event loop. */
     private long fixSeqNum;
 
@@ -92,11 +96,21 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                                  ObjectMapper objectMapper,
                                  LongSupplier clock,
                                  BookFrameCache bookCache) {
+        this(channelGroup, gateway, objectMapper, clock, bookCache, null);
+    }
+
+    public WebSocketFrameHandler(ChannelGroup channelGroup,
+                                 OrderGateway gateway,
+                                 ObjectMapper objectMapper,
+                                 LongSupplier clock,
+                                 BookFrameCache bookCache,
+                                 ResendService resend) {
         this.channelGroup = channelGroup;
         this.gateway = gateway;
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.bookCache = bookCache;
+        this.resend = resend;
     }
 
     @Override
@@ -201,6 +215,9 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                 fix = JsonToFix.orderCancelRequest(
                         node.get("clOrdId").asLong(),
                         node.get("origClOrdId").asLong());
+            } else if ("RESEND".equals(type)) {
+                handleResend(channel, node, json);
+                return;   // not an order: no gateway call, no FIX echo
             } else {
                 log.warn("Dropping WS frame with unknown type '{}'", type);
                 return;
@@ -211,6 +228,25 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
         } catch (Exception e) {
             log.warn("Dropping malformed WS order frame: {}", e.toString());
         }
+    }
+
+    /**
+     * RESEND (SRS §3.6, P15-6): {@code {"type":"RESEND","fromSeq":N}}. {@code fromSeq} must be an
+     * integral JSON number that fits a long; anything else is logged and dropped with no reply, as
+     * a malformed NEW is. The request is only queued here; {@link ResendService} serves it on its
+     * own thread, never on this event loop.
+     */
+    private void handleResend(Channel channel, JsonNode node, String json) {
+        JsonNode fromSeq = node.path("fromSeq");
+        if (!fromSeq.isIntegralNumber() || !fromSeq.canConvertToLong()) {
+            log.warn("Dropping RESEND with a missing or non-integer fromSeq: {}", json);
+            return;
+        }
+        if (resend == null) {
+            log.warn("Dropping RESEND: resend is not available on this server: {}", json);
+            return;
+        }
+        resend.request(channel, fromSeq.longValue());
     }
 
     /**

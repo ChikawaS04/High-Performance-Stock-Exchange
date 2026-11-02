@@ -149,10 +149,30 @@ public final class SnapshotStore implements SnapshotSink {
      * in place; retention removes it once newer snapshots exist.
      */
     public RestoredSnapshot loadNewestValid() throws IOException {
+        return loadNewestValid(Long.MAX_VALUE);
+    }
+
+    /**
+     * The newest valid snapshot whose outbound seq is at or below {@code maxOutboundSeq} (the last
+     * seq in the outbound recording, P15-6), or null if there is none. A newer snapshot above it was
+     * taken while the recorder had not yet written every event it covers; recovering from it would
+     * leave those events out of the outbound record for good, because replay starts after the
+     * snapshot. It is skipped with a WARN and left in place, so replay from an older snapshot (or
+     * from the journal's start) regenerates them.
+     */
+    public RestoredSnapshot loadNewestValid(long maxOutboundSeq) throws IOException {
         deleteTemporaries();
         for (Path file : listByNewest()) {
             try {
                 RestoredSnapshot snapshot = read(file);
+                if (snapshot.outboundLastSeq() > maxOutboundSeq) {
+                    log.warn("Skipping snapshot {}: it records outbound seq {} but the outbound recording ends at {};"
+                                    + " the recorder had not written events {} to {} when the venue stopped, so an"
+                                    + " older snapshot is used and replay regenerates them",
+                            file.getFileName(), snapshot.outboundLastSeq(), maxOutboundSeq, maxOutboundSeq + 1,
+                            snapshot.outboundLastSeq());
+                    continue;
+                }
                 log.info("Using snapshot {}: inbound seq {}, {} resting orders",
                         file.getFileName(), snapshot.inboundSeq(), snapshot.orders().size());
                 return snapshot;

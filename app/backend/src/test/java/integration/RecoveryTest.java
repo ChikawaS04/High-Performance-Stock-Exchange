@@ -81,9 +81,9 @@ class RecoveryTest {
 
         JournaledVenue again = JournaledVenue.create(root);
         assertEquals(first.commands(), again.pipeline().recoveredSnapshotSeq());
+        again.start();
         assertEquals(0, again.pipeline().replayedCommands());
         assertEquals(first.commands(), again.pipeline().appliedSeq());
-        again.start();
         again.close();
         assertEquals(first.state(), EngineStates.describe(again.engine()));
     }
@@ -95,8 +95,8 @@ class RecoveryTest {
 
         JournaledVenue again = JournaledVenue.create(root);
         assertEquals(-1, again.pipeline().recoveredSnapshotSeq());
-        assertEquals(first.commands(), again.pipeline().replayedCommands());
         again.start();
+        assertEquals(first.commands(), again.pipeline().replayedCommands());
         again.close();
         assertEquals(first.state(), EngineStates.describe(again.engine()));
     }
@@ -141,13 +141,15 @@ class RecoveryTest {
 
     private static Recovered recoverAndRun(ExchangeConfig config, List<byte[]> next) {
         JournaledVenue venue = JournaledVenue.create(config, null, null);
-        List<String> before = EngineStates.describe(venue.engine());   // agent not started: safe to read
         CapturingExecutionHandler execs = new CapturingExecutionHandler();
         CapturingSnapshotHandler books = new CapturingSnapshotHandler();
         venue.outbound().handleEventsWith(execs);
         venue.snapshots().handleEventsWith(books);
         OrderGateway gateway = venue.gateway(RecoveryScenario.countingClock(NEXT_COMMAND_CLOCK));
         venue.start();
+        // Recovery ran on the engine thread and start() saw it finish; no command has been sent, so
+        // the agent is idle and the book is safe to read.
+        List<String> before = EngineStates.describe(venue.engine());
         long target = venue.pipeline().appliedSeq() + next.size();
         for (byte[] frame : next) gateway.onFrame(frame);
         await(() -> venue.pipeline().appliedSeq() == target, "next commands applied");

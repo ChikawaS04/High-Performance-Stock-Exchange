@@ -252,6 +252,24 @@ class WebSocketFrameHandlerTest {
         assertNull(channel.readOutbound(), "invalid side must not echo");
     }
 
+    // --- RESEND (P15-6) ---
+
+    @Test
+    void resendWithoutAResendServiceIsDroppedAndNeverReachesTheGateway() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame("{\"type\":\"RESEND\",\"fromSeq\":1}"));
+        assertNull(channel.readOutbound(), "no reply and no FIX echo");
+        assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS), "a RESEND is not an order");
+    }
+
+    @Test
+    void malformedResendIsDroppedWithNoEcho() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame("{\"type\":\"RESEND\"}"));
+        channel.writeInbound(new TextWebSocketFrame("{\"type\":\"RESEND\",\"fromSeq\":\"7\"}"));
+        channel.writeInbound(new TextWebSocketFrame("{\"type\":\"RESEND\",\"fromSeq\":7.5}"));
+        assertNull(channel.readOutbound(), "malformed RESEND must not echo or reply");
+        assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS), "nothing reaches the inbound ring");
+    }
+
     @Test
     void echoGoesToTheOriginatingChannelOnly() throws Exception {
         // Explicit DefaultChannelId: EmbeddedChannel's default id has a constant hashCode and

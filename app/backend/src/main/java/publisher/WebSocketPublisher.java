@@ -57,6 +57,7 @@ public final class WebSocketPublisher {
 
     private final ChannelGroup channelGroup;
     private final ObjectMapper mapper;
+    private final ExecutionFrames executionFrames;
 
     /** Shared latest-BOOK cache for snapshot-on-connect; null when unwired (test seam). */
     private final BookFrameCache bookCache;
@@ -89,6 +90,7 @@ public final class WebSocketPublisher {
         this.channelGroup = channelGroup;
         this.bookCache = bookCache;
         this.mapper = mapper;
+        this.executionFrames = new ExecutionFrames(mapper);
     }
 
     /** Register on the outbound (execution) ring — emits {@code EXEC} frames. */
@@ -148,24 +150,9 @@ public final class WebSocketPublisher {
 
     // --- serialization (package-private for direct unit testing) ------------------------
 
+    /** The EXEC frame, built by {@link ExecutionFrames} so RESEND sends the identical JSON (P15-6). */
     String serializeExecution(ExecutionEvent e) {
-        ObjectNode n = mapper.createObjectNode();
-        n.put("type", "EXEC");
-        n.put("seq", e.seq);
-        n.put("execType", e.eventType.name());
-        n.put("orderId", e.orderId);
-        n.put("tradeId", e.tradeId);
-        n.put("price", e.price);
-        n.put("filledQuantity", e.filledQuantity);
-        n.put("remainingQuantity", e.remainingQuantity);
-        n.put("aggressorOrderId", e.aggressorOrderId);
-        n.put("passiveOrderId", e.passiveOrderId);
-        // D4: fills name the aggressor's side and both participants; null and -1 otherwise.
-        n.put("aggressorSide", (e.aggressorSide == null) ? null : e.aggressorSide.name());
-        n.put("aggressorParticipantId", e.aggressorParticipantId);
-        n.put("passiveParticipantId", e.passiveParticipantId);
-        n.put("timestamp", e.timestamp);
-        return write(n);
+        return executionFrames.toJson(e);
     }
 
     String serializeSnapshot(BookSnapshotEvent s) {

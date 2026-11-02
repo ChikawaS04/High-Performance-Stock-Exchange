@@ -66,10 +66,12 @@ public final class Journal implements AutoCloseable {
     public static final String IPC_CHANNEL = "aeron:ipc";
     /** Sequenced commands: written by the sequencer, read by the engine agent. */
     public static final int INBOUND_STREAM_ID = 1001;
-    /** Execution events: written by the outbound recorder (from P15-6). */
+    /** Execution events: written by the outbound recorder (P15-6), read by recovery and RESEND. */
     public static final int OUTBOUND_STREAM_ID = 1002;
-    /** Where replays are delivered. Never recorded: recordings subscribe to their own stream id only. */
+    /** Where startup replays are delivered. Never recorded: recordings subscribe to their own stream id only. */
     public static final int REPLAY_STREAM_ID = 1101;
+    /** Where RESEND replays of the outbound recording are delivered (P15-6). Never recorded. */
+    public static final int RESEND_STREAM_ID = 1102;
 
     /** Bound on every start-up and shutdown wait. */
     static final long AWAIT_TIMEOUT_MS = 10_000L;

@@ -39,9 +39,13 @@ import model.TimeInForce;
  * handler processes commands exactly as live, and every execution event still takes the next
  * seq, so replay regenerates identical seqs; but an event whose seq is at or below the publish
  * floor claims no ring slot, and no BOOK is published per command. {@link #endReplay} then
- * publishes one BOOK of the recovered book. P15-5 replays with the floor at
- * {@code Long.MAX_VALUE} (nothing records the outbound stream yet); P15-6 sets it to the last
- * seq in the outbound recording, so only events the recorder never wrote are published.
+ * publishes one BOOK of the recovered book. From P15-6 the floor is the last seq in the outbound
+ * recording, so only events the recorder never wrote are published.
+ *
+ * P15-6 divergence check: replay may also be given the recorded event carrying the floor seq.
+ * When replay regenerates that seq, every field is compared with the recording and a difference
+ * throws, so a build that no longer reproduces the journal's executions refuses to start instead
+ * of numbering new events on top of a different history. Live matching never reaches the check.
  */
 public final class MatchingEngineHandler implements EventHandler<OrderEvent>, CommandHandler, ExecutionListener {
 
@@ -65,6 +69,9 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
 
     /** True between beginReplay and endReplay: no per-command BOOK. */
     private boolean replaying;
+
+    /** The recorded event carrying seq {@link #publishFloor}, checked when replay regenerates it; null for none. */
+    private ExecutionEvent expectedAtFloor;
 
     public MatchingEngineHandler(MatchingEngine engine, RingBuffer<ExecutionEvent> outbound) {
         this(engine, outbound, null);
@@ -110,10 +117,23 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
      * published, and no BOOK is published per command, until {@link #endReplay}.
      */
     public void beginReplay(long floor) {
+        beginReplay(floor, null);
+    }
+
+    /**
+     * As {@link #beginReplay(long)}, and when replay regenerates seq {@code floor} it must equal
+     * {@code expectedAtFloor} (the last event in the outbound recording) in every field, or
+     * processing throws {@link IllegalStateException}. Null skips the check.
+     */
+    public void beginReplay(long floor, ExecutionEvent expectedAtFloor) {
         if (floor < 0) {
             throw new IllegalArgumentException("publish floor must be >= 0, got " + floor);
         }
+        if (expectedAtFloor != null && expectedAtFloor.seq != floor) {
+            throw new IllegalArgumentException("expected event has seq " + expectedAtFloor.seq + ", floor is " + floor);
+        }
         this.publishFloor = floor;
+        this.expectedAtFloor = expectedAtFloor;
         this.replaying = true;
     }
 
@@ -126,6 +146,7 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
      */
     public void endReplay(boolean publishBook) {
         this.publishFloor = lastSeq;
+        this.expectedAtFloor = null;
         this.replaying = false;
         if (publishBook) {
             publishSnapshot();
@@ -234,6 +255,10 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
                          Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
         final long seq = ++lastSeq;   // D12: gap-free from 1, assigned only here, published or not
         if (seq <= publishFloor) {
+            if (seq == publishFloor && expectedAtFloor != null) {
+                checkAgainstRecording(seq, type, orderId, tradeId, price, filledQuantity, remainingQuantity,
+                        aggressorOrderId, passiveOrderId, aggressorSide, aggressorParticipantId, passiveParticipantId);
+            }
             return;                   // D13: replayed and already accounted for
         }
         long slot = outbound.next();
@@ -258,6 +283,39 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
         } finally {
             outbound.publish(slot);
         }
+    }
+
+    /** Recovery only: the regenerated event at the floor must be the one the recording holds. */
+    private void checkAgainstRecording(long seq, ExecutionEventType type, long orderId, long tradeId, long price,
+                                       long filledQuantity, long remainingQuantity,
+                                       long aggressorOrderId, long passiveOrderId,
+                                       Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
+        ExecutionEvent r = expectedAtFloor;
+        boolean same = r.eventType == type && r.orderId == orderId && r.tradeId == tradeId && r.price == price
+                && r.filledQuantity == filledQuantity && r.remainingQuantity == remainingQuantity
+                && r.aggressorOrderId == aggressorOrderId && r.passiveOrderId == passiveOrderId
+                && r.aggressorSide == aggressorSide && r.aggressorParticipantId == aggressorParticipantId
+                && r.passiveParticipantId == passiveParticipantId && r.businessDate == (int) NA
+                && r.timestamp == commandTimestamp;
+        if (!same) {
+            throw new IllegalStateException("Replay regenerated a different event at outbound seq " + seq
+                    + " than the outbound recording holds. Recorded: " + describe(r.eventType, r.orderId, r.tradeId,
+                    r.price, r.filledQuantity, r.remainingQuantity, r.aggressorOrderId, r.passiveOrderId,
+                    r.aggressorSide, r.aggressorParticipantId, r.passiveParticipantId, r.timestamp)
+                    + "; regenerated: " + describe(type, orderId, tradeId, price, filledQuantity, remainingQuantity,
+                    aggressorOrderId, passiveOrderId, aggressorSide, aggressorParticipantId, passiveParticipantId,
+                    commandTimestamp));
+        }
+    }
+
+    private static String describe(ExecutionEventType type, long orderId, long tradeId, long price,
+                                   long filledQuantity, long remainingQuantity, long aggressorOrderId,
+                                   long passiveOrderId, Side aggressorSide, long aggressorParticipantId,
+                                   long passiveParticipantId, long timestamp) {
+        return type + " orderId=" + orderId + " tradeId=" + tradeId + " price=" + price
+                + " filled=" + filledQuantity + " remaining=" + remainingQuantity
+                + " aggressor=" + aggressorOrderId + " passive=" + passiveOrderId + " side=" + aggressorSide
+                + " participants=" + aggressorParticipantId + "/" + passiveParticipantId + " timestamp=" + timestamp;
     }
 
     /**
