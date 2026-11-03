@@ -3,12 +3,17 @@ package gateway;
 import codec.EventFields;
 import codec.OrderEventCodec;
 import engine.CommandHandler;
+import engine.Sessions;
+import event.CapturingExecutionHandler;
+import event.ExecutionEventType;
 import event.OrderEvent;
 import integration.FixMessages;
 import integration.JournaledVenue;
 import journal.Journal;
 import journal.JournalReader;
 import journal.RecordingDescriptor;
+import model.Prices;
+import util.VenueStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -32,8 +37,9 @@ import static org.junit.jupiter.api.Assertions.fail;
  * gateway's receipt stamp, compared by reflection over every field, so a field added to
  * OrderEvent and dropped at any copy point fails here.
  *
- * Session commands do not enter through FIX until P15-8; their journal round trip is covered by
- * SequencerTest and the codec tests.
+ * Session commands never come from FIX (P15-8, D15): they enter through the gateway's session entry
+ * point, and the second test drives every session field from there through the same copy points to
+ * the engine, through a replay of the recording, and through a restart that recovers by replay.
  */
 class JournaledFieldCopyTest {
 
@@ -100,6 +106,70 @@ class JournaledFieldCopyTest {
                 assertEquals(i + 1, seqs.get(i), "seq of command " + i);
                 assertSameFields(expected.get(i), replayed.get(i), "in the replay, command " + i);
             }
+        }
+    }
+
+    @Test
+    void everySessionFieldSurvivesGatewaySequencerJournalAndAgentAndAReplay() {
+        // 1: distinctive values in every session field; the engine refuses them (tick, lot and scale
+        //    are not the engine's), so a field lost at any copy point could not pass as its default.
+        // 2: a valid open; 3: its close. Each stamped by the gateway's clock.
+        byte[] oddSymbol = Sessions.symbol("BRK.B");
+        List<OrderEvent> expected = List.of(
+                Sessions.openCommand(20261231, oddSymbol, 7L, 3L, 99L, FIRST_STAMP),
+                Sessions.openCommand(Sessions.BUSINESS_DATE, FIRST_STAMP + 1),
+                Sessions.closeCommand(Sessions.BUSINESS_DATE, FIRST_STAMP + 2));
+
+        List<OrderEvent> atEngine = Collections.synchronizedList(new ArrayList<>());
+        CommandHandler tap = command -> atEngine.add(copy(command));
+        AtomicLong clock = new AtomicLong(FIRST_STAMP);
+        CapturingExecutionHandler executions = new CapturingExecutionHandler();
+
+        try (JournaledVenue venue = JournaledVenue.create(root, tap)) {
+            venue.outbound().handleEventsWith(executions);
+            OrderGateway gateway = venue.gateway(clock::getAndIncrement);
+            venue.start();
+            gateway.publishSessionOpen(20261231, oddSymbol, 7L, 3L, 99L);
+            gateway.publishSessionOpen(Sessions.BUSINESS_DATE, Sessions.symbol(), Prices.TICK, 1L, Prices.SCALE);
+            gateway.publishSessionClose(Sessions.BUSINESS_DATE);
+
+            awaitSize(atEngine, expected.size());
+            for (int i = 0; i < expected.size(); i++) {
+                assertSameFields(expected.get(i), atEngine.get(i), "at the engine, session command " + i);
+            }
+            List<CapturingExecutionHandler.Observed> events = executions.awaitAtLeast(2, 10_000);
+            assertEquals(List.of(ExecutionEventType.SESSION_OPENED, ExecutionEventType.SESSION_CLOSED),
+                    events.stream().map(CapturingExecutionHandler.Observed::eventType).toList(),
+                    "the refused open published nothing; the valid open and its close did");
+            assertEquals(Sessions.BUSINESS_DATE, events.get(0).businessDate());
+            assertEquals(Sessions.BUSINESS_DATE, events.get(1).businessDate());
+            assertEquals(VenueStatus.sessionWord(false, -1, Sessions.BUSINESS_DATE), venue.pipeline().session());
+
+            Journal journal = venue.journal();
+            RecordingDescriptor recording = journal.findRecording(Journal.INBOUND_STREAM_ID);
+            OrderEventCodec codec = new OrderEventCodec();
+            List<OrderEvent> replayed = new ArrayList<>();
+            new JournalReader(journal.archive()).replayAll(recording.recordingId(), (buffer, offset, length, header) -> {
+                OrderEvent e = new OrderEvent();
+                codec.decode(buffer, offset, e);
+                replayed.add(e);
+            });
+            assertEquals(expected.size(), replayed.size());
+            for (int i = 0; i < expected.size(); i++) {
+                assertSameFields(expected.get(i), replayed.get(i), "in the replay, session command " + i);
+            }
+        }
+
+        // A restart with no snapshot recovers the session state by replaying those commands.
+        integration.RecoveryScenario.deleteTree(JournaledVenue.config(root).snapshotDir());
+        atEngine.clear();
+        try (JournaledVenue again = JournaledVenue.create(root, tap)) {
+            again.start();
+            assertEquals(expected.size(), again.pipeline().replayedCommands());
+            for (int i = 0; i < expected.size(); i++) {
+                assertSameFields(expected.get(i), atEngine.get(i), "replayed at the engine, session command " + i);
+            }
+            assertEquals(VenueStatus.sessionWord(false, -1, Sessions.BUSINESS_DATE), again.pipeline().session());
         }
     }
 

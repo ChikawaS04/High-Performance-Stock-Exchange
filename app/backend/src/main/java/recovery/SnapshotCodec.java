@@ -1,5 +1,6 @@
 package recovery;
 
+import codec.snapshot.BooleanCode;
 import codec.snapshot.EngineSnapshotDecoder;
 import codec.snapshot.EngineSnapshotEncoder;
 import codec.snapshot.LocationCode;
@@ -13,6 +14,7 @@ import codec.snapshot.StatusCode;
 import codec.snapshot.TimeInForceCode;
 import engine.MatchingEngine;
 import engine.RestingOrderVisitor;
+import engine.SessionRules;
 import model.OrdType;
 import model.Order;
 import model.Side;
@@ -50,17 +52,31 @@ public final class SnapshotCodec {
 
     /** Bytes the header message occupies; the first order starts here. */
     static final int HEADER_LENGTH = MessageHeaderEncoder.ENCODED_LENGTH + EngineSnapshotEncoder.BLOCK_LENGTH;
+    /** The version 0 root block (P15-5): the seven int64 fields, before the session state. */
+    static final int V0_BLOCK_LENGTH = 7 * Long.BYTES;
     /** Bytes each order occupies. */
     static final int ORDER_LENGTH = MessageHeaderEncoder.ENCODED_LENGTH + RestingOrderEncoder.BLOCK_LENGTH;
 
+    /** All-NUL symbol for a state in which no session was ever opened. */
+    private static final byte[] NO_SYMBOL = new byte[8];
+
+    /** As the full form, for a state in which no session was ever opened or closed. */
+    public int encode(MutableDirectBuffer buffer, MatchingEngine engine, long inboundSeq, long inboundPosition,
+                      long inboundRecordingId, long outboundLastSeq, long lastCommandTimestamp) {
+        return encode(buffer, engine, inboundSeq, inboundPosition, inboundRecordingId, outboundLastSeq,
+                lastCommandTimestamp, false, -1, -1, NO_SYMBOL);
+    }
+
     /**
      * Writes the snapshot body for the engine's current state into {@code buffer} from offset 0.
-     * {@code buffer} must grow on demand (an expandable buffer) or be large enough.
+     * {@code buffer} must grow on demand (an expandable buffer) or be large enough. The session
+     * state (P15-8) is the handler's.
      *
      * @return the body length in bytes
      */
     public int encode(MutableDirectBuffer buffer, MatchingEngine engine, long inboundSeq, long inboundPosition,
-                      long inboundRecordingId, long outboundLastSeq, long lastCommandTimestamp) {
+                      long inboundRecordingId, long outboundLastSeq, long lastCommandTimestamp,
+                      boolean sessionOpen, int businessDate, int lastClosedBusinessDate, byte[] symbol) {
         orderWriter.start(buffer, HEADER_LENGTH);
         engine.visitResting(orderWriter);
         snapshotEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
@@ -70,7 +86,11 @@ public final class SnapshotCodec {
                 .outboundLastSeq(outboundLastSeq)
                 .nextTradeId(engine.getNextTradeId())
                 .lastCommandTimestamp(lastCommandTimestamp)
-                .orderCount(orderWriter.count);
+                .orderCount(orderWriter.count)
+                .businessDate(sessionOpen ? businessDate : -1)
+                .lastClosedBusinessDate(lastClosedBusinessDate)
+                .sessionOpen(sessionOpen ? BooleanCode.TRUE : BooleanCode.FALSE)
+                .putSymbol(symbol, 0);
         return orderWriter.offset;
     }
 
@@ -122,11 +142,16 @@ public final class SnapshotCodec {
 
     private static RestoredSnapshot decodeChecked(DirectBuffer buffer, int length) throws InvalidSnapshotException {
         MessageHeaderDecoder header = new MessageHeaderDecoder();
-        if (length < HEADER_LENGTH) {
+        if (length < MessageHeaderDecoder.ENCODED_LENGTH + V0_BLOCK_LENGTH) {
             throw new InvalidSnapshotException("body of " + length + " bytes is shorter than the snapshot header");
         }
         header.wrap(buffer, 0);
-        checkHeader(header, EngineSnapshotDecoder.TEMPLATE_ID, EngineSnapshotDecoder.BLOCK_LENGTH);
+        // A version 0 root block is shorter; its session fields then decode as their null values.
+        checkHeader(header, EngineSnapshotDecoder.TEMPLATE_ID,
+                header.version() >= 1 ? EngineSnapshotDecoder.BLOCK_LENGTH : V0_BLOCK_LENGTH);
+        if (MessageHeaderDecoder.ENCODED_LENGTH + header.blockLength() > length) {
+            throw new InvalidSnapshotException("body of " + length + " bytes is shorter than the snapshot header");
+        }
         EngineSnapshotDecoder snapshot = new EngineSnapshotDecoder()
                 .wrap(buffer, MessageHeaderDecoder.ENCODED_LENGTH, header.blockLength(), header.version());
 
@@ -139,6 +164,24 @@ public final class SnapshotCodec {
         if (snapshot.inboundSeq() < 0 || snapshot.inboundPosition() < 0 || snapshot.outboundLastSeq() < 0
                 || snapshot.nextTradeId() < 1) {
             throw new InvalidSnapshotException("negative seq or position, or trade id below 1");
+        }
+
+        // Session state (P15-8, sinceVersion 1). A version 0 snapshot reads as "never opened".
+        final int version = header.version();
+        boolean sessionOpen = false;
+        int businessDate = -1;
+        int lastClosed = -1;
+        byte[] symbol = new byte[8];
+        if (version >= 1) {
+            BooleanCode open = snapshot.sessionOpen();
+            if (open == BooleanCode.NULL_VAL) {
+                throw new InvalidSnapshotException("session open flag missing");
+            }
+            sessionOpen = open == BooleanCode.TRUE;
+            businessDate = snapshot.businessDate();
+            lastClosed = snapshot.lastClosedBusinessDate();
+            snapshot.getSymbol(symbol, 0);
+            checkSession(sessionOpen, businessDate, lastClosed, symbol);
         }
 
         List<RestoredSnapshot.RestoredOrder> orders = new ArrayList<>((int) orderCount);
@@ -193,7 +236,29 @@ public final class SnapshotCodec {
 
         return new RestoredSnapshot(snapshot.inboundSeq(), snapshot.inboundPosition(), snapshot.inboundRecordingId(),
                 snapshot.outboundLastSeq(), snapshot.nextTradeId(), snapshot.lastCommandTimestamp(),
-                List.copyOf(orders));
+                List.copyOf(orders), version, sessionOpen, businessDate, lastClosed, symbol);
+    }
+
+    /** The session state must be one the handler could have reached: the same rules the engine applies. */
+    private static void checkSession(boolean open, int businessDate, int lastClosed, byte[] symbol)
+            throws InvalidSnapshotException {
+        if (open ? !SessionRules.isValidDate(businessDate) : businessDate != -1) {
+            throw new InvalidSnapshotException("session " + (open ? "open" : "closed") + " with business date "
+                    + businessDate);
+        }
+        if (lastClosed != -1 && !SessionRules.isValidDate(lastClosed)) {
+            throw new InvalidSnapshotException("invalid last closed business date " + lastClosed);
+        }
+        if (open && businessDate <= lastClosed) {
+            throw new InvalidSnapshotException("open business date " + businessDate
+                    + " is not after the last closed date " + lastClosed);
+        }
+        boolean none = true;
+        for (byte b : symbol) none &= (b == 0);
+        boolean everOpened = open || lastClosed != -1;
+        if (everOpened ? !SessionRules.isValidSymbol(symbol) : !none) {
+            throw new InvalidSnapshotException("session symbol does not match the session state");
+        }
     }
 
     /** Lit levels must arrive best-first with each price level contiguous: bids descending, asks ascending. */

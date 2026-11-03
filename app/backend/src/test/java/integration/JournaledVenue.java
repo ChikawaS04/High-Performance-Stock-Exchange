@@ -3,15 +3,21 @@ package integration;
 import config.ExchangeConfig;
 import engine.CommandHandler;
 import engine.MatchingEngine;
+import event.CapturingExecutionHandler;
+import event.ExecutionEventType;
 import event.OutboundPipeline;
 import event.SnapshotPipeline;
 import gateway.OrderGateway;
 import journal.Journal;
 import journal.JournaledPipeline;
 import recovery.SnapshotSink;
+import session.SessionController;
 import util.FailStop;
 
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -19,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.LongSupplier;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -35,19 +42,38 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * Restart (P15-5): a new venue on the same {@code root} recovers from the previous run's
  * snapshot and journal, exactly as Main does.
+ *
+ * Sessions (P15-8): a NEW is matched only while a session is open. {@link #startAndOpen} starts the
+ * venue, then runs the production {@link SessionController#startup()} on the calling thread through
+ * the test's own gateway, so the test thread stays the gateway's only producer and the open's
+ * receipt stamp comes from the test's clock. On a fresh venue the open is inbound seq 1 and outbound
+ * seq 1 ({@link #OPEN_SEQ}); on a restart the recovered session resumes and nothing is issued.
+ * The business date is {@link #BUSINESS_DATE}, from a fixed clock. Tests of the closed state use
+ * {@link #start()}.
  */
 public final class JournaledVenue implements AutoCloseable {
 
     /** 64 KiB terms and segments, as in the journal tests. */
     private static final String SMALL = Integer.toString(64 * 1024);
 
+    /** The business date {@link #startAndOpen} opens: the date of {@link #CLOCK} in the default time zone. */
+    public static final int BUSINESS_DATE = 20261102;
+
+    /** 17:00 UTC on {@link #BUSINESS_DATE}: noon, the same calendar date, in New York (the default session zone). */
+    public static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-02T17:00:00Z"), ZoneOffset.UTC);
+
+    /** On a fresh venue the session open takes inbound seq 1 and its SESSION_OPENED outbound seq 1. */
+    public static final long OPEN_SEQ = 1L;
+
     private final MatchingEngine engine = new MatchingEngine();
+    private final ExchangeConfig config;
     private final List<Throwable> fatals = Collections.synchronizedList(new ArrayList<>());
     private final JournaledPipeline pipeline;
     private boolean closed;
 
     private JournaledVenue(ExchangeConfig config, JournaledPipeline.Seams seams) {
         FailStop capture = (component, cause) -> fatals.add(new AssertionError(component + " failed", cause));
+        this.config = config;
         this.pipeline = new JournaledPipeline(config, engine, capture, seams);
     }
 
@@ -114,6 +140,36 @@ public final class JournaledVenue implements AutoCloseable {
 
     public void start() {
         pipeline.start();
+    }
+
+    /**
+     * {@link #start()}, then the session controller's startup with a direct executor: the calling
+     * thread must be {@code gateway}'s only caller. Opens a session on {@link #BUSINESS_DATE} unless
+     * the recovered one is already open.
+     */
+    public void startAndOpen(OrderGateway gateway) {
+        start();
+        sessionController(gateway).startup();
+    }
+
+    /** The production controller on this venue, publishing through {@code gateway} on the calling thread. */
+    public SessionController sessionController(OrderGateway gateway) {
+        return SessionController.fromConfig(config, CLOCK, gateway, Runnable::run, pipeline);
+    }
+
+    public ExchangeConfig config() { return config; }
+
+    /**
+     * Waits for the fresh venue's SESSION_OPENED (outbound seq {@link #OPEN_SEQ}) on {@code captured},
+     * checks it, then clears {@code captured}, so the test asserts its own events from index 0.
+     */
+    public static void awaitOpenAndClear(CapturingExecutionHandler captured) {
+        List<CapturingExecutionHandler.Observed> seen = captured.awaitAtLeast(1, 5_000);
+        assertEquals(1, seen.size(), "exactly the session open before any test command");
+        assertEquals(ExecutionEventType.SESSION_OPENED, seen.get(0).eventType());
+        assertEquals(OPEN_SEQ, seen.get(0).seq());
+        assertEquals(BUSINESS_DATE, seen.get(0).businessDate());
+        captured.clear();
     }
 
     /** Fatal errors reported so far. */

@@ -3,6 +3,7 @@ package gateway;
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
 import event.OrderEvent;
+import event.OrderEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +23,9 @@ import java.util.function.LongSupplier;
  * Boundary discipline:
  *   - Sole producer on the inbound ring (single-writer, SRS §5.2), so
  *     ProducerType.SINGLE is safe and {@link #onFrame} is NOT thread-safe:
- *     exactly one thread (the Netty event loop, or a test thread) may call it.
+ *     exactly one thread (the Netty event loop, or a test thread) may call it. From P15-8
+ *     this is enforced: the first publishing thread owns the gateway, and the session
+ *     commands (SRS §3.12) enter through the same thread (D15).
  *   - Imports com.lmax (it *is* the ring producer) but deliberately NOT io.netty:
  *     the decoder already handed off a plain byte[] copy, so no Netty refcount
  *     discipline leaks in. The decoder->gateway adapter is Phase 4, not this class.
@@ -73,6 +76,12 @@ public final class OrderGateway {
     private final LongSupplier clock;
 
     /**
+     * The only thread allowed to publish, set by the first publish. Volatile only so a violating
+     * thread reliably sees it; the owner reads its own write.
+     */
+    private volatile Thread producer;
+
+    /**
      * Default constructor: receipt timestamps come from System.nanoTime(), a monotonic
      * source with an arbitrary origin. Suitable for tests and any caller that does not
      * need epoch time.
@@ -106,6 +115,7 @@ public final class OrderGateway {
      * @param frame a full FIX message (8=...9=...body...10=xxx&lt;SOH&gt;), owned by us
      */
     public void onFrame(byte[] frame) {
+        checkProducerThread();
         if (frame == null) {
             log.warn("Dropped null frame");
             return;
@@ -133,6 +143,83 @@ public final class OrderGateway {
         // Claim a slot, copy the validated fields in, publish. One call, no
         // per-message allocation.
         ringBuffer.publishEvent(COPY_INTO_SLOT, scratch);
+    }
+
+    /**
+     * Publishes a SESSION_OPEN command (SRS §3.12, D15). The session controller never touches the
+     * ring itself: it hands this call to the gateway's thread, so the inbound ring keeps a single
+     * producer. Writes every field of the carrier: the order fields to their "does not apply"
+     * values (as the journal decoder does) and every session field, then stamps the receipt time.
+     * Whether the engine accepts the open is the engine's decision ({@code engine.SessionRules}).
+     *
+     * Not thread-safe: the gateway's thread only, like {@link #onFrame}.
+     *
+     * @param symbol exactly {@link OrderEvent#SYMBOL_LENGTH} bytes, ASCII, NUL-padded
+     */
+    public void publishSessionOpen(int businessDate, byte[] symbol, long tickSize, long lotSize, long priceScale) {
+        checkProducerThread();
+        if (symbol == null || symbol.length != OrderEvent.SYMBOL_LENGTH) {
+            throw new IllegalArgumentException("symbol must be " + OrderEvent.SYMBOL_LENGTH + " bytes");
+        }
+        writeSessionCommand(OrderEventType.SESSION_OPEN);
+        scratch.businessDate = businessDate;
+        System.arraycopy(symbol, 0, scratch.symbol, 0, OrderEvent.SYMBOL_LENGTH);
+        scratch.tickSize     = tickSize;
+        scratch.lotSize      = lotSize;
+        scratch.priceScale   = priceScale;
+        publishSession();
+    }
+
+    /**
+     * Publishes a SESSION_CLOSE command for {@code businessDate} (SRS §3.12, D15), writing every
+     * field as {@link #publishSessionOpen} does. The gateway's thread only.
+     */
+    public void publishSessionClose(int businessDate) {
+        checkProducerThread();
+        writeSessionCommand(OrderEventType.SESSION_CLOSE);
+        scratch.businessDate = businessDate;
+        publishSession();
+    }
+
+    /** Every field a session command does not carry, reset exactly as the journal decoder resets it. */
+    private void writeSessionCommand(OrderEventType type) {
+        scratch.eventType       = type;
+        scratch.orderId         = -1L;
+        scratch.side            = null;
+        scratch.ordType         = null;
+        scratch.tif             = null;
+        scratch.price           = -1L;
+        scratch.quantity        = -1L;
+        scratch.maxFloor        = 0L;
+        scratch.originalOrderId = -1L;
+        scratch.clearSessionFields();
+    }
+
+    private void publishSession() {
+        scratch.timestamp = clock.getAsLong();
+        log.info("Publishing {} businessDate={}", scratch.eventType, scratch.businessDate);
+        ringBuffer.publishEvent(COPY_INTO_SLOT, scratch);
+    }
+
+    /**
+     * Enforces the single producer (SRS §5.2, D15): the first thread that publishes becomes the
+     * gateway's thread, and a publish from any other thread throws before a slot is claimed. One
+     * reference comparison per call; no allocation.
+     */
+    private void checkProducerThread() {
+        Thread current = Thread.currentThread();
+        Thread owner = producer;
+        if (owner == null) {
+            producer = current;
+        } else if (owner != current) {
+            throw new IllegalStateException("OrderGateway is confined to thread '" + owner.getName()
+                    + "' (the inbound ring's single producer, D15); called from '" + current.getName() + "'");
+        }
+    }
+
+    /** The thread confined to this gateway (the inbound ring's producer), or null before the first publish. */
+    public Thread producerThread() {
+        return producer;
     }
 
     /**

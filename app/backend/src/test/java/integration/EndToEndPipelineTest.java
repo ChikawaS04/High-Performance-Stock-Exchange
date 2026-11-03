@@ -70,7 +70,8 @@ class EndToEndPipelineTest {
         venue = JournaledVenue.create(root);
         venue.outbound().handleEventsWith(captured);
         gateway = venue.gateway();
-        venue.start();
+        venue.startAndOpen(gateway);                   // P15-8: orders match only in an open session
+        JournaledVenue.awaitOpenAndClear(captured);    // assertions below start after the open
 
         // Real decoder, driven off-channel; emits per-frame byte[] copies.
         channel = new EmbeddedChannel(new FixFrameDecoder());

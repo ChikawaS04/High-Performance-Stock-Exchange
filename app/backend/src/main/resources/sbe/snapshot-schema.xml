@@ -19,14 +19,16 @@
     peg pool, each in FIFO order. Restore appends entries in this order, so queue and pool order
     come back exactly.
 
-    Version 0. Session state (P15-8) is added as root-block fields with sinceVersion="1"; a
-    version 0 snapshot then decodes with those fields at their null values.
+    Version 1 (P15-8) adds the session state as root-block fields with sinceVersion="1". A version
+    0 snapshot decodes with those fields at their null values, read as "no session ever opened";
+    such a snapshot comes only from data written before the session lifecycle, which startup
+    refuses (P15-8).
 -->
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="codec.snapshot"
                    id="2"
-                   version="0"
-                   semanticVersion="15.5"
+                   version="1"
+                   semanticVersion="15.8"
                    description="High Performance Stock Exchange engine snapshot"
                    byteOrder="littleEndian">
     <types>
@@ -37,6 +39,13 @@
             <type name="version" primitiveType="uint16"/>
         </composite>
 
+        <type name="Symbol" primitiveType="char" length="8" characterEncoding="US-ASCII"
+              description="Session symbol, ASCII, NUL-padded"/>
+
+        <enum name="BooleanCode" encodingType="uint8">
+            <validValue name="FALSE">0</validValue>
+            <validValue name="TRUE">1</validValue>
+        </enum>
         <enum name="LocationCode" encodingType="uint8">
             <validValue name="BID">0</validValue>
             <validValue name="ASK">1</validValue>
@@ -73,6 +82,13 @@
         <field name="nextTradeId" id="5" type="int64"/>
         <field name="lastCommandTimestamp" id="6" type="int64"/>
         <field name="orderCount" id="7" type="int64"/>
+        <field name="businessDate" id="8" type="int32" sinceVersion="1"
+               description="The open session's business date; -1 while closed"/>
+        <field name="lastClosedBusinessDate" id="9" type="int32" sinceVersion="1"
+               description="The last closed business date; -1 if none"/>
+        <field name="sessionOpen" id="10" type="BooleanCode" sinceVersion="1"/>
+        <field name="symbol" id="11" type="Symbol" sinceVersion="1"
+               description="The last opened session's symbol; all NUL if none"/>
     </sbe:message>
 
     <sbe:message name="RestingOrder" id="2" description="One resting order, every Order field">

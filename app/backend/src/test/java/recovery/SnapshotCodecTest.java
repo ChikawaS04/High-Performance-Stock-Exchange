@@ -6,6 +6,7 @@ import codec.snapshot.RestingOrderEncoder;
 import engine.ExecutionListener;
 import engine.MatchingEngine;
 import engine.MatchingEngineHandler;
+import engine.Sessions;
 import event.OutboundPipeline;
 import model.OrdType;
 import model.Order;
@@ -19,7 +20,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -232,11 +235,74 @@ class SnapshotCodecTest {
         assertTrue(e.getMessage().contains(reasonPart), e.getMessage());
     }
 
+    // --- session state (P15-8, schema version 1) ---
+
+    @Test
+    void theSessionStateRoundTripsAndIsRestoredIntoTheHandler() throws Exception {
+        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(64);
+        int length = new SnapshotCodec().encode(buffer, twoSidedBook(), 42L, 4_096L, 7L, 99L, 123L,
+                true, 20261102, 20261030, Sessions.symbol("BRK.B"));
+        RestoredSnapshot snapshot = SnapshotCodec.decode(buffer, length);
+        assertTrue(snapshot.hasSessionState());
+        assertTrue(snapshot.sessionOpen());
+        assertEquals(20261102, snapshot.businessDate());
+        assertEquals(20261030, snapshot.lastClosedBusinessDate());
+        assertArrayEquals(Sessions.symbol("BRK.B"), snapshot.symbol());
+
+        MatchingEngine engine = new MatchingEngine();
+        MatchingEngineHandler handler = new MatchingEngineHandler(engine, new OutboundPipeline().getRingBuffer());
+        snapshot.applyTo(engine, handler);
+        assertTrue(handler.isSessionOpen());
+        assertEquals(20261102, handler.getBusinessDate());
+        assertEquals(20261030, handler.getLastClosedBusinessDate());
+        byte[] symbol = new byte[8];
+        handler.getSessionSymbol(symbol);
+        assertArrayEquals(Sessions.symbol("BRK.B"), symbol);
+
+        int closedLength = new SnapshotCodec().encode(buffer, new MatchingEngine(), 42L, 4_096L, 7L, 99L, 123L,
+                false, -1, 20261102, Sessions.symbol());
+        RestoredSnapshot closed = SnapshotCodec.decode(buffer, closedLength);
+        assertFalse(closed.sessionOpen());
+        assertEquals(-1, closed.businessDate());
+        assertEquals(20261102, closed.lastClosedBusinessDate());
+    }
+
+    @Test
+    void aVersionZeroSnapshotDecodesAsNeverOpened() throws Exception {
+        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(64);
+        new SnapshotCodec().encode(buffer, new MatchingEngine(), 42L, 4_096L, 7L, 99L, 123L,
+                true, 20261102, -1, Sessions.symbol());
+        // A P15-5 snapshot: version 0, its root block only the seven int64 fields, no orders.
+        int v0Block = 7 * Long.BYTES;
+        new MessageHeaderEncoder().wrap(buffer, 0).version(0).blockLength(v0Block);
+        RestoredSnapshot snapshot = SnapshotCodec.decode(buffer, MessageHeaderEncoder.ENCODED_LENGTH + v0Block);
+        assertFalse(snapshot.hasSessionState());
+        assertFalse(snapshot.sessionOpen());
+        assertEquals(-1, snapshot.businessDate());
+        assertEquals(-1, snapshot.lastClosedBusinessDate());
+        assertArrayEquals(new byte[8], snapshot.symbol());
+        assertEquals(42L, snapshot.inboundSeq(), "the version 0 fields still decode");
+    }
+
+    @Test
+    void aSessionStateNoHandlerCouldReachIsRejected() {
+        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(64);
+        SnapshotCodec codec = new SnapshotCodec();
+        int length = codec.encode(buffer, new MatchingEngine(), 1L, 0L, 7L, 0L, 0L, true, 20261332, -1, Sessions.symbol());
+        assertInvalid(buffer, length, "business date 20261332");
+        length = codec.encode(buffer, new MatchingEngine(), 1L, 0L, 7L, 0L, 0L, true, 20261102, 20261102, Sessions.symbol());
+        assertInvalid(buffer, length, "not after the last closed date");
+        length = codec.encode(buffer, new MatchingEngine(), 1L, 0L, 7L, 0L, 0L, true, 20261102, -1, new byte[8]);
+        assertInvalid(buffer, length, "symbol");
+        length = codec.encode(buffer, new MatchingEngine(), 1L, 0L, 7L, 0L, 0L, false, -1, -1, Sessions.symbol());
+        assertInvalid(buffer, length, "symbol");
+    }
+
     @Test
     void aNewerVersionIsRejected() {
         int[] len = new int[1];
         ExpandableDirectByteBuffer buffer = encoded(len);
-        new MessageHeaderEncoder().wrap(buffer, 0).version(1);
+        new MessageHeaderEncoder().wrap(buffer, 0).version(MessageHeaderEncoder.SCHEMA_VERSION + 1);
         assertInvalid(buffer, len[0], "newer");
     }
 

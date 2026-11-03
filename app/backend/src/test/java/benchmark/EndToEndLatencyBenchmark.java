@@ -4,6 +4,7 @@ import com.lmax.disruptor.EventHandler;
 
 import engine.MatchingEngine;
 import engine.MatchingEngineHandler;
+import engine.Sessions;
 import event.BookSnapshotEvent;
 import event.ExecutionEvent;
 import event.InboundPipeline;
@@ -133,6 +134,7 @@ final class EndToEndLatencyBenchmark {
         final MatchingEngineHandler handler =
                 new MatchingEngineHandler(engine, outbound.getRingBuffer(), snapshots.getRingBuffer());
         engine.setExecutionListener(handler);   // ⚠ omit this and the engine matches but emits nothing
+        Sessions.open(handler);                  // P15-8: NEW is matched only in an open session
 
         final InboundPipeline inbound = new InboundPipeline(handler);
         final OrderGateway gateway = new OrderGateway(inbound.getRingBuffer());

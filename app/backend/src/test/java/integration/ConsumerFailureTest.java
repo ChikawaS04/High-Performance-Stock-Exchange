@@ -38,6 +38,7 @@ class ConsumerFailureTest {
     @Test
     void aThrowingSubscriberDoesNotStopLaterEventsOrTheEngine() {
         int orders = 2_000;   // about two rings' worth: a dead consumer would have stalled the engine
+        int total = (int) JournaledVenue.OPEN_SEQ + orders;
         CapturingExecutionHandler executions = new CapturingExecutionHandler();
         CapturingSnapshotHandler books = new CapturingSnapshotHandler();
         ThrowsOnce<ExecutionEvent> failingExec = new ThrowsOnce<>();
@@ -47,19 +48,21 @@ class ConsumerFailureTest {
             venue.outbound().handleEventsWith(failingExec, executions);
             venue.snapshots().handleEventsWith(failingBook, books);
             OrderGateway gateway = venue.gateway();
-            venue.start();
+            venue.startAndOpen(gateway);   // P15-8: one more command, event and BOOK before the orders
 
             for (int i = 1; i <= orders; i++) gateway.onFrame(FixMessages.limit(i, '1', "150.00", 10));
 
-            executions.awaitAtLeast(orders, 10_000);
-            books.awaitAtLeast(orders, 10_000);
-            assertEquals(orders, venue.pipeline().appliedSeq(), "the engine processed every command");
+            executions.awaitAtLeast(total, 10_000);
+            books.awaitAtLeast(total, 10_000);
+            assertEquals(total, venue.pipeline().appliedSeq(), "the engine processed every command");
         }   // close(): drains cleanly and asserts no fatal
 
-        assertEquals(orders, executions.snapshot().size(), "the healthy EXEC subscriber saw every event");
-        assertEquals(orders, books.snapshot().size(), "the healthy BOOK subscriber saw every snapshot");
-        assertEquals(orders, failingExec.seen.get(), "the failing EXEC subscriber continued after its exception");
-        assertEquals(orders, failingBook.seen.get(), "the failing BOOK subscriber continued after its exception");
-        assertTrue(executions.snapshot().get(orders - 1).seq() == orders, "seq continued gap-free");
+        assertEquals(total, executions.snapshot().size(), "the healthy EXEC subscriber saw every event");
+        assertEquals(total, books.snapshot().size(), "the healthy BOOK subscriber saw every snapshot");
+        assertEquals(total, failingExec.seen.get(), "the failing EXEC subscriber continued after its exception");
+        assertEquals(total, failingBook.seen.get(), "the failing BOOK subscriber continued after its exception");
+        assertTrue(executions.snapshot().get(total - 1).seq() == total, "seq continued gap-free");
+        assertEquals(orders, executions.snapshot().stream()
+                .filter(o -> o.eventType() == event.ExecutionEventType.ORDER_ACCEPTED).count(), "every order rested");
     }
 }

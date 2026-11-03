@@ -99,6 +99,46 @@ class ExchangeConfigTest {
         assertTrue(ExchangeConfig.from(Map.of()).toString().contains("engineIdle=backoff"));
     }
 
+    @Test
+    void sessionReferenceDataDefaultsToTheEnginesValuesAndNewYork() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.of());
+        assertEquals("ASML", cfg.sessionSymbol());
+        assertEquals(100L, cfg.sessionTickSize());
+        assertEquals(1L, cfg.sessionLotSize());
+        assertEquals(10_000L, cfg.sessionPriceScale());
+        assertEquals(java.time.ZoneId.of("America/New_York"), cfg.sessionTimeZone());
+        assertTrue(cfg.sessionAutoOpen());
+        assertTrue(cfg.toString().contains("sessionSymbol=ASML"), cfg.toString());
+        assertTrue(cfg.toString().contains("sessionTimeZone=America/New_York"), cfg.toString());
+    }
+
+    @Test
+    void sessionReferenceDataCanBeOverridden() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.of(
+                "SESSION_SYMBOL", "BRK.B",
+                "SESSION_TICK_SIZE", "50",
+                "SESSION_LOT_SIZE", "100",
+                "SESSION_PRICE_SCALE", "100",
+                "SESSION_TIME_ZONE", "Europe/Amsterdam",
+                "SESSION_AUTO_OPEN", "false"));
+        assertEquals("BRK.B", cfg.sessionSymbol());
+        assertEquals(50L, cfg.sessionTickSize());
+        assertEquals(100L, cfg.sessionLotSize());
+        assertEquals(100L, cfg.sessionPriceScale());
+        assertEquals(java.time.ZoneId.of("Europe/Amsterdam"), cfg.sessionTimeZone());
+        assertFalse(cfg.sessionAutoOpen());
+    }
+
+    @Test
+    void malformedSessionValuesNameTheVariable() {
+        assertRejected(Map.of("SESSION_SYMBOL", "asml"), "SESSION_SYMBOL");
+        assertRejected(Map.of("SESSION_SYMBOL", "TOOLONGSYM"), "SESSION_SYMBOL");
+        assertRejected(Map.of("SESSION_TICK_SIZE", "0"), "SESSION_TICK_SIZE");
+        assertRejected(Map.of("SESSION_LOT_SIZE", "-1"), "SESSION_LOT_SIZE");
+        assertRejected(Map.of("SESSION_PRICE_SCALE", "ten"), "SESSION_PRICE_SCALE");
+        assertRejected(Map.of("SESSION_TIME_ZONE", "Mars/Olympus"), "SESSION_TIME_ZONE");
+    }
+
     private static void assertRejected(Map<String, String> env, String variable) {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(env));
         assertTrue(e.getMessage().contains(variable), e.getMessage());

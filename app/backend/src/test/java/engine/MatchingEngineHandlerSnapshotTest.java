@@ -47,6 +47,7 @@ class MatchingEngineHandlerSnapshotTest {
         handler = new MatchingEngineHandler(
                 engine, outbound.getRingBuffer(), snapshotPipeline.getRingBuffer());
         engine.setExecutionListener(handler);
+        Sessions.open(handler);   // P15-8: NEW is matched only in an open session
     }
 
     @AfterEach
@@ -211,6 +212,7 @@ class MatchingEngineHandlerSnapshotTest {
         MatchingEngineHandler noDepth =
                 new MatchingEngineHandler(e2, outbound.getRingBuffer());
         e2.setExecutionListener(noDepth);
+        Sessions.open(noDepth);
 
         noDepth.onEvent(newOrder(1, Side.BUY, 1_000_000, 50), 0, true);   // must not NPE
 

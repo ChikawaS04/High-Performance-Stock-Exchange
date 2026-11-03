@@ -17,6 +17,11 @@ import java.util.List;
  * @param nextTradeId          the engine's next trade id
  * @param lastCommandTimestamp the timestamp of the last applied command
  * @param orders               every resting order, in restore order
+ * @param schemaVersion        the snapshot schema version it was written with (1 from P15-8)
+ * @param sessionOpen          whether a session was open (P15-8; false in a version 0 snapshot)
+ * @param businessDate         the open session's business date, or -1
+ * @param lastClosedBusinessDate the last closed business date, or -1
+ * @param symbol               the last opened session's 8-byte symbol, all NUL if none
  */
 public record RestoredSnapshot(
         long inboundSeq,
@@ -25,12 +30,17 @@ public record RestoredSnapshot(
         long outboundLastSeq,
         long nextTradeId,
         long lastCommandTimestamp,
-        List<RestoredOrder> orders) {
+        List<RestoredOrder> orders,
+        int schemaVersion,
+        boolean sessionOpen,
+        int businessDate,
+        int lastClosedBusinessDate,
+        byte[] symbol) {
 
     /**
      * Restores this state into a pristine engine and its handler: every resting order in restore
      * order (one object graph: the queues, pools and {@code openOrders} share the instances), the
-     * trade counter, the outbound seq and the last command's timestamp.
+     * trade counter, the outbound seq, the last command's timestamp and the session state.
      *
      * @throws IllegalStateException if the engine has ever held an order or made a trade
      */
@@ -44,6 +54,12 @@ public record RestoredSnapshot(
         engine.restoreNextTradeId(nextTradeId);
         handler.restoreLastSeq(outboundLastSeq);
         handler.restoreCommandTimestamp(lastCommandTimestamp);
+        handler.restoreSession(sessionOpen, businessDate, lastClosedBusinessDate, symbol);
+    }
+
+    /** True if this snapshot was written by a build with the session lifecycle (P15-8 or later). */
+    public boolean hasSessionState() {
+        return schemaVersion >= 1;
     }
 
     /** One resting order and whether it lives in a peg pool. */

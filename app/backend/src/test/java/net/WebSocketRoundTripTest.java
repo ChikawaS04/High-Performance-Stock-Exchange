@@ -27,6 +27,7 @@ import model.Side;
 import publisher.ExecutionFrames;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
+import session.VenueStartup;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -111,9 +112,9 @@ class WebSocketRoundTripTest {
         venue.outbound().handleEventsWith(publisher.executionHandler(), new TradeLogger());
         venue.snapshots().handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
 
-        // Consumers start inward-out; the server accepts input last.
-        venue.start();
-        server.start();
+        // Main's startup order (P15-8): recover, open the session on the server's worker thread,
+        // then bind, so the client connects to a venue with its session already open.
+        VenueStartup.start(venue.config(), venue.pipeline(), server, gateway, JournaledVenue.CLOCK);
 
         client = new LoopbackClient();
         client.connect(server.boundPort());
@@ -258,16 +259,26 @@ class WebSocketRoundTripTest {
             assertNotNull(other.awaitFrame(exec("ORDER_ACCEPTED", 1), 2000), "B sees the live broadcast");
             assertNotNull(other.awaitFrame(exec("ORDER_FILLED", 2), 2000));
 
-            client.send("{\"type\":\"RESEND\",\"fromSeq\":1}");
-            assertEquals(liveAccepted, client.awaitFrame(exec("ORDER_ACCEPTED", 1), 2000), "resent seq 1, identical");
-            assertEquals(liveFilled, client.awaitFrame(exec("ORDER_FILLED", 2), 2000), "resent seq 2, identical");
+            // The history starts with the session open (P15-8), sent before either client connected.
+            final long open = JournaledVenue.OPEN_SEQ;
+            assertEquals(open + 1, liveAccepted.path("seq").asLong());
+            assertEquals(open + 2, liveFilled.path("seq").asLong());
+            client.send("{\"type\":\"RESEND\",\"fromSeq\":" + open + "}");
+            JsonNode session = client.awaitFrame(n -> "SESSION".equals(n.path("type").asText()), 2000);
+            assertNotNull(session, "the resend replays the SESSION frame");
+            assertEquals(open, session.path("seq").asLong());
+            assertEquals("OPEN", session.path("state").asText());
+            assertEquals(JournaledVenue.BUSINESS_DATE, session.path("businessDate").asInt());
+            assertEquals(liveAccepted, client.awaitFrame(exec("ORDER_ACCEPTED", 1), 2000), "resent, identical");
+            assertEquals(liveFilled, client.awaitFrame(exec("ORDER_FILLED", 2), 2000), "resent, identical");
             JsonNode done = client.awaitFrame(n -> "RESEND_COMPLETE".equals(n.path("type").asText()), 2000);
             assertNotNull(done, "the resend ends with RESEND_COMPLETE");
-            assertEquals(1, done.path("fromSeq").asLong());
-            assertEquals(2, done.path("toSeq").asLong());
-            assertEquals(2, done.path("count").asLong());
+            assertEquals(open, done.path("fromSeq").asLong());
+            assertEquals(open + 2, done.path("toSeq").asLong());
+            assertEquals(3, done.path("count").asLong());
 
             other.assertNoFrame(n -> "EXEC".equals(n.path("type").asText())
+                    || "SESSION".equals(n.path("type").asText())
                     || n.path("type").asText().startsWith("RESEND"), 500);
         } finally {
             other.close();

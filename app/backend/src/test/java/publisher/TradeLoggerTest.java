@@ -74,6 +74,13 @@ class TradeLoggerTest {
     }
 
     @Test
+    void silentOnSessionEvents() {
+        assertTrue(drive(
+                exec(ExecutionEventType.SESSION_OPENED, -1L, -1L, -1L, -1L, -1L, -1L, 1L),
+                exec(ExecutionEventType.SESSION_CLOSED, -1L, -1L, -1L, -1L, -1L, -1L, 2L)).isEmpty());
+    }
+
+    @Test
     void silentOnCancel() {
         assertTrue(drive(
                 exec(ExecutionEventType.ORDER_CANCELLED, -1L, -1L, -1L, -1L, 3L, -1L, 1L)).isEmpty());

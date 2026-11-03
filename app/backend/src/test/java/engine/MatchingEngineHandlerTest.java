@@ -35,6 +35,7 @@ class MatchingEngineHandlerTest {
         outbound.start();
         handler = new MatchingEngineHandler(engine, outbound.getRingBuffer());
         engine.setExecutionListener(handler);
+        Sessions.open(handler);   // P15-8: NEW is matched only in an open session
     }
 
     @AfterEach

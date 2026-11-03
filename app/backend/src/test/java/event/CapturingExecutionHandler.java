@@ -63,6 +63,14 @@ public final class CapturingExecutionHandler implements EventHandler<ExecutionEv
         }
     }
 
+    /**
+     * Forgets everything captured so far. For a test that has awaited a known prefix (the session
+     * open, P15-8) and asserts from there; call only once that prefix has arrived.
+     */
+    public void clear() {
+        observed.clear();
+    }
+
     public List<Observed> snapshot() {
         synchronized (observed) {
             return new ArrayList<>(observed);

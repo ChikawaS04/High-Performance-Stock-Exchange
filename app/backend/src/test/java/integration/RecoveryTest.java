@@ -62,12 +62,13 @@ class RecoveryTest {
         JournaledVenue venue = JournaledVenue.create(config, null, null);
         venue.outbound().handleEventsWith(execs);
         OrderGateway gateway = venue.gateway(RecoveryScenario.countingClock(1_000L));
-        venue.start();
+        venue.startAndOpen(gateway);   // P15-8: the session open is inbound seq 1
         for (byte[] frame : frames) gateway.onFrame(frame);
-        await(() -> venue.pipeline().appliedSeq() == frames.size(), "scenario applied");
+        int commands = RecoveryScenario.commands();
+        await(() -> venue.pipeline().appliedSeq() == commands, "scenario applied");
         venue.close();
         List<CapturingExecutionHandler.Observed> seen = execs.snapshot();
-        return new FirstRun(EngineStates.describe(venue.engine()), seen.get(seen.size() - 1).seq(), frames.size());
+        return new FirstRun(EngineStates.describe(venue.engine()), seen.get(seen.size() - 1).seq(), commands);
     }
 
     private static Path snapshotDir(Path root) {
@@ -105,7 +106,7 @@ class RecoveryTest {
     void aSnapshotPlusPartialReplayEqualsAFullReplayAndTheNextCommandsMatch() throws IOException {
         FirstRun first = runScenario(JournaledVenue.config(root, 6));   // periodic snapshots from seq 6
         Path dir = snapshotDir(root);
-        Files.delete(dir.resolve(SnapshotStore.fileName(first.commands())));   // as if it crashed after 20
+        Files.delete(dir.resolve(SnapshotStore.fileName(first.commands())));   // as if it crashed after the last
         // Normally 18; a periodic snapshot defers to a later seq if the writer was still busy.
         long periodic = new SnapshotStore(dir).loadNewestValid().inboundSeq();
         assertTrue(periodic >= 6 && periodic < first.commands(), "a periodic snapshot remains: " + periodic);
@@ -183,21 +184,22 @@ class RecoveryTest {
 
     @Test
     void aSnapshotBeyondTheJournalRefusesStartup() throws IOException {
-        runScenario(JournaledVenue.config(root));          // 20 commands, snapshot at 20
+        int full = runScenario(JournaledVenue.config(root)).commands();   // snapshot at the last seq
 
-        // A shorter history in another directory: 3 commands.
+        // A shorter history in another directory: the open and 3 orders.
         JournaledVenue shorter = JournaledVenue.create(other);
         OrderGateway gateway = shorter.gateway(RecoveryScenario.countingClock(1_000L));
-        shorter.start();
+        shorter.startAndOpen(gateway);
         for (byte[] frame : RecoveryScenario.frames().subList(0, 3)) gateway.onFrame(frame);
-        await(() -> shorter.pipeline().appliedSeq() == 3, "short history applied");
+        long shortEnd = JournaledVenue.OPEN_SEQ + 3;
+        await(() -> shorter.pipeline().appliedSeq() == shortEnd, "short history applied");
         shorter.close();
-        Files.copy(snapshotDir(root).resolve(SnapshotStore.fileName(20)),
-                snapshotDir(other).resolve(SnapshotStore.fileName(20)));
+        Files.copy(snapshotDir(root).resolve(SnapshotStore.fileName(full)),
+                snapshotDir(other).resolve(SnapshotStore.fileName(full)));
 
         RecoveryException refused = assertThrows(RecoveryException.class, () -> JournaledVenue.create(other));
-        assertTrue(refused.getMessage().contains("journal ends at inbound seq 3"), refused.getMessage());
-        assertTrue(refused.getMessage().contains("records seq 20"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("journal ends at inbound seq " + shortEnd), refused.getMessage());
+        assertTrue(refused.getMessage().contains("records seq " + full), refused.getMessage());
         assertTrue(refused.getMessage().contains(snapshotDir(other).toString()), refused.getMessage());
 
         try (Journal journal = Journal.launch(JournaledVenue.config(other))) {
@@ -263,19 +265,20 @@ class RecoveryTest {
         };
         JournaledVenue venue = JournaledVenue.create(JournaledVenue.config(root, 10), null, stalled);
         OrderGateway gateway = venue.gateway(RecoveryScenario.countingClock(1_000L));
-        venue.start();
+        venue.startAndOpen(gateway);   // the open is seq 1; the first periodic snapshot is still seq 10
         int count = 200;
         for (int i = 1; i <= count; i++) {
             gateway.onFrame(FixMessages.limit(1_000 + i, '1', "100.00", 1));
         }
         // The first periodic write (seq 10) is held forever, yet every command is matched: the
         // engine thread only encodes, it never waits for the writer.
-        await(() -> venue.pipeline().appliedSeq() == count, "all commands applied while the write is stalled");
+        long last = JournaledVenue.OPEN_SEQ + count;
+        await(() -> venue.pipeline().appliedSeq() == last, "all commands applied while the write is stalled");
         assertEquals(List.of(10L), started, "later intervals were deferred, not queued behind the stalled write");
         assertFalse(venue.pipeline().snapshotWriter().isIdle(), "the write is still held");
 
         synchronized (gate) { release[0] = true; gate.notifyAll(); }
         venue.close();
-        assertTrue(new SnapshotStore(snapshotDir(root)).exists(count), "graceful stop still wrote its snapshot");
+        assertTrue(new SnapshotStore(snapshotDir(root)).exists(last), "graceful stop still wrote its snapshot");
     }
 }

@@ -52,10 +52,10 @@ class HardKillRecoveryTest {
 
         OrderGateway gateway = recovered.gateway(RecoveryScenario.countingClock(4_000_000_000_000_000_000L));
         recovered.start();   // replays on the engine thread; no command sent yet, so the book is safe to read
-        assertEquals(RecoveryScenario.frames().size(), recovered.pipeline().replayedCommands());
+        assertEquals(RecoveryScenario.commands(), recovered.pipeline().replayedCommands());
         assertEquals(expected, EngineStates.describe(recovered.engine()), "the book came back");
         gateway.onFrame(FixMessages.cancel(900, 116));
-        RecoveryScenario.await(() -> recovered.pipeline().appliedSeq() == RecoveryScenario.frames().size() + 1,
+        RecoveryScenario.await(() -> recovered.pipeline().appliedSeq() == RecoveryScenario.commands() + 1,
                 "a command after recovery");
         recovered.close();
         assertTrue(waitedMs >= 10_000L, "the first launch met the dead run's fresh heartbeat and retried, waited "
@@ -117,7 +117,7 @@ class HardKillRecoveryTest {
         try {
             RecoveryScenario.await(() -> output.stream().anyMatch(l -> l.startsWith("READY "))
                     || !child.isAlive(), "the child to apply the scenario");
-            assertTrue(output.contains("READY " + RecoveryScenario.frames().size()), String.join("\n", output));
+            assertTrue(output.contains("READY " + RecoveryScenario.commands()), String.join("\n", output));
         } finally {
             child.destroyForcibly();
             assertTrue(child.waitFor(10, TimeUnit.SECONDS), "the child died");
@@ -140,9 +140,9 @@ class HardKillRecoveryTest {
     private List<String> referenceState() {
         try (JournaledVenue venue = JournaledVenue.create(reference)) {
             OrderGateway gateway = venue.gateway(RecoveryScenario.countingClock(1_000L));
-            venue.start();
+            venue.startAndOpen(gateway);
             for (byte[] frame : RecoveryScenario.frames()) gateway.onFrame(frame);
-            RecoveryScenario.await(() -> venue.pipeline().appliedSeq() == RecoveryScenario.frames().size(),
+            RecoveryScenario.await(() -> venue.pipeline().appliedSeq() == RecoveryScenario.commands(),
                     "reference applied");
             venue.close();
             return EngineStates.describe(venue.engine());

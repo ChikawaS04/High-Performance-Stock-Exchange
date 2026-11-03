@@ -106,9 +106,9 @@ class ResendTest {
     private static List<String> runScenario(JournaledVenue venue, LiveFrames live) {
         List<byte[]> frames = RecoveryScenario.frames();
         OrderGateway gateway = venue.gateway(RecoveryScenario.countingClock(1_000L));
-        venue.start();
+        venue.startAndOpen(gateway);   // P15-8: the history starts with the SESSION frame at seq 1
         for (byte[] frame : frames) gateway.onFrame(frame);
-        await(() -> venue.pipeline().appliedSeq() == frames.size(), "scenario applied");
+        await(() -> venue.pipeline().appliedSeq() == JournaledVenue.OPEN_SEQ + frames.size(), "scenario applied");
         await(() -> live.snapshot().size() == venue.pipeline().publishedSeq(), "live frames captured");
         return live.snapshot();
     }
@@ -120,6 +120,7 @@ class ResendTest {
         venue.outbound().handleEventsWith(live);
         List<String> original = runScenario(venue, live);
         int n = original.size();
+        assertTrue(original.get(0).startsWith("{\"type\":\"SESSION\",\"seq\":1,\"state\":\"OPEN\""), original.get(0));
 
         try (Clients c = clients(venue)) {
             List<String> expected = new ArrayList<>(original.subList(2, n));
@@ -149,7 +150,7 @@ class ResendTest {
         LiveFrames afterRestart = new LiveFrames();
         again.outbound().handleEventsWith(afterRestart);
         OrderGateway gateway = again.gateway(RecoveryScenario.countingClock(4_000_000_000_000_000_000L));
-        again.start();
+        again.startAndOpen(gateway);   // the recovered session resumes: nothing is issued
         gateway.onFrame(FixMessages.limit(500, '1', "1.00", 1));
         await(() -> afterRestart.snapshot().size() == 1, "one live event after the restart");
 
@@ -158,6 +159,8 @@ class ResendTest {
             expected.add(afterRestart.snapshot().get(0));
             expected.add(complete(1, original.size() + 1, original.size() + 1));
             assertEquals(expected, resend(c, c.a(), 1), "both runs' events, one continuous seq");
+            assertEquals(1, expected.stream().filter(f -> f.contains("\"type\":\"SESSION\"")).count(),
+                    "the restart issued no second session open");
         }
         again.close();
     }

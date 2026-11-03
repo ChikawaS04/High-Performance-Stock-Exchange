@@ -6,6 +6,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
+import io.netty.channel.EventLoop;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.group.ChannelGroup;
@@ -116,10 +117,35 @@ public final class WebSocketServer {
         return ((InetSocketAddress) serverChannel.localAddress()).getPort();
     }
 
+    /** {@link #open()} then {@link #bind()}: for callers with nothing to run on the gateway's thread first. */
     public void start() throws InterruptedException {
+        open();
+        bind();
+    }
+
+    /**
+     * Creates the event loops without binding the port (P15-8). The single worker exists from here,
+     * so work can be handed to the gateway's thread ({@link #gatewayExecutor()}) before any client
+     * can connect: Main opens the session this way, then calls {@link #bind()}.
+     */
+    public void open() {
+        if (workerGroup != null) throw new IllegalStateException("already open");
         bossGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
         workerGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory()); // single worker
+    }
 
+    /**
+     * The single worker event loop: the only thread that calls the gateway (D15). Tasks run in
+     * submission order, before any channel read, if they are submitted before {@link #bind()}.
+     */
+    public EventLoop gatewayExecutor() {
+        if (workerGroup == null) throw new IllegalStateException("open() first");
+        return (EventLoop) workerGroup.next();
+    }
+
+    /** Binds the port; {@link #open()} must have run. */
+    public void bind() throws InterruptedException {
+        if (workerGroup == null) throw new IllegalStateException("open() first");
         ServerBootstrap b = new ServerBootstrap();
         b.group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel.class)

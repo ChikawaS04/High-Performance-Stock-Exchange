@@ -79,18 +79,44 @@ class HttpRouterTest {
 
             JsonNode json = mapper.readTree(body);
             assertTrue(json.path("running").asBoolean());
-            assertTrue(json.has("session"), "the session key is present for a stable shape");
-            assertTrue(json.get("session").isNull(), "no session lifecycle until P15-8");
+            assertEquals("CLOSED", json.path("session").asText(), "no session ever opened reads as closed");
+            assertTrue(json.get("businessDate").isNull(), "no business date before the first session");
             assertEquals(12, json.path("appliedInboundSeq").asLong());
             assertEquals(13, json.path("journaledInboundSeq").asLong());
             assertEquals(29, json.path("recordedOutboundSeq").asLong());
             assertEquals(30, json.path("publishedOutboundSeq").asLong());
-            assertEquals(6, json.size(), "no fields beyond the documented six");
+            assertEquals(7, json.size(), "no fields beyond the documented seven");
         } finally {
             response.release();
         }
         assertTrue(passedOn.isEmpty(), "/health is answered, not passed on");
         assertTrue(channel.isOpen(), "HTTP/1.1 keeps the connection by default");
+    }
+
+    @Test
+    void healthReportsAnOpenSessionAndItsBusinessDate() throws Exception {
+        status.session = VenueStatus.sessionWord(true, 20261102, 20261030);
+        JsonNode json = healthBody();
+        assertEquals("OPEN", json.path("session").asText());
+        assertEquals(20261102, json.path("businessDate").asInt());
+    }
+
+    @Test
+    void healthReportsAClosedSessionWithTheLastClosedDate() throws Exception {
+        status.session = VenueStatus.sessionWord(false, -1, 20261102);
+        JsonNode json = healthBody();
+        assertEquals("CLOSED", json.path("session").asText());
+        assertEquals(20261102, json.path("businessDate").asInt());
+    }
+
+    private JsonNode healthBody() throws Exception {
+        FullHttpResponse response = exchange(get("/health"));
+        try {
+            assertEquals(HttpResponseStatus.OK, response.status());
+            return mapper.readTree(bytes(response));
+        } finally {
+            response.release();
+        }
     }
 
     @Test
@@ -299,8 +325,10 @@ class HttpRouterTest {
         long journaled;
         long published;
         long recorded;
+        long session;
 
         @Override public boolean running() { return running; }
+        @Override public long session() { return session; }
         @Override public long appliedSeq() { return applied; }
         @Override public long journaledSeq() { return journaled; }
         @Override public long publishedSeq() { return published; }

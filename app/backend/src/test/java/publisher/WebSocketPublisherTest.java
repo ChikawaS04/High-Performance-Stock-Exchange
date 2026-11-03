@@ -94,6 +94,56 @@ class WebSocketPublisherTest {
         return null;
     }
 
+    // --- (0) SESSION frames (P15-8, D5) ----------------------------------------------------
+
+    private static ExecutionEvent sessionEvent(ExecutionEventType type, long seq, int businessDate, long ts) {
+        ExecutionEvent e = new ExecutionEvent();
+        e.seq = seq;
+        e.eventType = type;
+        e.orderId = -1;
+        e.tradeId = -1;
+        e.price = -1;
+        e.filledQuantity = -1;
+        e.remainingQuantity = -1;
+        e.aggressorOrderId = -1;
+        e.passiveOrderId = -1;
+        e.aggressorParticipantId = -1;
+        e.passiveParticipantId = -1;
+        e.businessDate = businessDate;
+        e.timestamp = ts;
+        return e;
+    }
+
+    @Test
+    void sessionOpenedReachesClientsAsASessionFrameNeverAnExec() throws Exception {
+        ChannelGroup group = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+        EmbeddedChannel ch = groupableChannel();
+        group.add(ch);
+        WebSocketPublisher pub = new WebSocketPublisher(group, mapper);
+
+        pub.executionHandler().onEvent(sessionEvent(ExecutionEventType.SESSION_OPENED, 1, 20261102, 55L), 0, true);
+
+        assertEquals("{\"type\":\"SESSION\",\"seq\":1,\"state\":\"OPEN\",\"businessDate\":20261102,\"timestamp\":55}",
+                readFrameText(ch), "the SRS 3.6 shape, field for field");
+        assertNull(readFrameText(ch), "one frame, and no EXEC beside it");
+        ch.finishAndReleaseAll();
+    }
+
+    @Test
+    void sessionClosedSerializesAsAClosedSessionFrame() throws Exception {
+        WebSocketPublisher pub = new WebSocketPublisher(
+                new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
+        JsonNode n = parse(pub.serializeExecution(
+                sessionEvent(ExecutionEventType.SESSION_CLOSED, 42, 20261102, 99L)));
+        assertEquals("SESSION", n.path("type").asText());
+        assertEquals(42, n.path("seq").asLong());
+        assertEquals("CLOSED", n.path("state").asText());
+        assertEquals(20261102, n.path("businessDate").asInt());
+        assertEquals(99, n.path("timestamp").asLong());
+        assertEquals(5, n.size(), "no execution fields on a SESSION frame");
+        assertFalse(n.has("execType"));
+    }
+
     // --- (1) EXEC serialization ---------------------------------------------------------
 
     @Test

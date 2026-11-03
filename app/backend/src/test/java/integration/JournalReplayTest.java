@@ -62,6 +62,7 @@ class JournalReplayTest {
     @Test
     void replayingTheInboundRecordingReproducesTheLiveExecutionAndBookStreams() {
         List<byte[]> frames = scenario();
+        final long commands = JournaledVenue.OPEN_SEQ + frames.size();
         CapturingExecutionHandler liveExec = new CapturingExecutionHandler();
         CapturingSnapshotHandler liveBook = new CapturingSnapshotHandler();
 
@@ -69,9 +70,9 @@ class JournalReplayTest {
             venue.outbound().handleEventsWith(liveExec);
             venue.snapshots().handleEventsWith(liveBook);
             OrderGateway gateway = venue.gateway();
-            venue.start();
+            venue.startAndOpen(gateway);   // P15-8: the session open is journaled first and replayed too
             for (byte[] frame : frames) gateway.onFrame(frame);
-            await(() -> venue.pipeline().appliedSeq() == frames.size(), "every command applied live");
+            await(() -> venue.pipeline().appliedSeq() == commands, "every command applied live");
         }   // graceful close: every event drained to the capture handlers
 
         Set<ExecutionEventType> types = EnumSet.noneOf(ExecutionEventType.class);
@@ -102,7 +103,7 @@ class JournalReplayTest {
                         codec.decode(buffer, offset, command);
                         handler.onCommand(command);
                     });
-            assertEquals(frames.size(), replayed);
+            assertEquals(commands, replayed);
             await(() -> outbound.isDrained() && snapshots.isDrained(), "replay drained");
         } finally {
             outbound.halt();
@@ -118,7 +119,7 @@ class JournalReplayTest {
 
         List<CapturingSnapshotHandler.Observed> liveBooks = liveBook.snapshot();
         List<CapturingSnapshotHandler.Observed> againBooks = replayBook.snapshot();
-        assertEquals(frames.size(), liveBooks.size(), "one BOOK per command");
+        assertEquals(commands, liveBooks.size(), "one BOOK per command, the session open included");
         assertEquals(liveBooks.size(), againBooks.size(), "book stream length");
         for (int i = 0; i < liveBooks.size(); i++) {
             CapturingSnapshotHandler.Observed a = liveBooks.get(i);

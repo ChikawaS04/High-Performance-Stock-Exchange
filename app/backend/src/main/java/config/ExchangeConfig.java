@@ -1,6 +1,8 @@
 package config;
 
 import java.nio.file.Path;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Map;
 
@@ -28,6 +30,12 @@ public final class ExchangeConfig {
     public static final String JOURNAL_TERM_LENGTH    = "JOURNAL_TERM_LENGTH";
     public static final String JOURNAL_SEGMENT_LENGTH = "JOURNAL_SEGMENT_LENGTH";
     public static final String ENGINE_IDLE_STRATEGY   = "ENGINE_IDLE_STRATEGY";
+    // Session reference data (P15-8), until P15-9 reads it from the database.
+    public static final String SESSION_SYMBOL         = "SESSION_SYMBOL";
+    public static final String SESSION_TICK_SIZE      = "SESSION_TICK_SIZE";
+    public static final String SESSION_LOT_SIZE       = "SESSION_LOT_SIZE";
+    public static final String SESSION_PRICE_SCALE    = "SESSION_PRICE_SCALE";
+    public static final String SESSION_TIME_ZONE      = "SESSION_TIME_ZONE";
 
     /**
      * How the engine agent waits when the journal has nothing new (P15-4). BACKOFF, the default,
@@ -53,6 +61,13 @@ public final class ExchangeConfig {
     /** 16 MiB. The Archive preallocates every segment file to this size, so it stays small. */
     public static final int    DEFAULT_JOURNAL_SEGMENT_LENGTH = 16 * 1024 * 1024;
 
+    public static final String DEFAULT_SESSION_SYMBOL         = "ASML";
+    public static final long   DEFAULT_SESSION_TICK_SIZE      = 100L;
+    public static final long   DEFAULT_SESSION_LOT_SIZE       = 1L;
+    public static final long   DEFAULT_SESSION_PRICE_SCALE    = 10_000L;
+    /** The business day follows New York: the terminal's market data is US equities (Alpaca). */
+    public static final String DEFAULT_SESSION_TIME_ZONE      = "America/New_York";
+
     /** Aeron's bounds for both term and segment lengths (64 KiB to 1 GiB, powers of two). */
     static final int MIN_LENGTH = 64 * 1024;
     static final int MAX_LENGTH = 1024 * 1024 * 1024;
@@ -68,6 +83,11 @@ public final class ExchangeConfig {
     private final int     journalTermLength;
     private final int     journalSegmentLength;
     private final EngineIdle engineIdle;
+    private final String  sessionSymbol;
+    private final long    sessionTickSize;
+    private final long    sessionLotSize;
+    private final long    sessionPriceScale;
+    private final ZoneId  sessionTimeZone;
 
     private ExchangeConfig(Map<String, String> env) {
         this.port                 = intValue(env, EXCHANGE_PORT, DEFAULT_PORT, 1, 65_535);
@@ -82,6 +102,11 @@ public final class ExchangeConfig {
         this.journalTermLength    = lengthValue(env, JOURNAL_TERM_LENGTH, DEFAULT_JOURNAL_TERM_LENGTH);
         this.journalSegmentLength = lengthValue(env, JOURNAL_SEGMENT_LENGTH, DEFAULT_JOURNAL_SEGMENT_LENGTH);
         this.engineIdle           = engineIdleValue(env, ENGINE_IDLE_STRATEGY, EngineIdle.BACKOFF);
+        this.sessionSymbol        = symbolValue(env, SESSION_SYMBOL, DEFAULT_SESSION_SYMBOL);
+        this.sessionTickSize      = longValue(env, SESSION_TICK_SIZE, DEFAULT_SESSION_TICK_SIZE, 1L);
+        this.sessionLotSize       = longValue(env, SESSION_LOT_SIZE, DEFAULT_SESSION_LOT_SIZE, 1L);
+        this.sessionPriceScale    = longValue(env, SESSION_PRICE_SCALE, DEFAULT_SESSION_PRICE_SCALE, 1L);
+        this.sessionTimeZone      = zoneValue(env, SESSION_TIME_ZONE, DEFAULT_SESSION_TIME_ZONE);
         if (journalSegmentLength < journalTermLength) {
             throw new IllegalArgumentException(JOURNAL_SEGMENT_LENGTH + "=" + journalSegmentLength
                     + " is smaller than " + JOURNAL_TERM_LENGTH + "=" + journalTermLength);
@@ -116,8 +141,27 @@ public final class ExchangeConfig {
     /** Applied inbound commands between periodic snapshots. */
     public long snapshotInterval() { return snapshotInterval; }
 
-    /** Whether the session opens automatically at startup (used from P15-8). */
+    /** Whether the session opens automatically at startup (P15-8). */
     public boolean sessionAutoOpen() { return sessionAutoOpen; }
+
+    /**
+     * The session's symbol: 1 to 8 of {@code [A-Z0-9.]}. The tick, lot and scale below are only
+     * checked to be positive here; whether the engine honours them is {@code engine.SessionRules}'
+     * decision, applied at startup before any session command is issued.
+     */
+    public String sessionSymbol() { return sessionSymbol; }
+
+    /** The session's tick size in units of $0.0001. */
+    public long sessionTickSize() { return sessionTickSize; }
+
+    /** The session's lot size. */
+    public long sessionLotSize() { return sessionLotSize; }
+
+    /** The session's price scale (units per dollar). */
+    public long sessionPriceScale() { return sessionPriceScale; }
+
+    /** The time zone whose calendar date is the business date. */
+    public ZoneId sessionTimeZone() { return sessionTimeZone; }
 
     /** JDBC URL of the venue's database (used from P15-9). */
     public String dbUrl() { return dbUrl; }
@@ -150,6 +194,11 @@ public final class ExchangeConfig {
                 + ", journalTermLength=" + journalTermLength
                 + ", journalSegmentLength=" + journalSegmentLength
                 + ", engineIdle=" + engineIdle.value()
+                + ", sessionSymbol=" + sessionSymbol
+                + ", sessionTickSize=" + sessionTickSize
+                + ", sessionLotSize=" + sessionLotSize
+                + ", sessionPriceScale=" + sessionPriceScale
+                + ", sessionTimeZone=" + sessionTimeZone
                 + '}';
     }
 
@@ -165,6 +214,23 @@ public final class ExchangeConfig {
     private static String stringValue(Map<String, String> env, String name, String fallback) {
         String value = raw(env, name);
         return value == null ? fallback : value;
+    }
+
+    private static String symbolValue(Map<String, String> env, String name, String fallback) {
+        String value = stringValue(env, name, fallback);
+        if (!value.matches("[A-Z0-9.]{1,8}")) {
+            throw new IllegalArgumentException(name + " must be 1 to 8 characters of A-Z, 0-9 and '.': " + value);
+        }
+        return value;
+    }
+
+    private static ZoneId zoneValue(Map<String, String> env, String name, String fallback) {
+        String value = stringValue(env, name, fallback);
+        try {
+            return ZoneId.of(value);
+        } catch (DateTimeException e) {
+            throw new IllegalArgumentException(name + " is not a time zone id: " + value, e);
+        }
     }
 
     private static Path pathValue(Map<String, String> env, String name, Path fallback) {

@@ -49,6 +49,7 @@ class MatchingEngineHandlerReplayTest {
         snapshots.start();
         handler = new MatchingEngineHandler(engine, outbound.getRingBuffer(), snapshots.getRingBuffer());
         engine.setExecutionListener(handler);
+        Sessions.open(handler);   // P15-8: NEW is matched only in an open session
     }
 
     @AfterEach
@@ -120,6 +121,7 @@ class MatchingEngineHandlerReplayTest {
         MatchingEngine liveEngine = new MatchingEngine();
         MatchingEngineHandler live = new MatchingEngineHandler(liveEngine, new OutboundPipeline().getRingBuffer());
         liveEngine.setExecutionListener(live);
+        Sessions.open(live);
         live.onCommand(order(1, Side.BUY, 10, 100));
         live.onCommand(order(2, Side.BUY, 10, 200));
         live.onCommand(order(3, Side.SELL, 15, 300));
@@ -167,6 +169,41 @@ class MatchingEngineHandlerReplayTest {
     }
 
     @Test
+    void aSessionEventIsCheckedAgainstTheRecordingIncludingItsBusinessDate() {
+        ExecutionEvent recorded = new ExecutionEvent();
+        recorded.seq = 1;
+        recorded.eventType = ExecutionEventType.SESSION_OPENED;
+        recorded.orderId = -1;
+        recorded.tradeId = -1;
+        recorded.price = -1;
+        recorded.filledQuantity = -1;
+        recorded.remainingQuantity = -1;
+        recorded.aggressorOrderId = -1;
+        recorded.passiveOrderId = -1;
+        recorded.aggressorParticipantId = -1;
+        recorded.passiveParticipantId = -1;
+        recorded.businessDate = Sessions.BUSINESS_DATE;
+        recorded.timestamp = 50;
+
+        MatchingEngine same = new MatchingEngine();
+        MatchingEngineHandler matching = new MatchingEngineHandler(same, new OutboundPipeline().getRingBuffer());
+        same.setExecutionListener(matching);
+        matching.beginReplay(1, recorded);
+        matching.onCommand(Sessions.openCommand(Sessions.BUSINESS_DATE, 50));   // regenerates the recorded event
+        assertEquals(1L, matching.getLastSeq());
+
+        recorded.businessDate = 20261103;
+        MatchingEngine other = new MatchingEngine();
+        MatchingEngineHandler diverging = new MatchingEngineHandler(other, new OutboundPipeline().getRingBuffer());
+        other.setExecutionListener(diverging);
+        diverging.beginReplay(1, recorded);
+        IllegalStateException diverged = assertThrows(IllegalStateException.class,
+                () -> diverging.onCommand(Sessions.openCommand(Sessions.BUSINESS_DATE, 50)));
+        assertTrue(diverged.getMessage().contains("businessDate=20261103"), diverged.getMessage());
+        assertTrue(diverged.getMessage().contains("businessDate=" + Sessions.BUSINESS_DATE), diverged.getMessage());
+    }
+
+    @Test
     void anyFieldThatDiffersFromTheRecordingAtTheFloorThrows() {
         ExecutionEvent recorded = recordedSeq4();
         recorded.filledQuantity = 6;
@@ -183,6 +220,7 @@ class MatchingEngineHandlerReplayTest {
         MatchingEngine second = new MatchingEngine();
         MatchingEngineHandler replaying = new MatchingEngineHandler(second, new OutboundPipeline().getRingBuffer());
         second.setExecutionListener(replaying);
+        Sessions.open(replaying);
         replaying.beginReplay(4, wrongTimestamp);
         replaying.onCommand(order(1, Side.BUY, 10, 100));
         replaying.onCommand(order(2, Side.BUY, 10, 200));

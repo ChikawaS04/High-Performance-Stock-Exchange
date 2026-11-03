@@ -84,13 +84,50 @@ public final class JournalReader {
      * @throws IllegalStateException wrapping the applier's failure, or on a stall or short replay
      */
     public long replayFailFast(long recordingId, long from, long to, PositionedHandler applier) {
+        return drive(recordingId, from, to, (buffer, offset, endPosition) -> {
+            applier.onMessage(buffer, offset, endPosition);
+            return true;
+        });
+    }
+
+    /**
+     * Reads {@code recordingId} from its start, one message at a time, until {@code scanner}
+     * returns false or the recording's current end is reached, with the same failure rules as
+     * {@link #replayFailFast}. Stopping early ends the Archive replay, so a scan that finds what it
+     * looks for near the start costs little however long the recording is (P15-8 startup check).
+     *
+     * @return the number of messages read, including the one that stopped the scan
+     */
+    public long scan(long recordingId, Scanner scanner) {
+        return drive(recordingId, archive.getStartPosition(recordingId), archive.getMaxRecordedPosition(recordingId),
+                (buffer, offset, endPosition) -> scanner.onMessage(buffer, offset));
+    }
+
+    /** One recorded message; return false to stop the scan. */
+    @FunctionalInterface
+    public interface Scanner {
+        boolean onMessage(DirectBuffer buffer, int offset);
+    }
+
+    /** A positioned handler that may stop the read by returning false. */
+    @FunctionalInterface
+    private interface StoppingHandler {
+        boolean onMessage(DirectBuffer buffer, int offset, long endPosition);
+    }
+
+    private long drive(long recordingId, long from, long to, StoppingHandler applier) {
         if (to <= from) return 0;
         long[] count = {0};
         Throwable[] failure = {null};
+        boolean[] stopped = {false};
         ControlledFragmentHandler guarded = (buffer, offset, length, header) -> {
             try {
-                applier.onMessage(buffer, offset, header.position());
+                boolean more = applier.onMessage(buffer, offset, header.position());
                 count[0]++;
+                if (!more) {
+                    stopped[0] = true;
+                    return ControlledFragmentHandler.Action.BREAK;
+                }
                 return ControlledFragmentHandler.Action.CONTINUE;
             } catch (Throwable t) {
                 failure[0] = t;
@@ -117,6 +154,9 @@ public final class JournalReader {
                     throw new IllegalStateException("Replay of recording " + recordingId + " failed at position "
                             + image.position() + " after " + count[0] + " messages: " + failure[0].getMessage(),
                             failure[0]);
+                }
+                if (stopped[0]) {
+                    break;   // closing the subscription below ends the Archive replay
                 }
                 if (fragments == 0) {
                     if (image.isClosed() && image.position() < to) {

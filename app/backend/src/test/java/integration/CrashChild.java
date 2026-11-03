@@ -35,9 +35,9 @@ public final class CrashChild {
         ExchangeConfig config = JournaledVenue.config(root);
         JournaledVenue venue = JournaledVenue.create(config, new JournaledPipeline.Seams(null, null, beforeRecord));
         OrderGateway gateway = venue.gateway(RecoveryScenario.countingClock(1_000L));
-        venue.start();
+        venue.startAndOpen(gateway);   // P15-8: the session open is inbound seq 1
         for (byte[] frame : frames) gateway.onFrame(frame);
-        RecoveryScenario.await(() -> venue.pipeline().appliedSeq() == frames.size(), "scenario applied");
+        RecoveryScenario.await(() -> venue.pipeline().appliedSeq() == RecoveryScenario.commands(), "scenario applied");
         if (holdAt > 0) {
             RecoveryScenario.await(() -> venue.pipeline().recordedSeq() == holdAt - 1, "recorder held at " + holdAt);
             System.out.println("PUBLISHED " + venue.pipeline().publishedSeq());

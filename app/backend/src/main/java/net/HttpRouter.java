@@ -113,10 +113,18 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
         long journaled = status.journaledSeq();
         long recorded = status.recordedSeq();
         long published = status.publishedSeq();
+        long session = status.session();   // one read: the state and its date belong together
 
         ObjectNode body = objectMapper.createObjectNode();
         body.put("running", running);
-        body.putNull("session");   // no session lifecycle until P15-8, which fills in OPEN or CLOSED
+        body.put("session", VenueStatus.isSessionOpen(session) ? "OPEN" : "CLOSED");
+        // The open day while OPEN, the last closed day while CLOSED, null if there has been none (P15-8).
+        int businessDate = VenueStatus.sessionDate(session);
+        if (businessDate < 0) {
+            body.putNull("businessDate");
+        } else {
+            body.put("businessDate", businessDate);
+        }
         body.put("appliedInboundSeq", applied);
         body.put("journaledInboundSeq", journaled);
         body.put("recordedOutboundSeq", recorded);

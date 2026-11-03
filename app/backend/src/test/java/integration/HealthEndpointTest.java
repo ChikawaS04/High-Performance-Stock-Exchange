@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
+import session.SessionController;
+import session.VenueStartup;
 import util.EpochNanoClock;
 
 import java.io.ByteArrayOutputStream;
@@ -37,6 +39,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * P15-7 over real sockets: a {@link JournaledVenue} behind a {@link WebSocketServer} with the
  * pipeline as its {@code VenueStatus}, wired as Main wires it, queried with
  * {@link java.net.http.HttpClient} while a WebSocket client on the same port sends orders.
+ * Started through {@link VenueStartup}, Main's own startup order (P15-8): the session is opened on
+ * the server's worker thread before the port is bound.
  */
 class HealthEndpointTest {
 
@@ -55,16 +59,18 @@ class HealthEndpointTest {
     private JournaledVenue venue;
     private WebSocketServer server;
     private WebSocket ws;
+    private SessionController sessions;
+    private gateway.OrderGateway gateway;
 
     @BeforeEach
     void setUp() throws Exception {
         venue = JournaledVenue.create(root);
-        server = new WebSocketServer(0, venue.gateway(), new EpochNanoClock(), null, venue.pipeline());
+        gateway = venue.gateway();
+        server = new WebSocketServer(0, gateway, new EpochNanoClock(), null, venue.pipeline());
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
         venue.outbound().handleEventsWith(publisher.executionHandler(), new TradeLogger());
         venue.snapshots().handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
-        venue.start();
-        server.start();
+        sessions = VenueStartup.start(venue.config(), venue.pipeline(), server, gateway, JournaledVenue.CLOCK);
     }
 
     @AfterEach
@@ -81,11 +87,13 @@ class HealthEndpointTest {
         assertEquals("application/json", fresh.headers().firstValue("content-type").orElse(""));
         JsonNode before = mapper.readTree(fresh.body());
         assertTrue(before.path("running").asBoolean());
-        assertTrue(before.get("session").isNull());
-        assertEquals(0, before.path("appliedInboundSeq").asLong());
-        assertEquals(0, before.path("journaledInboundSeq").asLong());
-        assertEquals(0, before.path("recordedOutboundSeq").asLong());
-        assertEquals(0, before.path("publishedOutboundSeq").asLong());
+        // The port is bound only once the session is open, so the first answer already shows it.
+        assertEquals("OPEN", before.path("session").asText());
+        assertEquals(JournaledVenue.BUSINESS_DATE, before.path("businessDate").asInt());
+        assertEquals(JournaledVenue.OPEN_SEQ, before.path("appliedInboundSeq").asLong());
+        assertEquals(JournaledVenue.OPEN_SEQ, before.path("journaledInboundSeq").asLong());
+        assertEquals(JournaledVenue.OPEN_SEQ, before.path("recordedOutboundSeq").asLong());
+        assertEquals(JournaledVenue.OPEN_SEQ, before.path("publishedOutboundSeq").asLong());
 
         // The upgrade passes through the router; the client keeps the highest EXEC seq it sees.
         AtomicLong lastExecSeq = new AtomicLong();
@@ -104,8 +112,8 @@ class HealthEndpointTest {
         assertTrue(await(() -> {
             health[0] = health();
             long published = health[0].path("publishedOutboundSeq").asLong();
-            return health[0].path("appliedInboundSeq").asLong() == 3
-                    && health[0].path("journaledInboundSeq").asLong() == 3
+            return health[0].path("appliedInboundSeq").asLong() == JournaledVenue.OPEN_SEQ + 3
+                    && health[0].path("journaledInboundSeq").asLong() == JournaledVenue.OPEN_SEQ + 3
                     && published > 0
                     && health[0].path("recordedOutboundSeq").asLong() == published
                     && lastExecSeq.get() == published;
@@ -114,7 +122,17 @@ class HealthEndpointTest {
         JsonNode after = health[0];
         assertTrue(after.path("running").asBoolean());
         assertEquals(venue.pipeline().publishedSeq(), after.path("publishedOutboundSeq").asLong());
-        assertTrue(after.path("publishedOutboundSeq").asLong() >= 3, "at least one EXEC per command");
+        assertTrue(after.path("publishedOutboundSeq").asLong() >= JournaledVenue.OPEN_SEQ + 3,
+                "at least one EXEC per command");
+    }
+
+    @Test
+    void healthReportsTheSessionClosedAfterAClose() throws Exception {
+        sessions.close(JournaledVenue.BUSINESS_DATE);   // published on the server's worker, as Main would
+        JsonNode body = mapper.readTree(get("/health").body());
+        assertEquals("CLOSED", body.path("session").asText());
+        assertEquals(JournaledVenue.BUSINESS_DATE, body.path("businessDate").asInt(), "the last closed day");
+        assertTrue(body.path("running").asBoolean());
     }
 
     @Test

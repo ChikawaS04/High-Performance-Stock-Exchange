@@ -8,11 +8,13 @@ import net.WebSocketServer;
 import publisher.ExecutionFrames;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
+import session.VenueStartup;
 import util.EpochNanoClock;
 import util.FailStop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -52,14 +54,19 @@ import java.util.concurrent.CountDownLatch;
  * publication and sequencer, engine subscription, rings, recorder and agent; then the gateway,
  * resend service, server and publisher, with subscribers registered; then consumers start, the
  * engine thread replays the journal tail (publishing and recording only the events the outbound
- * recording lacks) and the recovered book, and the server accepts connections last, so the
- * engine is subscribed before the first command is offered. A restart within 10 s of a crash waits and retries the
- * journal once. A snapshot that disagrees with the journal refuses startup (exit 2) with a
- * message saying what to do.
+ * recording lacks) and the recovered book; then the server's event loops are created, the session
+ * controller issues the session commands on the worker event loop (the gateway's only thread, D15)
+ * and waits until the engine has applied them, and only then is the port bound
+ * ({@link VenueStartup}, P15-8). So the engine is subscribed before the first command is offered,
+ * and no client order can arrive before the session is open. A restart within 10 s of a crash
+ * waits and retries the journal once. A snapshot that disagrees with the journal, data from
+ * before the session lifecycle, or a session the controller cannot open refuses startup (exit 2)
+ * with a message saying what to do.
  *
  * <p><b>Shutdown.</b> On a termination signal: stop the server (no more input), then drain the
  * pipeline by progress, write a snapshot of the final state and close the journal, so the next
- * start replays nothing. A fatal error in the sequencer or engine halts the JVM with
+ * start replays nothing. Shutdown does not close the session: a restart is not the end of the
+ * trading day, and the next start resumes it. A fatal error in the sequencer or engine halts the JVM with
  * {@link FailStop#EXIT_CODE} instead, skipping this hook; the next start recovers from the
  * newest snapshot and the journal.
  *
@@ -110,16 +117,15 @@ public final class Main {
         pipeline.outbound().handleEventsWith(publisher.executionHandler(), new TradeLogger());
         pipeline.snapshots().handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
 
-        // --- 5. Start consumers, recover on the engine thread, then accept connections -------
+        // --- 5. Recover, open the session on the gateway's thread, then accept connections ---
         try {
-            pipeline.start();
+            VenueStartup.start(config, pipeline, server, gateway, Clock.systemUTC());
         } catch (RuntimeException e) {
+            // VenueStartup has stopped the server and shut the pipeline down.
             log.error("Startup refused: {}", e.getMessage(), e);
-            resend.close();
             System.exit(STARTUP_FAILED);
             return;
         }
-        server.start();
 
         log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws, health: http://localhost:{}/health",
                 server.boundPort(), server.boundPort());

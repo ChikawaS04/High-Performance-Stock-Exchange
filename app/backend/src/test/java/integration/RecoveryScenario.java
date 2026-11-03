@@ -55,6 +55,11 @@ public final class RecoveryScenario {
                 FixMessages.limit(118, '1', "149.00", 15));          // 20 BUY queues third at 149.00
     }
 
+    /** Inbound commands in a scenario run: the session open (P15-8), then every frame. */
+    public static int commands() {
+        return (int) JournaledVenue.OPEN_SEQ + frames().size();
+    }
+
     /** A receipt clock that counts up from {@code start}, so two runs of the same input journal the same timestamps. */
     public static LongSupplier countingClock(long start) {
         long[] next = {start};

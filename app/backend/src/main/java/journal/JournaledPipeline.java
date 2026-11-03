@@ -1,5 +1,7 @@
 package journal;
 
+import codec.ExecutionEventCodec;
+import codec.OrderEventCodec;
 import com.lmax.disruptor.RingBuffer;
 import config.ExchangeConfig;
 import engine.CommandApplier;
@@ -7,10 +9,13 @@ import engine.CommandHandler;
 import engine.EngineAgent;
 import engine.MatchingEngine;
 import engine.MatchingEngineHandler;
+import event.ExecutionEvent;
+import event.ExecutionEventType;
 import event.ExecutionHistory;
 import event.FailStopExceptionHandler;
 import event.InboundPipeline;
 import event.OrderEvent;
+import event.OrderEventType;
 import event.OutboundPipeline;
 import event.SnapshotPipeline;
 import io.aeron.Image;
@@ -76,9 +81,15 @@ import java.util.function.Supplier;
  * subscriber, then starts the sequencer. Every replay failure stops startup with a
  * {@link RecoveryException} telling the operator what to do; Main exits with 2.
  *
- * Snapshots: every {@code SNAPSHOT_INTERVAL} applied commands and on request
- * ({@link SnapshotScheduler}, encoded on the engine thread, written by the snapshot writer
- * thread), and on graceful shutdown.
+ * Snapshots: every {@code SNAPSHOT_INTERVAL} applied commands, at every accepted SESSION_CLOSE
+ * (P15-8, the handler's session-close hook requests one) ({@link SnapshotScheduler}, encoded on the
+ * engine thread, written by the snapshot writer thread), and on graceful shutdown.
+ *
+ * Data from before the session lifecycle (P15-8). Such a journal holds orders matched with no
+ * session open; this engine rejects every order while closed, so replaying it would regenerate a
+ * different history. Construction refuses it with a {@link RecoveryException} naming the remedy
+ * ({@link #checkNotBeforeSessions}). The check is skipped when the snapshot recovery starts from
+ * was written by a build with sessions (it passed the check then) or the journal is empty.
  *
  * Fail-stop. A fatal sequencer or recorder offer, a recorder gap, and any unexpected engine-agent
  * exception go to the {@link FailStop}; none of those threads ever advances past the failure.
@@ -195,6 +206,9 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
                 checkRecording(snapshot, launched, config);
                 checkNotBeyondJournal(snapshot, recorded, sequencer.lastSeq(), config);
             }
+            if ((snapshot == null || !snapshot.hasSessionState()) && sequencer.lastSeq() > 0) {
+                checkNotBeforeSessions(launched, recorded, outboundRecorded, outboundFloor, config);
+            }
             if (outboundFloor == 0 && sequencer.lastSeq() > 0) {
                 log.warn("No outbound recording while the inbound journal holds {} commands (data from before P15-6,"
                         + " or the outbound recording was removed): rebuilding the outbound record by replaying the"
@@ -219,6 +233,8 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             this.snapshotWriter = writer;
             this.snapshotScheduler = new SnapshotScheduler(engine, handler, writer, store,
                     config.snapshotInterval(), recorded.recordingId());
+            // SRS §3.10: a snapshot at every session close, taken at the SESSION_CLOSE's seq.
+            handler.setSessionCloseHook(snapshotScheduler::requestSnapshot);
 
             long fromSeq = 0;
             long fromPosition = recorded.startPosition();
@@ -304,6 +320,66 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         }
     }
 
+    /**
+     * Refuses data written before the session lifecycle (P15-8). A venue with sessions rejects every
+     * NEW while closed, so before its first SESSION_OPENED it can only have published ORDER_REJECTED:
+     * nothing was accepted, so nothing could rest, fill, expire or be cancelled. Data with any of those
+     * before the first SESSION_OPENED (or with none ever) was matched without sessions.
+     *
+     * With an outbound recording the check reads it, which is exact both ways. Without one (data from
+     * before P15-6, or a removed recording) it reads the inbound journal: a NEW before the first
+     * SESSION_OPEN. That is conservative in one corner, data with sessions whose outbound recording
+     * was removed and whose first order came before its first open; the message says so.
+     * Both scans stop at the first session open, so data with sessions costs one or a few messages.
+     */
+    private static void checkNotBeforeSessions(Journal journal, RecordedPublication inbound,
+                                               RecordedPublication outbound, long outboundLastSeq,
+                                               ExchangeConfig config) {
+        JournalReader reader = new JournalReader(journal.archive());
+        boolean legacy;
+        String evidence;
+        if (outboundLastSeq > 0) {
+            ExecutionEventCodec codec = new ExecutionEventCodec();
+            ExecutionEvent event = new ExecutionEvent();
+            ExecutionEventType[] found = {null};
+            reader.scan(outbound.recordingId(), (buffer, offset) -> {
+                codec.decode(buffer, offset, event);
+                if (event.eventType == ExecutionEventType.SESSION_OPENED) return false;
+                if (event.eventType != ExecutionEventType.ORDER_REJECTED) {
+                    found[0] = event.eventType;
+                    return false;
+                }
+                return true;
+            });
+            legacy = found[0] != null;
+            evidence = "the outbound recording holds " + found[0] + " before any SESSION_OPENED";
+        } else {
+            OrderEventCodec codec = new OrderEventCodec();
+            OrderEvent command = new OrderEvent();
+            boolean[] found = {false};
+            reader.scan(inbound.recordingId(), (buffer, offset) -> {
+                codec.decode(buffer, offset, command);
+                if (command.eventType == OrderEventType.SESSION_OPEN) return false;
+                if (command.eventType == OrderEventType.NEW_ORDER) {
+                    found[0] = true;
+                    return false;
+                }
+                return true;
+            });
+            legacy = found[0];
+            evidence = "the inbound journal holds a NEW before any SESSION_OPEN and there is no outbound recording"
+                    + " (if this data was written with sessions and its outbound recording was removed, the first"
+                    + " order came before the first open and the data cannot be told apart from older data)";
+        }
+        if (legacy) {
+            throw new RecoveryException("The journal in " + config.archiveDir() + " was written before the session"
+                    + " lifecycle (P15-8): " + evidence + ". Its orders were matched with no session open, and this"
+                    + " build rejects every order while the session is closed, so replay cannot reproduce that"
+                    + " history. Move " + config.dataDir() + " aside (or delete it) to start a fresh trading history;"
+                    + " the old data can be recovered only by the build that wrote it (commit ff64995 or earlier).");
+        }
+    }
+
     /** Replays the inbound journal tail through the applier, failing on the first command that does not apply. */
     private long replay() {
         RecordedPublication recorded = inboundRecorded;
@@ -376,6 +452,12 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
     @Override
     public long appliedSeq() {
         return agent.appliedSeq();
+    }
+
+    /** The engine's session state, as the engine thread last published it (P15-8). Any thread. */
+    @Override
+    public long session() {
+        return handler.sessionWord();
     }
 
     /** The last outbound seq offered to the outbound recording. Any thread. */

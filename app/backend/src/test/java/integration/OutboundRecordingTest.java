@@ -55,9 +55,9 @@ class OutboundRecordingTest {
         JournaledVenue venue = JournaledVenue.create(config, new JournaledPipeline.Seams(null, null, beforeRecord));
         venue.outbound().handleEventsWith(execs);
         OrderGateway gateway = venue.gateway(RecoveryScenario.countingClock(1_000L));
-        venue.start();
+        venue.startAndOpen(gateway);   // P15-8: SESSION_OPENED is the first published event, seq 1
         for (byte[] frame : frames) gateway.onFrame(frame);
-        await(() -> venue.pipeline().appliedSeq() == frames.size(), "scenario applied");
+        await(() -> venue.pipeline().appliedSeq() == RecoveryScenario.commands(), "scenario applied");
         // Every event is on the ring once its command is applied; wait for the capture to see them all
         // (draining by the ring is impossible once the recorder has died).
         await(() -> execs.snapshot().size() == venue.pipeline().publishedSeq(), "events captured");
@@ -67,7 +67,7 @@ class OutboundRecordingTest {
             await(() -> !venue.fatals().isEmpty(), "the recorder failure reported");
             venue.closeAfterFatal();
         }
-        return new Run(execs.snapshot(), frames.size());
+        return new Run(execs.snapshot(), RecoveryScenario.commands());
     }
 
     private static List<Observed> recording(ExchangeConfig config) {
@@ -156,10 +156,12 @@ class OutboundRecordingTest {
         assertEquals(0, venue.pipeline().publishedSeq(), "fresh run, before start");
         venue.start();
         assertEquals(0, venue.pipeline().publishedSeq(), "fresh run, no event yet");
+        venue.sessionController(gateway).startup();
+        assertEquals(JournaledVenue.OPEN_SEQ, venue.pipeline().publishedSeq(), "the session open is the first event");
         gateway.onFrame(FixMessages.limit(1, '1', "150.00", 10));
         gateway.onFrame(FixMessages.limit(2, '2', "150.00", 4));   // fill: two more events at most
-        execs.awaitAtLeast(2, 10_000);
-        await(() -> venue.pipeline().appliedSeq() == 2, "both applied");
+        execs.awaitAtLeast(3, 10_000);
+        await(() -> venue.pipeline().appliedSeq() == JournaledVenue.OPEN_SEQ + 2, "both applied");
         assertEquals(execs.snapshot().size(), venue.pipeline().publishedSeq());
         venue.close();
     }
@@ -278,7 +280,9 @@ class OutboundRecordingTest {
         JournaledVenue venue = JournaledVenue.create(JournaledVenue.config(root),
                 new JournaledPipeline.Seams(command -> entered.incrementAndGet(), null, failAt(1)));
         OrderGateway gateway = venue.gateway();
-        venue.start();
+        // The session open is command 1 and its SESSION_OPENED the event the recorder fails at; every
+        // order after it is one ACCEPTED, so the counts below are unchanged by the open.
+        venue.startAndOpen(gateway);
         for (int i = 1; i <= orders; i++) gateway.onFrame(FixMessages.limit(i, '1', "100.00", 1));
         await(() -> !venue.fatals().isEmpty(), "the recorder failure reported");
         // The dead recorder never frees a slot: the engine fills the 1,024-slot ring, then parks in

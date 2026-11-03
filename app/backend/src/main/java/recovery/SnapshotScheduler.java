@@ -35,6 +35,9 @@ public final class SnapshotScheduler implements AppliedListener {
     /** Applying thread only. */
     private boolean pending;
 
+    /** Scratch for the handler's session symbol; used only while the applying thread is between commands or stopped. */
+    private final byte[] symbol = new byte[8];
+
     /**
      * @param store       the snapshot directory; the shutdown snapshot is written here directly
      * @param interval    applied commands between periodic snapshots ({@code SNAPSHOT_INTERVAL})
@@ -51,7 +54,16 @@ public final class SnapshotScheduler implements AppliedListener {
         this.recordingId = recordingId;
     }
 
-    /** Session-close hook (wired at P15-8): snapshot after the command being applied. Applying thread only. */
+    private byte[] symbol() {
+        handler.getSessionSymbol(symbol);
+        return symbol;
+    }
+
+    /**
+     * The session-close hook: snapshot after the command being applied. {@code JournaledPipeline}
+     * installs it as the handler's session-close hook (P15-8), so the snapshot is taken at the
+     * SESSION_CLOSE's seq and holds the closed state. Applying thread only.
+     */
     public void requestSnapshot() {
         pending = true;
     }
@@ -65,7 +77,8 @@ public final class SnapshotScheduler implements AppliedListener {
             pending = false;
             try {
                 int length = codec.encode(writer.buffer(), engine, seq, position, recordingId,
-                        handler.getLastSeq(), handler.getCommandTimestamp());
+                        handler.getLastSeq(), handler.getCommandTimestamp(), handler.isSessionOpen(),
+                handler.getBusinessDate(), handler.getLastClosedBusinessDate(), symbol());
                 writer.submit(length, seq);
             } catch (Throwable t) {
                 writer.reportEncodeFailure(t);
@@ -93,7 +106,8 @@ public final class SnapshotScheduler implements AppliedListener {
             return true;              // the periodic snapshot in flight was this very seq
         }
         int length = codec.encode(writer.buffer(), engine, seq, position, recordingId,
-                handler.getLastSeq(), handler.getCommandTimestamp());
+                handler.getLastSeq(), handler.getCommandTimestamp(), handler.isSessionOpen(),
+                handler.getBusinessDate(), handler.getLastClosedBusinessDate(), symbol());
         store.write(writer.buffer(), length, seq);
         return true;
     }

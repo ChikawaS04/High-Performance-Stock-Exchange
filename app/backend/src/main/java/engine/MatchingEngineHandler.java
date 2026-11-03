@@ -6,11 +6,13 @@ import event.BookSnapshotEvent;
 import event.ExecutionEvent;
 import event.ExecutionEventType;
 import event.OrderEvent;
-import event.OrderEventType;
 import model.Order;
 import model.OrdType;
 import model.Side;
 import model.TimeInForce;
+import util.VenueStatus;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Adapts MatchingEngine onto the Disruptor: consumes OrderEvent from the inbound
@@ -46,6 +48,17 @@ import model.TimeInForce;
  * When replay regenerates that seq, every field is compared with the recording and a difference
  * throws, so a build that no longer reproduces the journal's executions refuses to start instead
  * of numbering new events on top of a different history. Live matching never reaches the check.
+ *
+ * P15-8 session state (SRS §3.3, §3.12). The handler, as the command dispatcher, owns whether a
+ * session is open, its business date, the last closed business date and the session's symbol.
+ * A NEW is matched only while a session is open; while closed it is rejected with ORDER_REJECTED.
+ * A CANCEL is accepted in either state. SESSION_OPEN and SESSION_CLOSE are checked by
+ * {@link SessionRules}; an accepted one changes the state and publishes SESSION_OPENED or
+ * SESSION_CLOSED carrying the business date, a refused one changes nothing and publishes no
+ * execution event. Every session command, accepted or not, still publishes one BOOK, like every
+ * other command. The outcome depends only on the command and this state, so replay reproduces it.
+ * Other threads read the state through {@link #sessionWord()}, which this thread publishes in one
+ * atomic store so it can never tear.
  */
 public final class MatchingEngineHandler implements EventHandler<OrderEvent>, CommandHandler, ExecutionListener {
 
@@ -72,6 +85,24 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
 
     /** The recorded event carrying seq {@link #publishFloor}, checked when replay regenerates it; null for none. */
     private ExecutionEvent expectedAtFloor;
+
+    /** Whether a session is open (P15-8). Closed at construction. */
+    private boolean sessionOpen;
+
+    /** The open session's business date (YYYYMMDD); -1 while closed. */
+    private int businessDate = -1;
+
+    /** The last closed business date; -1 if no session was ever closed. */
+    private int lastClosedBusinessDate = -1;
+
+    /** The symbol of the last session opened, NUL-padded; all NUL if none ever opened. */
+    private final byte[] sessionSymbol = new byte[OrderEvent.SYMBOL_LENGTH];
+
+    /** The session state for other threads, in {@link VenueStatus#sessionWord} form; written only here. */
+    private final AtomicLong publishedSession = new AtomicLong(0L);
+
+    /** Run after an accepted SESSION_CLOSE, on this thread (the snapshot request); null for none. */
+    private Runnable sessionCloseHook;
 
     public MatchingEngineHandler(MatchingEngine engine, RingBuffer<ExecutionEvent> outbound) {
         this(engine, outbound, null);
@@ -110,6 +141,59 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
     /** Restores the last command's timestamp from a snapshot (P15-5 recovery only). */
     public void restoreCommandTimestamp(long timestamp) {
         this.commandTimestamp = timestamp;
+    }
+
+    /** Whether a session is open. Engine thread. */
+    public boolean isSessionOpen() {
+        return sessionOpen;
+    }
+
+    /** The open session's business date, or -1 while closed. Engine thread. */
+    public int getBusinessDate() {
+        return businessDate;
+    }
+
+    /** The last closed business date, or -1 if none. Engine thread. */
+    public int getLastClosedBusinessDate() {
+        return lastClosedBusinessDate;
+    }
+
+    /** Copies the last opened session's 8-byte symbol into {@code dst}. Engine thread. */
+    public void getSessionSymbol(byte[] dst) {
+        System.arraycopy(sessionSymbol, 0, dst, 0, OrderEvent.SYMBOL_LENGTH);
+    }
+
+    /** The session state as a {@link VenueStatus#sessionWord}. Any thread. */
+    public long sessionWord() {
+        return publishedSession.get();
+    }
+
+    /**
+     * Restores the session state from a snapshot (P15-8 recovery only), like {@link #restoreLastSeq}.
+     * Publishes no event.
+     *
+     * @param businessDate the open day when {@code open}; ignored and stored as -1 when closed
+     */
+    public void restoreSession(boolean open, int businessDate, int lastClosedBusinessDate, byte[] symbol) {
+        if (open && !SessionRules.isValidDate(businessDate)) {
+            throw new IllegalArgumentException("open session with invalid business date " + businessDate);
+        }
+        if (lastClosedBusinessDate != -1 && !SessionRules.isValidDate(lastClosedBusinessDate)) {
+            throw new IllegalArgumentException("invalid last closed business date " + lastClosedBusinessDate);
+        }
+        if (symbol.length != OrderEvent.SYMBOL_LENGTH) {
+            throw new IllegalArgumentException("symbol must be " + OrderEvent.SYMBOL_LENGTH + " bytes");
+        }
+        this.sessionOpen = open;
+        this.businessDate = open ? businessDate : -1;
+        this.lastClosedBusinessDate = lastClosedBusinessDate;
+        System.arraycopy(symbol, 0, sessionSymbol, 0, OrderEvent.SYMBOL_LENGTH);
+        publishSession();
+    }
+
+    /** Run on this thread after every accepted SESSION_CLOSE: the snapshot at session close (SRS §3.10). */
+    public void setSessionCloseHook(Runnable hook) {
+        this.sessionCloseHook = hook;
     }
 
     /**
@@ -177,17 +261,75 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
     }
 
     private void process(OrderEvent event) {
-        if (event.eventType == OrderEventType.CANCEL_ORDER) {
-            boolean cancelled = engine.cancelOrder(event.originalOrderId);
-            publish(cancelled ? ExecutionEventType.ORDER_CANCELLED : ExecutionEventType.ORDER_REJECTED,
-                    event.originalOrderId, NA, NA, NA, NA, NA, NA, null, NA, NA);
+        // Branch on every command type first: nothing falls through to NEW by default (P15-8).
+        switch (event.eventType) {
+            case NEW_ORDER:
+                processNew(event);
+                return;
+            case CANCEL_ORDER:
+                // Accepted in either session state, so participants can always withdraw GTC orders.
+                boolean cancelled = engine.cancelOrder(event.originalOrderId);
+                publish(cancelled ? ExecutionEventType.ORDER_CANCELLED : ExecutionEventType.ORDER_REJECTED,
+                        event.originalOrderId, NA, NA, NA, NA, NA, NA, null, NA, NA, (int) NA);
+                return;
+            case SESSION_OPEN:
+                openSession(event);
+                return;
+            case SESSION_CLOSE:
+                closeSession(event);
+                return;
+            default:
+                // Only a corrupt journal or a new type without a branch gets here: fail-stop, never guess.
+                throw new IllegalStateException("Unhandled command type: " + event.eventType);
+        }
+    }
+
+    /** SESSION_OPEN: opens if {@link SessionRules#checkOpen} accepts; a refusal changes nothing and publishes nothing. */
+    private void openSession(OrderEvent event) {
+        int verdict = SessionRules.checkOpen(sessionOpen, lastClosedBusinessDate, event.businessDate, event.symbol,
+                event.tickSize, event.lotSize, event.priceScale);
+        if (verdict != SessionRules.OK) {
+            return;
+        }
+        sessionOpen = true;
+        businessDate = event.businessDate;
+        System.arraycopy(event.symbol, 0, sessionSymbol, 0, OrderEvent.SYMBOL_LENGTH);
+        publishSession();
+        publish(ExecutionEventType.SESSION_OPENED, NA, NA, NA, NA, NA, NA, NA, null, NA, NA, businessDate);
+    }
+
+    /** SESSION_CLOSE: closes the open day if {@link SessionRules#checkClose} accepts; a refusal changes nothing. */
+    private void closeSession(OrderEvent event) {
+        int verdict = SessionRules.checkClose(sessionOpen, businessDate, event.businessDate);
+        if (verdict != SessionRules.OK) {
+            return;
+        }
+        int closed = businessDate;
+        sessionOpen = false;
+        businessDate = -1;
+        lastClosedBusinessDate = closed;
+        publishSession();
+        publish(ExecutionEventType.SESSION_CLOSED, NA, NA, NA, NA, NA, NA, NA, null, NA, NA, closed);
+        if (sessionCloseHook != null) {
+            sessionCloseHook.run();
+        }
+    }
+
+    private void publishSession() {
+        publishedSession.lazySet(VenueStatus.sessionWord(sessionOpen, businessDate, lastClosedBusinessDate));
+    }
+
+    private void processNew(OrderEvent event) {
+        // SRS §3.3: a new order is matched only while a session is open.
+        if (!sessionOpen) {
+            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA, null, NA, NA, (int) NA);
             return;
         }
 
         // D3 (SRS §3.3): a NEW reusing the id of an order still resting is rejected before any
         // Order is built, so the resting order stays fillable and cancellable.
         if (engine.hasOpenOrder(event.orderId)) {
-            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA, null, NA, NA);
+            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA, null, NA, NA, (int) NA);
             return;
         }
 
@@ -214,7 +356,7 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
                     ordType                // LIMIT or PEG_MID (tag 40)
             );
         } catch (IllegalArgumentException rejected) {
-            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA, null, NA, NA);
+            publish(ExecutionEventType.ORDER_REJECTED, event.orderId, NA, NA, NA, NA, NA, NA, null, NA, NA, (int) NA);
             return;
         }
 
@@ -232,19 +374,19 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
                 : ExecutionEventType.ORDER_PARTIALLY_FILLED;
         publish(type, aggressorOrderId, tradeId, price, filledQuantity,
                 aggressorRemainingQuantity, aggressorOrderId, passiveOrderId,
-                aggressorSide, aggressorParticipantId, passiveParticipantId);
+                aggressorSide, aggressorParticipantId, passiveParticipantId, (int) NA);
     }
 
     @Override
     public void onAccepted(long orderId, long price, long remainingQuantity) {
-        publish(ExecutionEventType.ORDER_ACCEPTED, orderId, NA, price, NA, remainingQuantity, NA, NA, null, NA, NA);
+        publish(ExecutionEventType.ORDER_ACCEPTED, orderId, NA, price, NA, remainingQuantity, NA, NA, null, NA, NA, (int) NA);
     }
 
     @Override
     public void onExpired(long orderId, long expiredQuantity) {
         // ORDER_EXPIRED carries the order id and the quantity that expired unexecuted in
         // remainingQuantity; every other field is the NA sentinel (Phase 14 D5, SRS §3.4).
-        publish(ExecutionEventType.ORDER_EXPIRED, orderId, NA, NA, NA, expiredQuantity, NA, NA, null, NA, NA);
+        publish(ExecutionEventType.ORDER_EXPIRED, orderId, NA, NA, NA, expiredQuantity, NA, NA, null, NA, NA, (int) NA);
     }
 
     // --- single outbound publish point: writes EVERY field (slot-reuse discipline) ---
@@ -252,12 +394,14 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
     private void publish(ExecutionEventType type, long orderId, long tradeId, long price,
                          long filledQuantity, long remainingQuantity,
                          long aggressorOrderId, long passiveOrderId,
-                         Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
+                         Side aggressorSide, long aggressorParticipantId, long passiveParticipantId,
+                         int businessDate) {
         final long seq = ++lastSeq;   // D12: gap-free from 1, assigned only here, published or not
         if (seq <= publishFloor) {
             if (seq == publishFloor && expectedAtFloor != null) {
                 checkAgainstRecording(seq, type, orderId, tradeId, price, filledQuantity, remainingQuantity,
-                        aggressorOrderId, passiveOrderId, aggressorSide, aggressorParticipantId, passiveParticipantId);
+                        aggressorOrderId, passiveOrderId, aggressorSide, aggressorParticipantId, passiveParticipantId,
+                        businessDate);
             }
             return;                   // D13: replayed and already accounted for
         }
@@ -276,9 +420,7 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
             e.aggressorSide          = aggressorSide;
             e.aggressorParticipantId = aggressorParticipantId;
             e.passiveParticipantId   = passiveParticipantId;
-            // Written as a placeholder so no reused slot carries a stale value; P15-8 sets it
-            // on SESSION_OPENED / SESSION_CLOSED.
-            e.businessDate           = (int) NA;
+            e.businessDate           = businessDate;   // SESSION_OPENED / SESSION_CLOSED only; -1 otherwise
             e.timestamp              = commandTimestamp;
         } finally {
             outbound.publish(slot);
@@ -289,33 +431,35 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
     private void checkAgainstRecording(long seq, ExecutionEventType type, long orderId, long tradeId, long price,
                                        long filledQuantity, long remainingQuantity,
                                        long aggressorOrderId, long passiveOrderId,
-                                       Side aggressorSide, long aggressorParticipantId, long passiveParticipantId) {
+                                       Side aggressorSide, long aggressorParticipantId, long passiveParticipantId,
+                                       int businessDate) {
         ExecutionEvent r = expectedAtFloor;
         boolean same = r.eventType == type && r.orderId == orderId && r.tradeId == tradeId && r.price == price
                 && r.filledQuantity == filledQuantity && r.remainingQuantity == remainingQuantity
                 && r.aggressorOrderId == aggressorOrderId && r.passiveOrderId == passiveOrderId
                 && r.aggressorSide == aggressorSide && r.aggressorParticipantId == aggressorParticipantId
-                && r.passiveParticipantId == passiveParticipantId && r.businessDate == (int) NA
+                && r.passiveParticipantId == passiveParticipantId && r.businessDate == businessDate
                 && r.timestamp == commandTimestamp;
         if (!same) {
             throw new IllegalStateException("Replay regenerated a different event at outbound seq " + seq
                     + " than the outbound recording holds. Recorded: " + describe(r.eventType, r.orderId, r.tradeId,
                     r.price, r.filledQuantity, r.remainingQuantity, r.aggressorOrderId, r.passiveOrderId,
-                    r.aggressorSide, r.aggressorParticipantId, r.passiveParticipantId, r.timestamp)
+                    r.aggressorSide, r.aggressorParticipantId, r.passiveParticipantId, r.businessDate, r.timestamp)
                     + "; regenerated: " + describe(type, orderId, tradeId, price, filledQuantity, remainingQuantity,
                     aggressorOrderId, passiveOrderId, aggressorSide, aggressorParticipantId, passiveParticipantId,
-                    commandTimestamp));
+                    businessDate, commandTimestamp));
         }
     }
 
     private static String describe(ExecutionEventType type, long orderId, long tradeId, long price,
                                    long filledQuantity, long remainingQuantity, long aggressorOrderId,
                                    long passiveOrderId, Side aggressorSide, long aggressorParticipantId,
-                                   long passiveParticipantId, long timestamp) {
+                                   long passiveParticipantId, int businessDate, long timestamp) {
         return type + " orderId=" + orderId + " tradeId=" + tradeId + " price=" + price
                 + " filled=" + filledQuantity + " remaining=" + remainingQuantity
                 + " aggressor=" + aggressorOrderId + " passive=" + passiveOrderId + " side=" + aggressorSide
-                + " participants=" + aggressorParticipantId + "/" + passiveParticipantId + " timestamp=" + timestamp;
+                + " participants=" + aggressorParticipantId + "/" + passiveParticipantId
+                + " businessDate=" + businessDate + " timestamp=" + timestamp;
     }
 
     /**

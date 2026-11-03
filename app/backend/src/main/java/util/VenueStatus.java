@@ -1,8 +1,9 @@
 package util;
 
 /**
- * What {@code GET /health} reports (SRS 3.6, P15-7): whether the venue is running, and how far
- * each stage of the inbound and outbound paths has got, so lag between them is visible.
+ * What {@code GET /health} reports (SRS 3.6, P15-7): whether the venue is running, whether a
+ * session is open (P15-8), and how far each stage of the inbound and outbound paths has got, so
+ * lag between them is visible.
  *
  * Every method is readable from any thread without a lock: each reads a value its owning thread
  * publishes with a release store (or a volatile), so a reader sees a recent value, never a torn
@@ -39,4 +40,30 @@ public interface VenueStatus {
 
     /** The last outbound seq offered to the outbound recording. */
     long recordedSeq();
+
+    /**
+     * The session state the engine thread last published (P15-8), as a {@link #sessionWord}: one
+     * value, so the state and its business date can never be read from two different moments.
+     */
+    long session();
+
+    /**
+     * Packs a session state into one long: {@code 0} when no session was ever opened or closed,
+     * {@code +businessDate} while open on that day, {@code -lastClosedBusinessDate} while closed.
+     * Business dates are positive YYYYMMDD integers.
+     */
+    static long sessionWord(boolean open, int businessDate, int lastClosedBusinessDate) {
+        if (open) return businessDate;
+        return lastClosedBusinessDate > 0 ? -(long) lastClosedBusinessDate : 0L;
+    }
+
+    /** Whether {@code word} says a session is open. */
+    static boolean isSessionOpen(long word) {
+        return word > 0;
+    }
+
+    /** The open day when open, the last closed day when closed, or -1 if there is none. */
+    static int sessionDate(long word) {
+        return word == 0 ? -1 : (int) Math.abs(word);
+    }
 }
