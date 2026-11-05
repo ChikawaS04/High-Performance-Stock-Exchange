@@ -7,7 +7,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * The reference data a SESSION_OPEN carries (SRS §3.12): symbol, tick size, lot size and price
- * scale. Built from configuration until P15-9, when the database becomes its source; either way
+ * scale. Built by a {@link ReferenceSource}, from the database or from configuration; either way
  * the values travel inside the journaled command, so the engine never reads them from anywhere
  * else and replay needs neither.
  *

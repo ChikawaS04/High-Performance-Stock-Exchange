@@ -5,6 +5,7 @@ import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Every setting of the exchange process (D9), read once at startup from environment
@@ -27,11 +28,12 @@ public final class ExchangeConfig {
     public static final String DB_URL                 = "DB_URL";
     public static final String DB_USER                = "DB_USER";
     public static final String DB_PASSWORD            = "DB_PASSWORD";
+    public static final String DB_MIGRATE_ON_START    = "DB_MIGRATE_ON_START";
     public static final String JOURNAL_TERM_LENGTH    = "JOURNAL_TERM_LENGTH";
     public static final String JOURNAL_SEGMENT_LENGTH = "JOURNAL_SEGMENT_LENGTH";
     public static final String ENGINE_IDLE_STRATEGY   = "ENGINE_IDLE_STRATEGY";
-    // Session reference data (P15-8), until P15-9 reads it from the database.
-    public static final String SESSION_SYMBOL         = "SESSION_SYMBOL";
+    // Session reference data (P15-8). With DB_URL set, the database supplies all but the symbol, which names its row.
+    public static final String SESSION_SYMBOL        = "SESSION_SYMBOL";
     public static final String SESSION_TICK_SIZE      = "SESSION_TICK_SIZE";
     public static final String SESSION_LOT_SIZE       = "SESSION_LOT_SIZE";
     public static final String SESSION_PRICE_SCALE    = "SESSION_PRICE_SCALE";
@@ -55,7 +57,6 @@ public final class ExchangeConfig {
 
     public static final int    DEFAULT_PORT                   = 8080;
     public static final long   DEFAULT_SNAPSHOT_INTERVAL      = 10_000L;
-    public static final String DEFAULT_DB_URL                 = "jdbc:postgresql://localhost:5432/exchange_dev";
     /** 256 KiB: about 2,700 NEW commands per term, so three terms buffer about 8 inbound rings. */
     public static final int    DEFAULT_JOURNAL_TERM_LENGTH    = 256 * 1024;
     /** 16 MiB. The Archive preallocates every segment file to this size, so it stays small. */
@@ -72,6 +73,9 @@ public final class ExchangeConfig {
     static final int MIN_LENGTH = 64 * 1024;
     static final int MAX_LENGTH = 1024 * 1024 * 1024;
 
+    /** A password parameter in a JDBC URL, which {@link #toString()} masks. */
+    private static final Pattern URL_PASSWORD = Pattern.compile("(?i)([?&]password=)[^&]*");
+
     private final int     port;
     private final Path    dataDir;
     private final Path    aeronDir;
@@ -80,6 +84,7 @@ public final class ExchangeConfig {
     private final String  dbUrl;
     private final String  dbUser;
     private final String  dbPassword;
+    private final boolean dbMigrateOnStart;
     private final int     journalTermLength;
     private final int     journalSegmentLength;
     private final EngineIdle engineIdle;
@@ -96,9 +101,10 @@ public final class ExchangeConfig {
                 Path.of(System.getProperty("java.io.tmpdir"), "aeron-exchange"));
         this.snapshotInterval     = longValue(env, SNAPSHOT_INTERVAL, DEFAULT_SNAPSHOT_INTERVAL, 1L);
         this.sessionAutoOpen      = booleanValue(env, SESSION_AUTO_OPEN, true);
-        this.dbUrl                = stringValue(env, DB_URL, DEFAULT_DB_URL);
+        this.dbUrl                = stringValue(env, DB_URL, null);
         this.dbUser               = stringValue(env, DB_USER, null);
         this.dbPassword           = stringValue(env, DB_PASSWORD, null);
+        this.dbMigrateOnStart     = booleanValue(env, DB_MIGRATE_ON_START, true);
         this.journalTermLength    = lengthValue(env, JOURNAL_TERM_LENGTH, DEFAULT_JOURNAL_TERM_LENGTH);
         this.journalSegmentLength = lengthValue(env, JOURNAL_SEGMENT_LENGTH, DEFAULT_JOURNAL_SEGMENT_LENGTH);
         this.engineIdle           = engineIdleValue(env, ENGINE_IDLE_STRATEGY, EngineIdle.BACKOFF);
@@ -163,7 +169,11 @@ public final class ExchangeConfig {
     /** The time zone whose calendar date is the business date. */
     public ZoneId sessionTimeZone() { return sessionTimeZone; }
 
-    /** JDBC URL of the venue's database (used from P15-9). */
+    /**
+     * JDBC URL of the venue's database, or null when unset. Unset means the venue runs without a
+     * database and takes its session reference data from configuration. It may carry a password
+     * parameter, so log {@link #toString()}, never this value.
+     */
     public String dbUrl() { return dbUrl; }
 
     /** Database user, or null when unset. */
@@ -171,6 +181,9 @@ public final class ExchangeConfig {
 
     /** Database password, or null when unset. */
     public String dbPassword() { return dbPassword; }
+
+    /** Whether startup applies pending migrations; false only validates (they ran as a pre-deploy command). */
+    public boolean dbMigrateOnStart() { return dbMigrateOnStart; }
 
     /** Term buffer length of the journal's IPC streams, in bytes. */
     public int journalTermLength() { return journalTermLength; }
@@ -188,9 +201,10 @@ public final class ExchangeConfig {
                 + ", aeronDir=" + aeronDir
                 + ", snapshotInterval=" + snapshotInterval
                 + ", sessionAutoOpen=" + sessionAutoOpen
-                + ", dbUrl=" + dbUrl
+                + ", dbUrl=" + (dbUrl == null ? "<unset>" : URL_PASSWORD.matcher(dbUrl).replaceAll("$1***"))
                 + ", dbUser=" + (dbUser == null ? "<unset>" : dbUser)
                 + ", dbPassword=" + (dbPassword == null ? "<unset>" : "***")
+                + ", dbMigrateOnStart=" + dbMigrateOnStart
                 + ", journalTermLength=" + journalTermLength
                 + ", journalSegmentLength=" + journalSegmentLength
                 + ", engineIdle=" + engineIdle.value()

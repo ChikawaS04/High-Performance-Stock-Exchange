@@ -23,6 +23,9 @@
         <aeron.version>1.53.3</aeron.version>
         <sbe.version>1.40.2</sbe.version>
         <sbe.output.dir>${project.build.directory}/generated-sources/sbe</sbe.output.dir>
+        <!-- Phase 15 database (P15-9). -->
+        <postgresql.version>42.7.14</postgresql.version>
+        <flyway.version>13.10.3</flyway.version>
     </properties>
 
     <dependencies>
@@ -96,6 +99,23 @@
             <artifactId>aeron-archive</artifactId>
             <version>${aeron.version}</version>
         </dependency>
+
+        <!-- Phase 15 database: plain JDBC and versioned migrations (SRS §3.13). Off the critical path. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -167,6 +187,23 @@
                                 <argument>-classpath</argument>
                                 <classpath/>
                                 <argument>Main</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Applies pending migrations and exits (P15-9), the pre-deploy command, from app/backend:
+                         mvn -q compile exec:exec@migrate
+                         Reads DB_URL, DB_USER and DB_PASSWORD. Touches no Agrona, so it needs no flag. -->
+                    <execution>
+                        <id>migrate</id>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>db.MigrateCommand</argument>
                             </arguments>
                         </configuration>
                     </execution>

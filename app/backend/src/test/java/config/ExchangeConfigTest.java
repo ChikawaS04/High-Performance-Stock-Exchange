@@ -21,7 +21,8 @@ class ExchangeConfigTest {
                 cfg.aeronDir());
         assertEquals(10_000L, cfg.snapshotInterval());
         assertTrue(cfg.sessionAutoOpen());
-        assertEquals("jdbc:postgresql://localhost:5432/exchange_dev", cfg.dbUrl());
+        assertNull(cfg.dbUrl(), "unset means no database: reference data from configuration");
+        assertTrue(cfg.dbMigrateOnStart());
         assertNull(cfg.dbUser());
         assertNull(cfg.dbPassword());
         assertEquals(256 * 1024, cfg.journalTermLength());
@@ -85,6 +86,25 @@ class ExchangeConfigTest {
         assertFalse(shown.contains("hunter2"), shown);
         assertTrue(shown.contains("dbPassword=***"), shown);
         assertTrue(ExchangeConfig.from(Map.of()).toString().contains("dbPassword=<unset>"));
+    }
+
+    @Test
+    void aPasswordInTheDatabaseUrlIsNeverPrinted() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.of(
+                "DB_URL", "jdbc:postgresql://db:5432/x?user=venue&password=hunter2&ssl=true"));
+        String shown = cfg.toString();
+        assertFalse(shown.contains("hunter2"), shown);
+        assertTrue(shown.contains("dbUrl=jdbc:postgresql://db:5432/x?user=venue&password=***&ssl=true"), shown);
+        assertTrue(cfg.dbUrl().contains("hunter2"), "the value itself is untouched");
+        assertTrue(ExchangeConfig.from(Map.of()).toString().contains("dbUrl=<unset>"));
+    }
+
+    @Test
+    void migrateOnStartCanBeTurnedOff() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.of("DB_MIGRATE_ON_START", "false"));
+        assertFalse(cfg.dbMigrateOnStart());
+        assertTrue(cfg.toString().contains("dbMigrateOnStart=false"), cfg.toString());
+        assertRejected(Map.of("DB_MIGRATE_ON_START", "maybe"), "DB_MIGRATE_ON_START");
     }
 
     @Test

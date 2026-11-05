@@ -1,4 +1,5 @@
 import config.ExchangeConfig;
+import db.DatabaseReferenceSource;
 import engine.MatchingEngine;
 import gateway.OrderGateway;
 import journal.JournaledPipeline;
@@ -8,6 +9,10 @@ import net.WebSocketServer;
 import publisher.ExecutionFrames;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
+import session.ConfigReferenceSource;
+import session.ReferenceSource;
+import session.SessionController;
+import session.SessionScheduler;
 import session.VenueStartup;
 import util.EpochNanoClock;
 import util.FailStop;
@@ -63,7 +68,12 @@ import java.util.concurrent.CountDownLatch;
  * before the session lifecycle, or a session the controller cannot open refuses startup (exit 2)
  * with a message saying what to do.
  *
- * <p><b>Shutdown.</b> On a termination signal: stop the server (no more input), then drain the
+ * <p><b>Database (P15-9).</b> With {@code DB_URL} set, the schema step and session reference data
+ * come from PostgreSQL, on this thread and then the session scheduler's, never on the critical path
+ * (SRS 5.9): a database that cannot be reached delays opening a day, never an open one, and there is
+ * no fallback to configuration. A database that answers with something wrong refuses startup.
+ *
+ * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), then drain the
  * pipeline by progress, write a snapshot of the final state and close the journal, so the next
  * start replays nothing. Shutdown does not close the session: a restart is not the end of the
  * trading day, and the next start resumes it. A fatal error in the sequencer or engine halts the JVM with
@@ -81,6 +91,8 @@ public final class Main {
     /** Exit status when the configuration, the journal or recovery refuses startup. */
     private static final int STARTUP_FAILED = 2;
 
+    private static final long SCHEDULER_STOP_TIMEOUT_MS = 5_000L;
+
     private Main() {
         // Entry point only.
     }
@@ -88,10 +100,20 @@ public final class Main {
     public static void main(String[] args) throws Exception {
         // --- 1. Configuration --------------------------------------------------------------
         final ExchangeConfig config;
+        final ReferenceSource source;
         final JournaledPipeline pipeline;
         try {
             config = ExchangeConfig.fromEnvironment();
             log.info("Starting with {}", config);
+
+            // Before the journal: a database that answers with something wrong refuses startup here.
+            if (config.dbUrl() == null) {
+                log.info("Session reference data from configuration: {} is not set", ExchangeConfig.DB_URL);
+                source = new ConfigReferenceSource(config);
+            } else {
+                log.info("Session reference data and the trading calendar from the database");
+                source = DatabaseReferenceSource.open(config);
+            }
 
             // --- 2. Journal, recordings, snapshot, sequencer, engine subscription, rings, agent --
             pipeline = new JournaledPipeline(config, new MatchingEngine(), FailStop.HALT);
@@ -118,8 +140,12 @@ public final class Main {
         pipeline.snapshots().handleEventsWith(publisher.snapshotHandler(), new MarketDataService());
 
         // --- 5. Recover, open the session on the gateway's thread, then accept connections ---
+        final SessionScheduler scheduler;
         try {
-            VenueStartup.start(config, pipeline, server, gateway, Clock.systemUTC());
+            SessionController sessions = VenueStartup.start(config, pipeline, server, gateway, Clock.systemUTC(), source);
+            // From here the business day closes and opens by the calendar, on the scheduler's thread.
+            scheduler = new SessionScheduler(sessions::roll, SessionScheduler.TICK_INTERVAL_MS);
+            scheduler.start();
         } catch (RuntimeException e) {
             // VenueStartup has stopped the server and shut the pipeline down.
             log.error("Startup refused: {}", e.getMessage(), e);
@@ -135,20 +161,22 @@ public final class Main {
         log.info("Resend history:   {}", "{\"type\":\"RESEND\",\"fromSeq\":1}");
         log.info("Ctrl+C to stop.");
 
-        awaitShutdown(server, pipeline);
+        awaitShutdown(scheduler, server, pipeline);
     }
 
     /**
      * Parks the main thread until the JVM is asked to exit, then stops input and drains the
      * pipeline (bounded) before closing the journal.
      */
-    private static void awaitShutdown(WebSocketServer server, JournaledPipeline pipeline) throws InterruptedException {
+    private static void awaitShutdown(SessionScheduler scheduler, WebSocketServer server, JournaledPipeline pipeline)
+            throws InterruptedException {
         CountDownLatch shutdown = new CountDownLatch(1);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
             boolean clean = false;
             try {
+                scheduler.stop(SCHEDULER_STOP_TIMEOUT_MS);  // no more session commands
                 server.stop();                // no new frames can enter the gateway; resend stopped
                 clean = pipeline.shutdown();  // journal and apply everything, snapshot, drain, close
             } catch (Exception e) {

@@ -157,6 +157,69 @@ class SessionControllerTest {
         assertTrue(e.getMessage().contains("did not apply SESSION_OPEN " + TODAY), e.getMessage());
     }
 
+    private SessionController controller(ReferenceSource source) {
+        return new SessionController(source, NEW_YORK, CLOCK, true, gateway, gatewayThread, status, 1_000L);
+    }
+
+    @Test
+    void aNonTradingTodayStartsClosed() {
+        ScriptedSource source = new ScriptedSource();
+        source.closedDates.add(TODAY);
+        controller(source).startup();
+        assertTrue(issued.isEmpty());
+        assertFalse(handler.isSessionOpen());
+    }
+
+    @Test
+    void aRecoveredOpenDayResumesWithoutReadingTheSource() {
+        ScriptedSource source = new ScriptedSource();
+        source.mode = ScriptedSource.Mode.UNAVAILABLE;
+        handler.restoreSession(true, TODAY, -1, Sessions.symbol());
+        controller(source).startup();
+        assertEquals(0, source.loads(), "the journal already carries the open day's reference data");
+        assertTrue(issued.isEmpty());
+        assertTrue(handler.isSessionOpen());
+    }
+
+    @Test
+    void anUnavailableSourceStartsClosedWithNoFallback() {
+        ScriptedSource source = new ScriptedSource();
+        source.mode = ScriptedSource.Mode.UNAVAILABLE;
+        assertDoesNotThrow(() -> controller(source).startup());
+        assertEquals(1, source.loads());
+        assertTrue(issued.isEmpty(), "no session on values the database may not hold");
+        assertFalse(handler.isSessionOpen());
+    }
+
+    @Test
+    void anUnavailableSourceStillClosesAStaleDay() {
+        ScriptedSource source = new ScriptedSource();
+        source.mode = ScriptedSource.Mode.UNAVAILABLE;
+        handler.restoreSession(true, 20261030, -1, Sessions.symbol());
+        controller(source).startup();
+        assertEquals(List.of(OrderEventType.SESSION_CLOSE), issued);
+        assertFalse(handler.isSessionOpen());
+    }
+
+    @Test
+    void anUnusableSourceRefusesStartup() {
+        ScriptedSource source = new ScriptedSource();
+        source.mode = ScriptedSource.Mode.UNUSABLE;
+        SessionStartupException e = assertThrows(SessionStartupException.class, () -> controller(source).startup());
+        assertTrue(e.getMessage().contains("no instrument row"), e.getMessage());
+        assertEquals(-1, ring.getCursor(), "nothing reached the gateway");
+    }
+
+    @Test
+    void valuesFromTheSourceGoThroughTheRulesBeforeAnythingIsJournaled() {
+        ScriptedSource source = new ScriptedSource();
+        source.reference = new SessionReference("ASML", 1L, 1L, Prices.SCALE);
+        SessionStartupException e = assertThrows(SessionStartupException.class, () -> controller(source).startup());
+        assertTrue(e.getMessage().contains("the tick size must be"), e.getMessage());
+        assertTrue(e.getMessage().contains("scripted remedy"), e.getMessage());
+        assertEquals(-1, ring.getCursor(), "nothing reached the gateway");
+    }
+
     @Test
     void closeAndOpenCheckTheRulesBeforeIssuing() {
         SessionController controller = controller(true);

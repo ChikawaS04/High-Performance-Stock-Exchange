@@ -109,6 +109,13 @@ public final class JournaledVenue implements AutoCloseable {
         return ExchangeConfig.from(env);
     }
 
+    /** As {@link #config(Path)}, with the given variables on top. */
+    public static ExchangeConfig config(Path root, Map<String, String> extra) {
+        Map<String, String> env = env(root);
+        env.putAll(extra);
+        return ExchangeConfig.from(env);
+    }
+
     private static Map<String, String> env(Path root) {
         Map<String, String> env = new HashMap<>();
         env.put(ExchangeConfig.EXCHANGE_DATA_DIR, root.resolve("data").toString());
