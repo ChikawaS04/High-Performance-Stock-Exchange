@@ -20,6 +20,7 @@ import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import util.ReporterStatus;
 import util.VenueStatus;
 
 import java.nio.charset.StandardCharsets;
@@ -129,6 +130,16 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
         body.put("journaledInboundSeq", journaled);
         body.put("recordedOutboundSeq", recorded);
         body.put("publishedOutboundSeq", published);
+        // Additive, absent without a database. Reporting never changes the venue's own 200 or 503 (SRS 5.9).
+        ReporterStatus reporter = status.reporter();
+        if (reporter != null) {
+            ObjectNode node = body.putObject("reporter");
+            long outbound = reporter.outboundSeq();
+            node.put("state", reporter.state());
+            node.put("inboundSeq", reporter.inboundSeq());
+            node.put("outboundSeq", outbound);
+            node.put("outboundLag", Math.max(0L, recorded - outbound));
+        }
 
         byte[] bytes;
         try {

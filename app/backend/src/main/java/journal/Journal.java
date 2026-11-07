@@ -54,6 +54,13 @@ import java.util.concurrent.locks.LockSupport;
  * instructions ({@link #launch}). A restart within the driver's 10 s liveness window of a crash
  * is retried once ({@link #launchRetryingOnce}).
  *
+ * Keep-alive (P15-10). The Archive sends a ping on each control session's response stream every
+ * second, and only a client call reads that stream. A client that makes no call for a few minutes
+ * fills the response window, and the Archive then closes its session for good: every later call on
+ * this client fails, which would break the Reporter's reopen, RESEND and {@link #close()} itself. So
+ * one daemon thread, {@value #KEEP_ALIVE_THREAD_NAME}, polls the client. Its calls take the client's
+ * lock, so it can never read a response another caller is waiting for.
+ *
  * Threading: driver and Archive each run in SHARED mode, one thread apiece. The publications
  * this class opens are each used by one writer thread; open and close are startup and shutdown
  * calls from one thread.
@@ -73,6 +80,16 @@ public final class Journal implements AutoCloseable {
     /** Where RESEND replays of the outbound recording are delivered (P15-6). Never recorded. */
     public static final int RESEND_STREAM_ID = 1102;
 
+    /** Where the Reporter's replay of the inbound recording is delivered (P15-10). Never recorded. */
+    public static final int REPORTER_INBOUND_STREAM_ID = 1103;
+    /** Where the Reporter's replay of the outbound recording is delivered (P15-10). Never recorded. */
+    public static final int REPORTER_OUTBOUND_STREAM_ID = 1104;
+
+    public static final String KEEP_ALIVE_THREAD_NAME = "archive-keepalive";
+
+    /** How often the client reads its response stream: well inside the Archive's 1 s ping interval's window. */
+    static final long KEEP_ALIVE_INTERVAL_MS = 500L;
+
     /** Bound on every start-up and shutdown wait. */
     static final long AWAIT_TIMEOUT_MS = 10_000L;
 
@@ -89,13 +106,51 @@ public final class Journal implements AutoCloseable {
     private final AeronArchive archive;
     private final List<RecordedPublication> opened = new ArrayList<>();
     private final List<Subscription> subscriptions = new ArrayList<>();
+    private final Thread keepAlive;
+    private volatile boolean stopKeepAlive;
     private boolean closed;
 
-    private Journal(ExchangeConfig config, ArchivingMediaDriver driver, Aeron aeron, AeronArchive archive) {
+    private Journal(ExchangeConfig config, ArchivingMediaDriver driver, Aeron aeron, AeronArchive archive,
+                    long keepAliveIntervalMs) {
         this.config = config;
         this.driver = driver;
         this.aeron = aeron;
         this.archive = archive;
+        if (keepAliveIntervalMs > 0) {
+            this.keepAlive = new Thread(() -> runKeepAlive(keepAliveIntervalMs), KEEP_ALIVE_THREAD_NAME);
+            this.keepAlive.setDaemon(true);
+            this.keepAlive.start();
+        } else {
+            this.keepAlive = null;
+        }
+    }
+
+    /** Reads the client's response stream until {@link #close()}. Never touches the critical path. */
+    private void runKeepAlive(long intervalMs) {
+        while (!stopKeepAlive) {
+            try {
+                String error = archive.pollForErrorResponse();
+                if (error != null) {
+                    log.error("The Archive reported on the journal's control session: {}", error);
+                }
+            } catch (RuntimeException e) {
+                log.error("The journal's Archive client failed; its control calls cannot recover until a restart: {}",
+                        e.toString());
+                return;
+            }
+            LockSupport.parkNanos(intervalMs * 1_000_000L);
+        }
+    }
+
+    private void stopKeepAlive() {
+        if (keepAlive == null) return;
+        stopKeepAlive = true;
+        LockSupport.unpark(keepAlive);
+        try {
+            keepAlive.join(AWAIT_TIMEOUT_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -105,6 +160,11 @@ public final class Journal implements AutoCloseable {
      * @throws IllegalStateException if a live Archive owns the Archive directory
      */
     public static Journal launch(ExchangeConfig config) {
+        return launch(config, KEEP_ALIVE_INTERVAL_MS);
+    }
+
+    /** {@link #launch(ExchangeConfig)}; tests pass 0 to show what the keep-alive prevents. */
+    static Journal launch(ExchangeConfig config, long keepAliveIntervalMs) {
         ArchivingMediaDriver driver = null;
         Aeron aeron = null;
         AeronArchive archive = null;
@@ -129,7 +189,7 @@ public final class Journal implements AutoCloseable {
         }
         log.info("Journal started: archive={} aeron={} termLength={} segmentLength={}",
                 config.archiveDir(), config.aeronDir(), config.journalTermLength(), config.journalSegmentLength());
-        return new Journal(config, driver, aeron, archive);
+        return new Journal(config, driver, aeron, archive, keepAliveIntervalMs);
     }
 
     /**
@@ -245,7 +305,8 @@ public final class Journal implements AutoCloseable {
                  mtuLength, sessionId, recordedStreamId, strippedChannel, originalChannel, sourceIdentity) -> {
                     if (recordedStreamId == streamId) {
                         found.add(new RecordingDescriptor(recordingId, startPosition, stopPosition,
-                                initialTermId, segmentFileLength, termBufferLength, mtuLength, recordedStreamId));
+                                initialTermId, segmentFileLength, termBufferLength, mtuLength, recordedStreamId,
+                                startTimestamp));
                     }
                 });
         return found;
@@ -393,6 +454,7 @@ public final class Journal implements AutoCloseable {
     public void close() {
         if (closed) return;
         closed = true;
+        stopKeepAlive();
         for (Subscription subscription : subscriptions) {
             CloseHelper.quietClose(subscription);
         }

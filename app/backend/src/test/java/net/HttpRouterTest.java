@@ -20,6 +20,7 @@ import io.netty.util.ReferenceCountUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import util.ReporterStatus;
 import util.VenueStatus;
 
 import java.io.IOException;
@@ -91,6 +92,42 @@ class HttpRouterTest {
         }
         assertTrue(passedOn.isEmpty(), "/health is answered, not passed on");
         assertTrue(channel.isOpen(), "HTTP/1.1 keeps the connection by default");
+    }
+
+    private static ReporterStatus reporter(String state, long inbound, long outbound) {
+        return new ReporterStatus() {
+            @Override public String state() { return state; }
+            @Override public long inboundSeq() { return inbound; }
+            @Override public long outboundSeq() { return outbound; }
+        };
+    }
+
+    @Test
+    void healthReportsTheReporterWhenOneRuns() throws Exception {
+        status.recorded = 29;
+        status.reporter = reporter("RUNNING", 11, 25);
+        FullHttpResponse response = exchange(get("/health"));
+        try {
+            JsonNode reporter = mapper.readTree(bytes(response)).path("reporter");
+            assertEquals("RUNNING", reporter.path("state").asText());
+            assertEquals(11, reporter.path("inboundSeq").asLong());
+            assertEquals(25, reporter.path("outboundSeq").asLong());
+            assertEquals(4, reporter.path("outboundLag").asLong());
+        } finally {
+            response.release();
+        }
+    }
+
+    @Test
+    void aFailedReporterLeavesTheVenuesAnswerAt200() throws Exception {
+        status.reporter = reporter("FAILED", 1, 1);
+        FullHttpResponse response = exchange(get("/health"));
+        try {
+            assertEquals(HttpResponseStatus.OK, response.status());
+            assertEquals("FAILED", mapper.readTree(bytes(response)).path("reporter").path("state").asText());
+        } finally {
+            response.release();
+        }
     }
 
     @Test
@@ -326,6 +363,7 @@ class HttpRouterTest {
         long published;
         long recorded;
         long session;
+        ReporterStatus reporter;
 
         @Override public boolean running() { return running; }
         @Override public long session() { return session; }
@@ -333,5 +371,6 @@ class HttpRouterTest {
         @Override public long journaledSeq() { return journaled; }
         @Override public long publishedSeq() { return published; }
         @Override public long recordedSeq() { return recorded; }
+        @Override public ReporterStatus reporter() { return reporter; }
     }
 }

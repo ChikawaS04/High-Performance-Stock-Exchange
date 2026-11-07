@@ -43,7 +43,7 @@ class MigrationsTest {
     @Test
     void everyMigrationAppliesToAnEmptyDatabase() {
         MigrationInfo[] applied = new Migrator(TestDatabase.database(), true).flyway().info().applied();
-        assertEquals(5, applied.length);
+        assertEquals(6, applied.length);
         for (MigrationInfo migration : applied) {
             assertEquals(MigrationState.SUCCESS, migration.getState(), migration.getScript());
         }
@@ -58,7 +58,7 @@ class MigrationsTest {
     @Test
     void aSecondMigrateChangesNothing() {
         new Migrator(TestDatabase.database(), true).run();
-        assertEquals("5", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
+        assertEquals("6", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
         assertEquals("1", TestDatabase.queryOne("SELECT count(*) FROM instrument"));
     }
 
@@ -72,6 +72,25 @@ class MigrationsTest {
                 "SELECT id || ' ' || last_inbound_seq || ' ' || last_outbound_seq FROM reporter_checkpoint"));
         assertEquals("0", TestDatabase.queryOne("SELECT count(*) FROM trading_calendar"),
                 "an empty calendar: every day trades");
+    }
+
+    @Test
+    void theCheckpointStartsWithNoPositionSessionOrJournal() {
+        assertEquals("0 0", TestDatabase.queryOne(
+                "SELECT inbound_position || ' ' || outbound_position FROM reporter_checkpoint"));
+        assertEquals("1", TestDatabase.queryOne("SELECT count(*) FROM reporter_checkpoint WHERE session_business_date IS NULL"
+                + " AND session_symbol IS NULL AND inbound_recording_id IS NULL AND inbound_recording_ts IS NULL"
+                + " AND outbound_recording_id IS NULL AND outbound_recording_ts IS NULL"));
+    }
+
+    @Test
+    void aMinuteMayHoldOneCandlePerBusinessDate() {
+        String row = "VALUES ('ASML', 60000000000, %d, 1, 1, 1, 1, 1, 1, 1)";
+        String insert = "INSERT INTO candle (symbol, bucket_start_ts, business_date, open, high, low, close, volume,"
+                + " trade_count, last_outbound_seq) ";
+        TestDatabase.execute(insert + String.format(row, 20261102));
+        TestDatabase.execute(insert + String.format(row, 20261103));
+        assertRefused(insert + String.format(row, 20261103));
     }
 
     @Test

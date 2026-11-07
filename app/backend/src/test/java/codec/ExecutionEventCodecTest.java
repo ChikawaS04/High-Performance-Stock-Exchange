@@ -71,6 +71,42 @@ class ExecutionEventCodecTest {
         assertEquals(expected.passiveParticipantId, actual.passiveParticipantId);
         assertEquals(expected.businessDate, actual.businessDate);
         assertEquals(expected.timestamp, actual.timestamp);
+        assertEquals(expected.commandSeq, actual.commandSeq);
+    }
+
+    @Test
+    void theCommandSeqRoundTrips() {
+        ExecutionEvent src = report(4L, ExecutionEventType.ORDER_ACCEPTED, 21L, 1_000_000L, 100L);
+        src.commandSeq = 77L;
+        assertEquals(77L, roundTrip(src).commandSeq);
+        src.commandSeq = -1L;
+        assertEquals(-1L, roundTrip(src).commandSeq);
+    }
+
+    /** A message as a build before schema version 1 wrote it: a 94-byte block at version 0. */
+    @Test
+    void aVersion0MessageDecodesWithNoCommandSeqAndEveryOtherFieldIntact() {
+        ExecutionEvent src = exec(5L, ExecutionEventType.ORDER_FILLED, 11L, 501L, 1_000_050L, 10L, 0L,
+                11L, 12L, Side.SELL, 1L, 2L, -1, 3_000L);
+        src.commandSeq = 77L;
+        codec.encode(src, buffer, 0);
+        new MessageHeaderEncoder().wrap(buffer, 0).blockLength(94).version(0);
+        buffer.putLong(MessageHeaderEncoder.ENCODED_LENGTH + 96, 0xDEADL, java.nio.ByteOrder.LITTLE_ENDIAN);
+
+        ExecutionEvent dst = new ExecutionEvent();
+        EventFields.fill(dst, 9);
+        codec.decode(buffer, 0, dst);
+
+        src.commandSeq = -1L;
+        assertSameEvent(src, dst);
+    }
+
+    @Test
+    void aFrameIsTheSameSizeOnDiskAsAtVersion0() {
+        int frameHeader = 32;
+        int frameAlignment = 32;
+        int version0 = org.agrona.BitUtil.align(frameHeader + MessageHeaderEncoder.ENCODED_LENGTH + 94, frameAlignment);
+        assertEquals(version0, org.agrona.BitUtil.align(frameHeader + ExecutionEventCodec.ENCODED_LENGTH, frameAlignment));
     }
 
     @Test

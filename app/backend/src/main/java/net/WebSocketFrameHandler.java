@@ -164,6 +164,10 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
         ChannelErrors.closeOnException(ctx, cause, log);
     }
 
+    private static boolean outOfLongRange(JsonNode node) {
+        return node.isNumber() && !node.canConvertToLong();
+    }
+
     /**
      * Edge translation (§5.5): JSON -> FIX 4.2 bytes -> the existing FIX inbound authority.
      * Runs on the single worker thread, so {@link OrderGateway} stays the single inbound producer
@@ -209,6 +213,12 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                 // Order constructor's job downstream (§3.1), as for price and qty.
                 JsonNode maxFloorNode = node.path("maxFloor");
                 long maxFloor = (maxFloorNode.isMissingNode() || maxFloorNode.isNull()) ? 0L : maxFloorNode.asLong();
+                // A number too large for a long would be silently truncated by asLong(), turning it into
+                // a small valid quantity before the FIX parser's bound could see it (P15-10).
+                if (outOfLongRange(node.path("qty")) || outOfLongRange(maxFloorNode)) {
+                    log.warn("Dropping NEW order with a quantity out of range: {}", json);
+                    return;
+                }
                 // A peg carries no price of its own; the frontend sends price:-1, but branch on
                 // ordType so a peg frame that omits price never trips the reader (P14-0 finding).
                 long price = (ordType == OrdType.PEG_MID) ? -1L : node.get("price").asLong();

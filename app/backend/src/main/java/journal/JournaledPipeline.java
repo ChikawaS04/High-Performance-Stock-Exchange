@@ -35,6 +35,7 @@ import recovery.SnapshotSink;
 import recovery.SnapshotStore;
 import recovery.SnapshotWriter;
 import util.FailStop;
+import util.ReporterStatus;
 import util.VenueStatus;
 
 import java.io.IOException;
@@ -138,12 +139,14 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
     private final SnapshotScheduler snapshotScheduler;
     private final ExchangeConfig config;
     private final RecordedPublication inboundRecorded;
+    private final RecordedPublication outboundRecorded;
     private final long recoveredSnapshotSeq;
     private final long replayFromSeq;
     private final long replayFromPosition;
     private final long outboundFloor;
     private final long constructedNanos;
 
+    private volatile ReporterStatus reporterStatus;
     private volatile boolean fatal;
     /** Set on the engine thread once replay has finished and the recovered book is on the snapshot ring. */
     private volatile boolean recovered;
@@ -188,6 +191,7 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             checkRecording(newest, launched, config);
 
             RecordedPublication outboundRecorded = launched.openRecordedPublication(Journal.OUTBOUND_STREAM_ID);
+            this.outboundRecorded = outboundRecorded;
             this.recorder = OutboundRecorder.open(launched, outboundRecorded, new BackoffIdleStrategy(),
                     seams.beforeRecord());
             this.outboundFloor = recorder.lastSeqAtOpen();
@@ -225,9 +229,18 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             engine.setExecutionListener(handler);
 
             CommandHandler tap = seams.commandTap();
-            CommandHandler sink = (tap == null) ? handler : command -> {
-                tap.onCommand(command);
-                handler.onCommand(command);
+            CommandHandler sink = (tap == null) ? handler : new CommandHandler() {
+                @Override
+                public void onCommand(OrderEvent command) {
+                    tap.onCommand(command);
+                    handler.onCommand(command);
+                }
+
+                @Override
+                public void onCommand(OrderEvent command, long seq) {
+                    tap.onCommand(command, seq);
+                    handler.onCommand(command, seq);
+                }
             };
             writer = new SnapshotWriter(seams.snapshotSink() == null ? store : seams.snapshotSink());
             this.snapshotWriter = writer;
@@ -426,6 +439,26 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
 
     public Journal journal() {
         return journal;
+    }
+
+    /** The recorded inbound stream, for the Reporter. */
+    public RecordedPublication inboundRecording() {
+        return inboundRecorded;
+    }
+
+    /** The recorded outbound stream, for the Reporter. */
+    public RecordedPublication outboundRecording() {
+        return outboundRecorded;
+    }
+
+    /** Attaches what {@code /health} reports about the Reporter; any thread. */
+    public void attachReporter(ReporterStatus reporter) {
+        this.reporterStatus = reporter;
+    }
+
+    @Override
+    public ReporterStatus reporter() {
+        return reporterStatus;
     }
 
     /** The recorded execution history RESEND reads (D16). */

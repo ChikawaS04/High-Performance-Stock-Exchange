@@ -63,7 +63,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class MatchingEngineHandler implements EventHandler<OrderEvent>, CommandHandler, ExecutionListener {
 
     /** Demo simplification: the FIX subset carries no participant; the gateway is stateless. */
-    private static final long GATEWAY_PARTICIPANT_ID = 1L;
+    public static final long GATEWAY_PARTICIPANT_ID = 1L;
     private static final long NA = -1L;
 
     private final MatchingEngine engine;
@@ -73,6 +73,9 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
 
     /** Timestamp of the command being processed; stamps every EXEC and the BOOK it causes. */
     private long commandTimestamp;
+
+    /** Inbound seq of the command being processed; -1 when driven with no journal behind it (P15-10). */
+    private long commandSeq = NA;
 
     /** Outbound seq of the last published execution event (D12). 0 until the first publish. */
     private long lastSeq;
@@ -253,6 +256,13 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
      */
     @Override
     public void onCommand(OrderEvent event) {
+        onCommand(event, NA);
+    }
+
+    /** The journaled form: every event this command causes carries {@code seq} (P15-10). */
+    @Override
+    public void onCommand(OrderEvent event, long seq) {
+        commandSeq = seq;
         commandTimestamp = event.timestamp;
         process(event);
         if (!replaying) {
@@ -422,6 +432,7 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
             e.passiveParticipantId   = passiveParticipantId;
             e.businessDate           = businessDate;   // SESSION_OPENED / SESSION_CLOSED only; -1 otherwise
             e.timestamp              = commandTimestamp;
+            e.commandSeq             = commandSeq;
         } finally {
             outbound.publish(slot);
         }
@@ -439,15 +450,18 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
                 && r.aggressorOrderId == aggressorOrderId && r.passiveOrderId == passiveOrderId
                 && r.aggressorSide == aggressorSide && r.aggressorParticipantId == aggressorParticipantId
                 && r.passiveParticipantId == passiveParticipantId && r.businessDate == businessDate
-                && r.timestamp == commandTimestamp;
+                && r.timestamp == commandTimestamp
+                // A recording from before schema version 1 cannot say; -1 means nothing to compare.
+                && (r.commandSeq == NA || r.commandSeq == commandSeq);
         if (!same) {
             throw new IllegalStateException("Replay regenerated a different event at outbound seq " + seq
                     + " than the outbound recording holds. Recorded: " + describe(r.eventType, r.orderId, r.tradeId,
                     r.price, r.filledQuantity, r.remainingQuantity, r.aggressorOrderId, r.passiveOrderId,
                     r.aggressorSide, r.aggressorParticipantId, r.passiveParticipantId, r.businessDate, r.timestamp)
+                    + " commandSeq=" + r.commandSeq
                     + "; regenerated: " + describe(type, orderId, tradeId, price, filledQuantity, remainingQuantity,
                     aggressorOrderId, passiveOrderId, aggressorSide, aggressorParticipantId, passiveParticipantId,
-                    businessDate, commandTimestamp));
+                    businessDate, commandTimestamp) + " commandSeq=" + commandSeq);
         }
     }
 

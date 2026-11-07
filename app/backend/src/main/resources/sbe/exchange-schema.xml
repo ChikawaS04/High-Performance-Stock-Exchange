@@ -13,13 +13,17 @@
     (template 10) are written by the outbound recorder.
 
     Version 0 until the first real recording exists (P15-3). After that, changes are additive
-    only, with sinceVersion.
+    only, with sinceVersion. A recording may hold several versions; each message's header says
+    which it was written at.
+
+    Version 1 (P15-10): ExecutionEventMessage.commandSeq, the inbound seq of the command that
+    caused the event. Explicit offset 96 keeps it on an 8-byte boundary after the version 0 block.
 -->
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="codec"
                    id="1"
-                   version="0"
-                   semanticVersion="15.1"
+                   version="1"
+                   semanticVersion="15.10"
                    description="High Performance Stock Exchange journal"
                    byteOrder="littleEndian">
     <types>
@@ -108,5 +112,6 @@
         <field name="businessDate" id="12" type="int32"/>
         <field name="eventType" id="13" type="ExecTypeCode"/>
         <field name="aggressorSide" id="14" type="SideCode"/>
+        <field name="commandSeq" id="15" type="int64" sinceVersion="1" offset="96"/>
     </sbe:message>
 </sbe:messageSchema>

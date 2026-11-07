@@ -27,4 +27,6 @@ public final class ExecutionEvent {
     public long passiveParticipantId;   // fills only; -1 otherwise (D4)
     public int  businessDate;       // SESSION_OPENED / SESSION_CLOSED only (YYYYMMDD); -1 otherwise
     public long timestamp;          // execution publish time (epoch nanos)
+    public long commandSeq = -1L;   // inbound seq of the command that caused this event (P15-10); -1 if unknown:
+                                    // recorded before schema version 1, or produced with no journal behind it
 }

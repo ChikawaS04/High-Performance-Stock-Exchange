@@ -128,6 +128,15 @@ class OrderGatewayTest {
     }
 
     @Test
+    void quantityAboveIntegerMax_isDroppedNotPublished() throws InterruptedException {
+        gateway.onFrame(msg("35=D", "11=1", "54=1", "44=150.25", "38=" + (Integer.MAX_VALUE + 1L), "55=ASML"));
+        gateway.onFrame(msg("35=D", "11=2", "54=1", "44=150.25", "38=" + ((1L << 32) + 5L), "55=ASML"));
+
+        assertNull(handler.poll(200, TimeUnit.MILLISECONDS), "nothing above Integer.MAX_VALUE is published");
+        assertEquals(0, handler.count());
+    }
+
+    @Test
     void nullFrame_isDropped() throws InterruptedException {
         gateway.onFrame(null);
 

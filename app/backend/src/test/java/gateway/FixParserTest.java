@@ -51,6 +51,42 @@ class FixParserTest {
         return out;
     }
 
+    // --- Quantity bound (P15-10): the engine's quantities are int, so nothing above fits ---
+
+    @Test
+    void orderQtyAtIntegerMaxIsAccepted() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=" + Integer.MAX_VALUE, "55=ASML");
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(Integer.MAX_VALUE, event.quantity);
+    }
+
+    @Test
+    void orderQtyOneAboveIntegerMaxIsRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=" + (Integer.MAX_VALUE + 1L), "55=ASML");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    void orderQtyThatWouldNarrowToASmallIntIsRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=" + ((1L << 32) + 5L), "55=ASML");
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
+    @Test
+    void maxFloorAtIntegerMaxIsAccepted() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=" + Integer.MAX_VALUE, "55=ASML",
+                "111=" + Integer.MAX_VALUE);
+        assertTrue(parser.parse(m, 0, m.length, event));
+        assertEquals(Integer.MAX_VALUE, event.maxFloor);
+    }
+
+    @Test
+    void maxFloorOneAboveIntegerMaxIsRejected() {
+        byte[] m = msg("35=D", "11=1", "54=1", "44=150.25", "38=" + Integer.MAX_VALUE, "55=ASML",
+                "111=" + (Integer.MAX_VALUE + 1L));
+        assertFalse(parser.parse(m, 0, m.length, event));
+    }
+
     // --- Accept paths --------------------------------------------------------
 
     @Test

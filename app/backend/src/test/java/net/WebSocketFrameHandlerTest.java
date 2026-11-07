@@ -125,6 +125,23 @@ class WebSocketFrameHandlerTest {
     }
 
     @Test
+    void aQuantityAboveIntegerMaxPublishesNothing() throws Exception {
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"BUY\",\"price\":1502500,\"qty\":2147483648,\"symbol\":\"ASML\"}"));
+        assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void aQuantityTooLargeForALongIsDroppedNotTruncated() throws Exception {
+        // 2^64 + 5: asLong() alone would turn this into a valid quantity of 5.
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":7,\"side\":\"BUY\",\"price\":1502500,\"qty\":18446744073709551621,\"symbol\":\"ASML\"}"));
+        channel.writeInbound(new TextWebSocketFrame(
+                "{\"type\":\"NEW\",\"clOrdId\":8,\"side\":\"BUY\",\"price\":1502500,\"qty\":10,\"maxFloor\":18446744073709551621,\"symbol\":\"ASML\"}"));
+        assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
     void unknownTypePublishesNothing() throws Exception {
         channel.writeInbound(new TextWebSocketFrame("{\"type\":\"FOO\",\"clOrdId\":1}"));
         assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS));

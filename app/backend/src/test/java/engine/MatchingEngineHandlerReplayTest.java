@@ -36,12 +36,14 @@ class MatchingEngineHandlerReplayTest {
     private CapturingSnapshotHandler books;
     private MatchingEngineHandler handler;
 
+    private final java.util.List<Long> commandSeqs = new java.util.concurrent.CopyOnWriteArrayList<>();
+
     @BeforeEach
     void setUp() {
         engine = new MatchingEngine();
         outbound = new OutboundPipeline();
         execs = new CapturingExecutionHandler();
-        outbound.handleEventsWith(execs);
+        outbound.handleEventsWith(execs, (event, sequence, endOfBatch) -> commandSeqs.add(event.commandSeq));
         outbound.start();
         snapshots = new SnapshotPipeline();
         books = new CapturingSnapshotHandler();
@@ -166,6 +168,38 @@ class MatchingEngineHandlerReplayTest {
         drained();
         assertTrue(execs.snapshot().isEmpty(), "everything at or below the floor suppressed");
         assertEquals(4L, handler.getLastSeq());
+    }
+
+    @Test
+    void aRecordedCommandSeqIsComparedAtTheFloor() {
+        ExecutionEvent recorded = recordedSeq4();
+        recorded.commandSeq = 9L;
+        handler.beginReplay(4, recorded);
+        handler.onCommand(order(1, Side.BUY, 10, 100), 7L);
+        handler.onCommand(order(2, Side.BUY, 10, 200), 8L);
+        IllegalStateException diverged = assertThrows(IllegalStateException.class,
+                () -> handler.onCommand(order(3, Side.SELL, 15, 300), 10L));
+        assertTrue(diverged.getMessage().contains("commandSeq=9"), diverged.getMessage());
+        assertTrue(diverged.getMessage().contains("commandSeq=10"), diverged.getMessage());
+    }
+
+    @Test
+    void aVersion0RecordingAtTheFloorHasNoCommandSeqToCompare() {
+        ExecutionEvent recorded = recordedSeq4();   // commandSeq -1, as decoded from a version 0 message
+        handler.beginReplay(4, recorded);
+        handler.onCommand(order(1, Side.BUY, 10, 100), 7L);
+        handler.onCommand(order(2, Side.BUY, 10, 200), 8L);
+        handler.onCommand(order(3, Side.SELL, 15, 300), 10L);
+        assertEquals(4L, handler.getLastSeq());
+    }
+
+    @Test
+    void everyEventACommandCausesCarriesItsSeq() {
+        handler.onCommand(order(1, Side.BUY, 10, 100), 41L);
+        handler.onCommand(order(2, Side.SELL, 10, 200), 42L);
+        drained();
+        int size = commandSeqs.size();
+        assertEquals(java.util.List.of(41L, 42L), commandSeqs.subList(size - 2, size));
     }
 
     @Test

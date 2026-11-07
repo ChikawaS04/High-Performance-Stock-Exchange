@@ -164,7 +164,8 @@ class SessionLifecycleTest {
             assertEquals(List.of(ExecutionEventType.SESSION_CLOSED, ExecutionEventType.SESSION_OPENED), types(seen));
             assertEquals(DAY, seen.get(0).businessDate());
             assertEquals(20261103, seen.get(1).businessDate());
-            assertTrue(new SnapshotStore(again.config().snapshotDir()).exists(OPEN + 2), "snapshot at the stale close");
+            SnapshotStore store = new SnapshotStore(again.config().snapshotDir());
+            await(() -> store.exists(OPEN + 2), "the snapshot at the stale close");   // written on the writer's thread
         }
     }
 

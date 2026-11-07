@@ -9,6 +9,7 @@ import net.WebSocketServer;
 import publisher.ExecutionFrames;
 import publisher.TradeLogger;
 import publisher.WebSocketPublisher;
+import reporter.Reporter;
 import session.ConfigReferenceSource;
 import session.ReferenceSource;
 import session.SessionController;
@@ -72,8 +73,11 @@ import java.util.concurrent.CountDownLatch;
  * come from PostgreSQL, on this thread and then the session scheduler's, never on the critical path
  * (SRS 5.9): a database that cannot be reached delays opening a day, never an open one, and there is
  * no fallback to configuration. A database that answers with something wrong refuses startup.
+ * Also with {@code DB_URL} set, the {@link Reporter} moves the journal into the database on its own
+ * thread from the moment the port is bound (P15-10); it reads only the recordings, so it cannot delay
+ * matching.
  *
- * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), then drain the
+ * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), stop the Reporter, then drain the
  * pipeline by progress, write a snapshot of the final state and close the journal, so the next
  * start replays nothing. Shutdown does not close the session: a restart is not the end of the
  * trading day, and the next start resumes it. A fatal error in the sequencer or engine halts the JVM with
@@ -141,11 +145,20 @@ public final class Main {
 
         // --- 5. Recover, open the session on the gateway's thread, then accept connections ---
         final SessionScheduler scheduler;
+        final Reporter reporter;
         try {
             SessionController sessions = VenueStartup.start(config, pipeline, server, gateway, Clock.systemUTC(), source);
             // From here the business day closes and opens by the calendar, on the scheduler's thread.
             scheduler = new SessionScheduler(sessions::roll, SessionScheduler.TICK_INTERVAL_MS);
             scheduler.start();
+            // With a database, the journal flows into it on its own thread, off the critical path (P15-10).
+            if (config.dbUrl() != null) {
+                reporter = Reporter.forVenue(config, pipeline);
+                pipeline.attachReporter(reporter);
+                reporter.start();
+            } else {
+                reporter = null;
+            }
         } catch (RuntimeException e) {
             // VenueStartup has stopped the server and shut the pipeline down.
             log.error("Startup refused: {}", e.getMessage(), e);
@@ -161,15 +174,15 @@ public final class Main {
         log.info("Resend history:   {}", "{\"type\":\"RESEND\",\"fromSeq\":1}");
         log.info("Ctrl+C to stop.");
 
-        awaitShutdown(scheduler, server, pipeline);
+        awaitShutdown(scheduler, reporter, server, pipeline);
     }
 
     /**
      * Parks the main thread until the JVM is asked to exit, then stops input and drains the
      * pipeline (bounded) before closing the journal.
      */
-    private static void awaitShutdown(SessionScheduler scheduler, WebSocketServer server, JournaledPipeline pipeline)
-            throws InterruptedException {
+    private static void awaitShutdown(SessionScheduler scheduler, Reporter reporter, WebSocketServer server,
+                                      JournaledPipeline pipeline) throws InterruptedException {
         CountDownLatch shutdown = new CountDownLatch(1);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -178,6 +191,9 @@ public final class Main {
             try {
                 scheduler.stop(SCHEDULER_STOP_TIMEOUT_MS);  // no more session commands
                 server.stop();                // no new frames can enter the gateway; resend stopped
+                if (reporter != null) {
+                    reporter.stop();          // before the journal closes; the next start catches up from the checkpoint
+                }
                 clean = pipeline.shutdown();  // journal and apply everything, snapshot, drain, close
             } catch (Exception e) {
                 log.error("Error during shutdown", e);

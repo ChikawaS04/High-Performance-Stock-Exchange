@@ -248,6 +248,7 @@ final class FixParser {
 
         long qty = FixConstants.parseLong(buf, valStarts[iQty], valEnds[iQty]);
         if (qty <= 0) return false;                        // 38=0 and non-numeric
+        if (qty > Integer.MAX_VALUE) return false;         // the engine's quantities are int: never narrowed
 
         // Order type (tag 40): absent or '2' -> LIMIT; 'P' -> PEG_MID; anything else is a reject
         // (Phase 14 D9, SRS 3.1). A missing 40 means Limit, matching the tag-59 approach, so every
@@ -302,7 +303,7 @@ final class FixParser {
         } else {
             maxFloor = FixConstants.parseLong(buf, valStarts[iMaxFloor], valEnds[iMaxFloor]);
             if (maxFloor <= 0) return false;               // 111=0, negative or non-numeric
-            if (maxFloor > qty) return false;              // display cannot exceed order quantity
+            if (maxFloor > qty) return false;              // display cannot exceed order quantity; so 111 fits an int too
         }
 
         // All checks passed — populate the slot. Timestamp is the gateway's job.

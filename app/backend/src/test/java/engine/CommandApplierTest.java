@@ -59,6 +59,25 @@ class CommandApplierTest {
     }
 
     @Test
+    void theHandlerIsToldTheCommandsSeq() {
+        List<Long> seqs = new ArrayList<>();
+        CommandApplier applier = new CommandApplier(new CommandHandler() {
+            @Override
+            public void onCommand(OrderEvent command) {
+                fail("the applier passes the seq");
+            }
+
+            @Override
+            public void onCommand(OrderEvent command, long seq) {
+                seqs.add(seq);
+            }
+        }, null, 4L, 256L);
+        encode(5L, 50L);
+        applier.apply(buffer, 0, 352L);
+        assertEquals(List.of(5L), seqs);
+    }
+
+    @Test
     void aGapOrARepeatIsRefusedBeforeTheHandlerSeesIt() {
         List<Long> handled = new ArrayList<>();
         CommandApplier applier = new CommandApplier(c -> handled.add(c.orderId), null, 4L, 256L);

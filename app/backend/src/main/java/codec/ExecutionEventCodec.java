@@ -41,7 +41,8 @@ public final class ExecutionEventCodec {
                 .passiveParticipantId(src.passiveParticipantId)
                 .businessDate(src.businessDate)
                 .eventType(toCode(src.eventType))
-                .aggressorSide(OrderEventCodec.toCode(src.aggressorSide));
+                .aggressorSide(OrderEventCodec.toCode(src.aggressorSide))
+                .commandSeq(src.commandSeq);
         return MessageHeaderEncoder.ENCODED_LENGTH + encoder.encodedLength();
     }
 
@@ -73,6 +74,9 @@ public final class ExecutionEventCodec {
         dst.passiveParticipantId   = d.passiveParticipantId();
         dst.businessDate           = d.businessDate();
         dst.timestamp              = d.timestamp();
+        // A message written at schema version 0 has no such field: the decoder answers its null value.
+        final long commandSeq      = d.commandSeq();
+        dst.commandSeq             = (commandSeq == ExecutionEventMessageDecoder.commandSeqNullValue()) ? -1L : commandSeq;
     }
 
     // --- enum mapping: null <-> NULL_VAL, by switch so nothing allocates ---

@@ -34,6 +34,14 @@ class JsonToFixParseTest {
     }
 
     @Test
+    void aJsonNewOrderReachesTheParsersQuantityBound() {
+        byte[] atBound = JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, Integer.MAX_VALUE, "ASML");
+        assertEquals(Integer.MAX_VALUE, parseOk(atBound).quantity);
+        byte[] above = JsonToFix.newOrderSingle(7L, Side.BUY, 1_502_500L, Integer.MAX_VALUE + 1L, "ASML");
+        assertFalse(new FixParser().parse(above, 0, above.length, new OrderEvent()));
+    }
+
+    @Test
     void sellSideEncodesAsTwo() {
         assertEquals(Side.SELL, parseOk(JsonToFix.newOrderSingle(1L, Side.SELL, 1_000_000L, 5L, "ASML")).side);
     }

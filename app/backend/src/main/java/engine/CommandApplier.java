@@ -63,7 +63,7 @@ public final class CommandApplier {
             throw new IllegalStateException("Inbound seq " + seq + " after applied seq " + lastSeq
                     + " at position " + endPosition);
         }
-        handler.onCommand(command);
+        handler.onCommand(command, seq);
         lastSeq = seq;
         appliedPosition.lazySet(endPosition);
         appliedSeq.lazySet(seq);
