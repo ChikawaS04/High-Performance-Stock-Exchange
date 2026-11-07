@@ -35,6 +35,7 @@ import recovery.SnapshotSink;
 import recovery.SnapshotStore;
 import recovery.SnapshotWriter;
 import util.FailStop;
+import util.ClearingStatus;
 import util.ReporterStatus;
 import util.VenueStatus;
 
@@ -147,6 +148,7 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
     private final long constructedNanos;
 
     private volatile ReporterStatus reporterStatus;
+    private volatile ClearingStatus clearingStatus;
     private volatile boolean fatal;
     /** Set on the engine thread once replay has finished and the recovered book is on the snapshot ring. */
     private volatile boolean recovered;
@@ -459,6 +461,16 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
     @Override
     public ReporterStatus reporter() {
         return reporterStatus;
+    }
+
+    /** Attaches what {@code /health} reports about end-of-day clearing (P15-11); any thread. */
+    public void attachClearing(ClearingStatus clearing) {
+        this.clearingStatus = clearing;
+    }
+
+    @Override
+    public ClearingStatus clearing() {
+        return clearingStatus;
     }
 
     /** The recorded execution history RESEND reads (D16). */

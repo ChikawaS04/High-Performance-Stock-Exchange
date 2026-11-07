@@ -142,6 +142,7 @@ final class ReporterHarness {
         all.addAll(rows("SELECT e::text FROM executions e ORDER BY outbound_seq"));
         all.addAll(rows("SELECT a::text FROM order_audit a ORDER BY stream, seq"));
         all.addAll(rows("SELECT c::text FROM candle c ORDER BY business_date, bucket_start_ts"));
+        all.addAll(rows("SELECT r::text FROM clearing_run r ORDER BY business_date"));
         return all;
     }
 }

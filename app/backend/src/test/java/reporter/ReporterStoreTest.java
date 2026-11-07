@@ -70,6 +70,43 @@ class ReporterStoreTest {
                 + " || '|' || (SELECT coalesce(string_agg(c::text, ';' ORDER BY bucket_start_ts), '') FROM candle c)");
     }
 
+    private static ReporterBatch closeBatch(long closeSeq) {
+        ReporterBatch batch = new ReporterBatch();
+        batch.pendingRuns.add(new ReporterBatch.PendingRun(DAY, closeSeq, 77L));
+        return batch;
+    }
+
+    @Test
+    void aClosedDateIsRecordedAsAPendingRunInTheCheckpointsTransaction() throws SQLException {
+        try (Connection connection = connection()) {
+            assertThrows(IllegalStateException.class, () -> ReporterStore.apply(connection, closeBatch(3L),
+                    checkpoint(2L, 3L), () -> { throw new IllegalStateException("crash before commit"); }));
+        }
+        assertEquals("0", TestDatabase.queryOne("SELECT count(*) FROM clearing_run"), "rolled back with the checkpoint");
+        apply(closeBatch(3L), checkpoint(2L, 3L));
+        assertEquals(DAY + " PENDING 3 77 3", TestDatabase.queryOne("SELECT r.business_date || ' ' || r.status || ' '"
+                + " || r.close_outbound_seq || ' ' || r.closed_ts || ' ' || c.last_outbound_seq"
+                + " FROM clearing_run r, reporter_checkpoint c"));
+    }
+
+    @Test
+    void reRecordingTheSameCloseChangesNothing() throws SQLException {
+        apply(closeBatch(3L), checkpoint(2L, 3L));
+        String before = TestDatabase.queryOne("SELECT xmin::text || ' ' || r::text FROM clearing_run r");
+        apply(closeBatch(3L), checkpoint(2L, 3L));
+        assertEquals(before, TestDatabase.queryOne("SELECT xmin::text || ' ' || r::text FROM clearing_run r"));
+    }
+
+    @Test
+    void aDifferentCloseForARecordedDateStops() throws SQLException {
+        apply(closeBatch(3L), checkpoint(2L, 3L));
+        ReporterInconsistencyException e = assertThrows(ReporterInconsistencyException.class,
+                () -> apply(closeBatch(9L), checkpoint(5L, 9L)));
+        assertTrue(e.getMessage().contains("outbound seq 3"), e.getMessage());
+        assertEquals("3", TestDatabase.queryOne("SELECT close_outbound_seq FROM clearing_run"));
+        assertEquals("3", TestDatabase.queryOne("SELECT last_outbound_seq FROM reporter_checkpoint"));
+    }
+
     @Test
     void aBatchAndItsCheckpointCommitTogether() throws SQLException {
         apply(dayBatch(), checkpoint(2L, 1L));

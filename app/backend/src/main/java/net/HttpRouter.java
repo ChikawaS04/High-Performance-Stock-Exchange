@@ -20,6 +20,7 @@ import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import util.ClearingStatus;
 import util.ReporterStatus;
 import util.VenueStatus;
 
@@ -108,6 +109,14 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
      * shows recorded above published, and applied before journaled, which narrows (but cannot
      * close) the transient {@link VenueStatus} describes.
      */
+    private static void putDate(ObjectNode node, String field, int date) {
+        if (date < 0) {
+            node.putNull(field);
+        } else {
+            node.put(field, date);
+        }
+    }
+
     private void health(ChannelHandlerContext ctx, FullHttpRequest req) {
         boolean running = status.running();
         long applied = status.appliedSeq();
@@ -139,6 +148,20 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             node.put("inboundSeq", reporter.inboundSeq());
             node.put("outboundSeq", outbound);
             node.put("outboundLag", Math.max(0L, recorded - outbound));
+        }
+        // Additive and absent without a database, like the Reporter's (P15-11).
+        ClearingStatus clearing = status.clearing();
+        if (clearing != null) {
+            ObjectNode node = body.putObject("clearing");
+            node.put("state", clearing.state());
+            putDate(node, "lastClearedDate", clearing.lastClearedDate());
+            putDate(node, "pendingDate", clearing.pendingDate());
+            String heldBy = clearing.heldBy();
+            if (heldBy == null) {
+                node.putNull("heldBy");
+            } else {
+                node.put("heldBy", heldBy);
+            }
         }
 
         byte[] bytes;

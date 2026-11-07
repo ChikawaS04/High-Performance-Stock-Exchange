@@ -87,6 +87,8 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
     private volatile long checkpointInboundSeq;
     private volatile long checkpointOutboundSeq;
     private volatile String failure;
+    /** Told after a commit that recorded a closed date for clearing (P15-11); null when nothing listens. */
+    private volatile Runnable onRunPending;
 
     // Reporter thread only.
     private boolean schemaReady;
@@ -120,6 +122,14 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
         Migrator migrator = new Migrator(database, config.dbMigrateOnStart());
         return new Reporter(database::connect, migrator::run, pipeline.journal(), pipeline.inboundRecording(),
                 pipeline.outboundRecording(), ReporterTiming.PRODUCTION, null);
+    }
+
+    /**
+     * Runs {@code listener} on the Reporter thread after each commit that recorded a pending clearing run.
+     * It must not block: clearing's is an unpark. Set before {@link #start()}.
+     */
+    public void onRunPending(Runnable listener) {
+        this.onRunPending = listener;
     }
 
     public void start() {
@@ -280,12 +290,17 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
 
     private void flush(Connection connection, EventAttributor attributor, Pass pass,
                        ReporterStore.JournalIdentity identity) throws SQLException {
+        boolean runsRecorded = !batch.pendingRuns.isEmpty();
         ReporterStore.apply(connection, batch, new ReporterStore.Checkpoint(attributor.inboundSeq(),
                 attributor.outboundSeq(), pass.inboundPosition, pass.outboundPosition, attributor.sessionDate(),
                 attributor.sessionSymbol(), identity), beforeCommit);
         checkpointInboundSeq = attributor.inboundSeq();
         checkpointOutboundSeq = attributor.outboundSeq();
         batch.clear();
+        Runnable listener = onRunPending;
+        if (runsRecorded && listener != null) {
+            listener.run();
+        }
         if (failuresInARow > 0) {
             // Only a commit proves the database is back, so a pass that keeps failing keeps backing off.
             log.info("The Reporter is writing again after {} failure(s), at inbound seq {}, outbound seq {}",

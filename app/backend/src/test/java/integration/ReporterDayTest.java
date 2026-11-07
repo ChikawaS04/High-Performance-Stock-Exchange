@@ -324,4 +324,29 @@ class ReporterDayTest {
                     + " FROM executions WHERE trade_id IS NOT NULL GROUP BY 1 ORDER BY 1"));
         }
     }
+
+    @Test
+    void eachClosedDayIsRecordedForClearingWithItsCloseSeq() {
+        try (JournaledVenue venue = JournaledVenue.create(root)) {
+            OrderGateway gateway = gateway(venue);
+            venue.startAndOpen(gateway);
+            trade(gateway, 10L, 1_000_000L, 2L);
+            gateway.publishSessionClose(DAY);
+            gateway.publishSessionOpen(NEXT_DAY, asml(), 100L, 1L, 10_000L);
+            trade(gateway, 20L, 1_000_500L, 3L);
+
+            List<ExecutionEvent> events = recordedEvents(venue.journal(), 7);
+            ExecutionEvent closed = events.get(3);
+            assertEquals(ExecutionEventType.SESSION_CLOSED, closed.eventType);
+
+            Reporter reporter = reporter(venue);
+            reporter.start();
+            awaitCheckpoint(reporter, 7L);
+            assertTrue(reporter.stop());
+
+            // One run, for the closed day only; the open day has none yet.
+            assertEquals(List.of(DAY + " PENDING " + closed.seq + " " + closed.timestamp),
+                    rows("SELECT business_date, status, close_outbound_seq, closed_ts FROM clearing_run"));
+        }
+    }
 }

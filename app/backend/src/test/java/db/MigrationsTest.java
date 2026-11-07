@@ -43,7 +43,7 @@ class MigrationsTest {
     @Test
     void everyMigrationAppliesToAnEmptyDatabase() {
         MigrationInfo[] applied = new Migrator(TestDatabase.database(), true).flyway().info().applied();
-        assertEquals(6, applied.length);
+        assertEquals(7, applied.length);
         for (MigrationInfo migration : applied) {
             assertEquals(MigrationState.SUCCESS, migration.getState(), migration.getScript());
         }
@@ -56,9 +56,39 @@ class MigrationsTest {
     }
 
     @Test
+    void aClearingRunIsPendingOrCompleteAndNeverStarted() {
+        TestDatabase.execute("INSERT INTO clearing_run (business_date, status, close_outbound_seq, closed_ts)"
+                + " VALUES (20261106, 'PENDING', 5, 100)");
+        assertRefused("INSERT INTO clearing_run (business_date, status, close_outbound_seq, closed_ts)"
+                + " VALUES (20261107, 'STARTED', 6, 100)");
+        assertRefused("INSERT INTO clearing_run (business_date, status, close_outbound_seq)"
+                + " VALUES (20261108, 'PENDING', 7)");
+    }
+
+    @Test
+    void aCompleteRunSaysWhenItRanWhereItRolledAndWhatItNetted() {
+        TestDatabase.execute("INSERT INTO clearing_run (business_date, status, close_outbound_seq, closed_ts)"
+                + " VALUES (20261106, 'PENDING', 5, 100)");
+        assertRefused("UPDATE clearing_run SET status = 'COMPLETE'");
+        assertRefused("UPDATE clearing_run SET status = 'COMPLETE', started_ts = 1, completed_ts = 2,"
+                + " next_business_date = 20261106, fill_count = 0, volume = 0");
+        TestDatabase.execute("UPDATE clearing_run SET status = 'COMPLETE', started_ts = 1, completed_ts = 2,"
+                + " next_business_date = 20261107, fill_count = 0, volume = 0");
+    }
+
+    @Test
+    void anObligationsNetIsBoughtMinusSold() {
+        TestDatabase.execute("INSERT INTO clearing_run (business_date, status, close_outbound_seq, closed_ts)"
+                + " VALUES (20261106, 'PENDING', 5, 100)");
+        TestDatabase.execute("INSERT INTO clearing_obligation VALUES (20261106, 1, 'ASML', 5, 3, 2, 10)");
+        assertRefused("INSERT INTO clearing_obligation VALUES (20261106, 1, 'ASML', 5, 3, 1, 10)");
+        assertRefused("UPDATE clearing_obligation SET bought_quantity = -1, net_quantity = -4");
+    }
+
+    @Test
     void aSecondMigrateChangesNothing() {
         new Migrator(TestDatabase.database(), true).run();
-        assertEquals("6", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
+        assertEquals("7", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
         assertEquals("1", TestDatabase.queryOne("SELECT count(*) FROM instrument"));
     }
 

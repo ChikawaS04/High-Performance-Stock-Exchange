@@ -239,6 +239,19 @@ class EventAttributorTest {
     }
 
     @Test
+    void aSessionCloseRecordsAPendingClearingRunAtItsSeq() {
+        open();
+        assertTrue(batch.pendingRuns.isEmpty(), "an open records no run");
+        close();
+        assertEquals(1, batch.pendingRuns.size());
+        ReporterBatch.PendingRun run = batch.pendingRuns.get(0);
+        assertEquals(DAY, run.businessDate());
+        assertEquals(2L, run.closeOutboundSeq());
+        batch.clear();
+        assertTrue(batch.pendingRuns.isEmpty());
+    }
+
+    @Test
     void aRefusedSessionCommandIsConsumedWithNoEffect() {
         open();
         OrderEvent refused = base(OrderEventType.SESSION_OPEN);

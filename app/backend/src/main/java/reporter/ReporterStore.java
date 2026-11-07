@@ -1,5 +1,7 @@
 package reporter;
 
+import db.Database;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -66,6 +68,11 @@ final class ReporterStore {
             + " volume = c.volume + EXCLUDED.volume, trade_count = c.trade_count + 1,"
             + " last_outbound_seq = EXCLUDED.last_outbound_seq"
             + " WHERE c.last_outbound_seq < EXCLUDED.last_outbound_seq";
+
+    private static final String INSERT_PENDING_RUN = "INSERT INTO clearing_run (business_date, status, close_outbound_seq,"
+            + " closed_ts) VALUES (?, 'PENDING', ?, ?) ON CONFLICT (business_date) DO NOTHING";
+
+    private static final String RUN_CLOSE_SEQ = "SELECT close_outbound_seq FROM clearing_run WHERE business_date = ?";
 
     private static final String UPDATE_CHECKPOINT = "UPDATE reporter_checkpoint SET last_inbound_seq = ?,"
             + " last_outbound_seq = ?, inbound_position = ?, outbound_position = ?, session_business_date = ?,"
@@ -156,6 +163,7 @@ final class ReporterStore {
         insertAudit(connection, batch);
         updateOrders(connection, batch);
         upsertCandles(connection, batch);
+        insertPendingRuns(connection, batch);
         updateCheckpoint(connection, checkpoint);
         if (beforeCommit != null) {
             beforeCommit.run();
@@ -267,6 +275,36 @@ final class ReporterStore {
         }
     }
 
+    /**
+     * One pending clearing run per closed date, in the transaction that moves the checkpoint past its
+     * SESSION_CLOSED (P15-11). A run already there is kept, so re-applying the journal changes nothing,
+     * but only if it names the same close: a different seq means this database holds another history.
+     */
+    private static void insertPendingRuns(Connection connection, ReporterBatch batch) throws SQLException {
+        if (batch.pendingRuns.isEmpty()) return;
+        try (PreparedStatement insert = connection.prepareStatement(INSERT_PENDING_RUN);
+             PreparedStatement existing = connection.prepareStatement(RUN_CLOSE_SEQ)) {
+            for (ReporterBatch.PendingRun r : batch.pendingRuns) {
+                insert.setInt(1, r.businessDate());
+                insert.setLong(2, r.closeOutboundSeq());
+                insert.setLong(3, r.closedTs());
+                if (insert.executeUpdate() == 1) {
+                    continue;
+                }
+                existing.setInt(1, r.businessDate());
+                try (ResultSet row = existing.executeQuery()) {
+                    row.next();
+                    long seq = row.getLong(1);
+                    if (seq != r.closeOutboundSeq()) {
+                        throw new ReporterInconsistencyException("clearing_run for business date " + r.businessDate()
+                                + " names SESSION_CLOSED at outbound seq " + seq + ", but this journal closed that date at"
+                                + " outbound seq " + r.closeOutboundSeq() + ": this database does not match this journal");
+                    }
+                }
+            }
+        }
+    }
+
     private static void updateCheckpoint(Connection connection, Checkpoint c) throws SQLException {
         try (PreparedStatement s = connection.prepareStatement(UPDATE_CHECKPOINT)) {
             s.setLong(1, c.inboundSeq());
@@ -302,16 +340,6 @@ final class ReporterStore {
      * the statement it chains to.
      */
     static boolean isDataFailure(Throwable failure) {
-        for (Throwable t = failure; t != null; t = t.getCause()) {
-            if (t instanceof SQLException sql) {
-                for (SQLException e = sql; e != null; e = e.getNextException()) {
-                    String state = e.getSQLState();
-                    if (state != null && (state.startsWith("23") || state.startsWith("22"))) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
+        return Database.isDataFailure(failure);
     }
 }

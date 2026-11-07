@@ -38,11 +38,21 @@ public final class ReporterBatch {
                              long outboundSeq) {
     }
 
+    /**
+     * A closed business date whose clearing run may start once this batch commits (P15-11).
+     *
+     * @param closeOutboundSeq the SESSION_CLOSED event's seq
+     * @param closedTs         that event's timestamp, epoch nanos
+     */
+    public record PendingRun(int businessDate, long closeOutboundSeq, long closedTs) {
+    }
+
     public final List<OrderRow> orders = new ArrayList<>();
     public final List<OrderUpdate> orderUpdates = new ArrayList<>();
     public final List<ExecutionRow> executions = new ArrayList<>();
     public final List<AuditRow> audit = new ArrayList<>();
     public final List<CandleFill> candleFills = new ArrayList<>();
+    public final List<PendingRun> pendingRuns = new ArrayList<>();
 
     /** Outbound events in this batch, session events included: they advance the checkpoint too. */
     private int events;
@@ -71,6 +81,7 @@ public final class ReporterBatch {
         executions.clear();
         audit.clear();
         candleFills.clear();
+        pendingRuns.clear();
         events = 0;
     }
 }

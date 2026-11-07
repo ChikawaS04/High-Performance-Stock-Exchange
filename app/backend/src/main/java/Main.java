@@ -1,3 +1,4 @@
+import clearing.Clearing;
 import config.ExchangeConfig;
 import db.DatabaseReferenceSource;
 import engine.MatchingEngine;
@@ -75,9 +76,10 @@ import java.util.concurrent.CountDownLatch;
  * no fallback to configuration. A database that answers with something wrong refuses startup.
  * Also with {@code DB_URL} set, the {@link Reporter} moves the journal into the database on its own
  * thread from the moment the port is bound (P15-10); it reads only the recordings, so it cannot delay
- * matching.
+ * matching. End-of-day clearing (P15-11) runs on its own thread too, woken when the Reporter records
+ * a closed day, and nets and rolls that day forward once every execution up to the close is applied.
  *
- * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), stop the Reporter, then drain the
+ * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), stop clearing, stop the Reporter, then drain the
  * pipeline by progress, write a snapshot of the final state and close the journal, so the next
  * start replays nothing. Shutdown does not close the session: a restart is not the end of the
  * trading day, and the next start resumes it. A fatal error in the sequencer or engine halts the JVM with
@@ -146,6 +148,7 @@ public final class Main {
         // --- 5. Recover, open the session on the gateway's thread, then accept connections ---
         final SessionScheduler scheduler;
         final Reporter reporter;
+        final Clearing clearing;
         try {
             SessionController sessions = VenueStartup.start(config, pipeline, server, gateway, Clock.systemUTC(), source);
             // From here the business day closes and opens by the calendar, on the scheduler's thread.
@@ -155,9 +158,15 @@ public final class Main {
             if (config.dbUrl() != null) {
                 reporter = Reporter.forVenue(config, pipeline);
                 pipeline.attachReporter(reporter);
+                // End-of-day clearing on its own thread, woken when the Reporter records a close (P15-11).
+                clearing = Clearing.forVenue(config, pipeline, reporter, clock);
+                reporter.onRunPending(clearing::wake);
+                pipeline.attachClearing(clearing);
+                clearing.start();
                 reporter.start();
             } else {
                 reporter = null;
+                clearing = null;
             }
         } catch (RuntimeException e) {
             // VenueStartup has stopped the server and shut the pipeline down.
@@ -174,14 +183,15 @@ public final class Main {
         log.info("Resend history:   {}", "{\"type\":\"RESEND\",\"fromSeq\":1}");
         log.info("Ctrl+C to stop.");
 
-        awaitShutdown(scheduler, reporter, server, pipeline);
+        awaitShutdown(scheduler, clearing, reporter, server, pipeline);
     }
 
     /**
      * Parks the main thread until the JVM is asked to exit, then stops input and drains the
      * pipeline (bounded) before closing the journal.
      */
-    private static void awaitShutdown(SessionScheduler scheduler, Reporter reporter, WebSocketServer server,
+    private static void awaitShutdown(SessionScheduler scheduler, Clearing clearing, Reporter reporter,
+                                      WebSocketServer server,
                                       JournaledPipeline pipeline) throws InterruptedException {
         CountDownLatch shutdown = new CountDownLatch(1);
 
@@ -191,6 +201,9 @@ public final class Main {
             try {
                 scheduler.stop(SCHEDULER_STOP_TIMEOUT_MS);  // no more session commands
                 server.stop();                // no new frames can enter the gateway; resend stopped
+                if (clearing != null) {
+                    clearing.stop();          // a run in progress commits or rolls back; the next start finds it
+                }
                 if (reporter != null) {
                     reporter.stop();          // before the journal closes; the next start catches up from the checkpoint
                 }

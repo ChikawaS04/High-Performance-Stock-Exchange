@@ -76,4 +76,23 @@ public final class Database {
         }
         return false;
     }
+
+    /**
+     * Whether {@code failure} says the data itself is wrong, so retrying cannot help: SQLState class 23
+     * (integrity constraint) or 22 (data exception). A batch failure reports its own state or that of
+     * the statement it chains to. The Reporter and clearing stop on these (P15-10, P15-11).
+     */
+    public static boolean isDataFailure(Throwable failure) {
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            if (t instanceof SQLException sql) {
+                for (SQLException e = sql; e != null; e = e.getNextException()) {
+                    String state = e.getSQLState();
+                    if (state != null && (state.startsWith("23") || state.startsWith("22"))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
 }

@@ -20,6 +20,7 @@ import io.netty.util.ReferenceCountUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import util.ClearingStatus;
 import util.ReporterStatus;
 import util.VenueStatus;
 
@@ -113,6 +114,53 @@ class HttpRouterTest {
             assertEquals(11, reporter.path("inboundSeq").asLong());
             assertEquals(25, reporter.path("outboundSeq").asLong());
             assertEquals(4, reporter.path("outboundLag").asLong());
+        } finally {
+            response.release();
+        }
+    }
+
+    @Test
+    void healthReportsClearingWhenItRuns() throws Exception {
+        status.clearing = new ClearingStatus() {
+            @Override public String state() { return "HELD"; }
+            @Override public int lastClearedDate() { return 20261105; }
+            @Override public int pendingDate() { return 20261106; }
+            @Override public String heldBy() { return "reporter FAILED"; }
+        };
+        FullHttpResponse response = exchange(get("/health"));
+        try {
+            assertEquals(HttpResponseStatus.OK, response.status(), "clearing never changes the venue's answer");
+            JsonNode clearing = mapper.readTree(bytes(response)).path("clearing");
+            assertEquals("HELD", clearing.path("state").asText());
+            assertEquals(20261105, clearing.path("lastClearedDate").asInt());
+            assertEquals(20261106, clearing.path("pendingDate").asInt());
+            assertEquals("reporter FAILED", clearing.path("heldBy").asText());
+        } finally {
+            response.release();
+        }
+    }
+
+    @Test
+    void clearingWithNothingToReportShowsNullsAndIsAbsentWithoutADatabase() throws Exception {
+        FullHttpResponse absent = exchange(get("/health"));
+        try {
+            assertTrue(mapper.readTree(bytes(absent)).path("clearing").isMissingNode());
+        } finally {
+            absent.release();
+        }
+        status.clearing = new ClearingStatus() {
+            @Override public String state() { return "STARTING"; }
+            @Override public int lastClearedDate() { return -1; }
+            @Override public int pendingDate() { return -1; }
+            @Override public String heldBy() { return null; }
+        };
+        FullHttpResponse response = exchange(get("/health"));
+        try {
+            JsonNode clearing = mapper.readTree(bytes(response)).path("clearing");
+            assertEquals("STARTING", clearing.path("state").asText());
+            assertTrue(clearing.path("lastClearedDate").isNull());
+            assertTrue(clearing.path("pendingDate").isNull());
+            assertTrue(clearing.path("heldBy").isNull());
         } finally {
             response.release();
         }
@@ -364,6 +412,7 @@ class HttpRouterTest {
         long recorded;
         long session;
         ReporterStatus reporter;
+        ClearingStatus clearing;
 
         @Override public boolean running() { return running; }
         @Override public long session() { return session; }
@@ -372,5 +421,6 @@ class HttpRouterTest {
         @Override public long publishedSeq() { return published; }
         @Override public long recordedSeq() { return recorded; }
         @Override public ReporterStatus reporter() { return reporter; }
+        @Override public ClearingStatus clearing() { return clearing; }
     }
 }

@@ -52,6 +52,11 @@ public interface VenueStatus {
         return null;
     }
 
+    /** End-of-day clearing's status (P15-11), or null when none runs, because {@code DB_URL} is unset. */
+    default ClearingStatus clearing() {
+        return null;
+    }
+
     /**
      * Packs a session state into one long: {@code 0} when no session was ever opened or closed,
      * {@code +businessDate} while open on that day, {@code -lastClosedBusinessDate} while closed.

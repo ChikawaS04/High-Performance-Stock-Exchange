@@ -206,7 +206,7 @@ final class EventAttributor {
         }
         switch (e.eventType) {
             case SESSION_OPENED -> sessionOpened(e);
-            case SESSION_CLOSED -> sessionClosed(e);
+            case SESSION_CLOSED -> sessionClosed(e, batch);
             case ORDER_ACCEPTED -> accepted(e, batch);
             case ORDER_EXPIRED -> expired(e, batch);
             case ORDER_REJECTED -> rejected(e, batch);
@@ -228,11 +228,13 @@ final class EventAttributor {
         pending = Pending.NONE;
     }
 
-    private void sessionClosed(ExecutionEvent e) {
+    /** Closes the day and records its pending clearing run, committed with the checkpoint that passes it (P15-11). */
+    private void sessionClosed(ExecutionEvent e, ReporterBatch batch) {
         if (pending != Pending.SESSION_CLOSE || pendingDate != e.businessDate
                 || sessionDate == null || sessionDate != e.businessDate) {
             throw inconsistent(e, "SESSION_CLOSED for date " + e.businessDate + " while the session date is " + sessionDate);
         }
+        batch.pendingRuns.add(new ReporterBatch.PendingRun(e.businessDate, e.seq, e.timestamp));
         sessionDate = null;
         sessionSymbol = null;
         pending = Pending.NONE;
