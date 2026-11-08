@@ -51,6 +51,37 @@ class JournalTest {
         }
     }
 
+    /**
+     * JOURNAL_ARCHIVE_THREADING=dedicated (P15-13): the Archive runs its recorder and replayer on their
+     * own threads, and the IPC-only journal still records and replays every message.
+     */
+    @Test
+    void dedicatedArchiveThreadingRecordsAndReplays() {
+        ExchangeConfig cfg = ExchangeConfig.from(java.util.Map.of(
+                ExchangeConfig.EXCHANGE_DATA_DIR, root.resolve("data").toString(),
+                ExchangeConfig.AERON_DIR, root.resolve("aeron").toString(),
+                ExchangeConfig.JOURNAL_TERM_LENGTH, Integer.toString(JournalTestSupport.SMALL),
+                ExchangeConfig.JOURNAL_SEGMENT_LENGTH, Integer.toString(JournalTestSupport.SMALL),
+                ExchangeConfig.JOURNAL_ARCHIVE_THREADING, "dedicated"));
+        try (Journal journal = Journal.launch(cfg)) {
+            assertTrue(Thread.getAllStackTraces().keySet().stream()
+                            .anyMatch(t -> t.getName().contains("archive-recorder")),
+                    "a dedicated archive-recorder thread is running");
+            RecordedPublication recorded = journal.openRecordedPublication(Journal.INBOUND_STREAM_ID);
+            offerBytes(recorded.publication(), 100);
+            long target = recorded.publication().position();
+            await(() -> journal.archive().getRecordingPosition(recorded.recordingId()) >= target, "recording");
+
+            int[] replayed = {0};
+            new JournalReader(journal.archive()).replayAll(recorded.recordingId(),
+                    (buffer, offset, length, header) -> {
+                        assertEquals(replayed[0], buffer.getInt(offset), "message order");
+                        replayed[0]++;
+                    });
+            assertEquals(100, replayed[0]);
+        }
+    }
+
     @Test
     void relaunchExtendsTheSameRecording() throws IOException {
         ExchangeConfig cfg = config(root);

@@ -44,3 +44,6 @@ build/
 
 ### JVM crash logs ###
 hs_err_pid*.log
+
+### Benchmark results (session- and machine-specific, never committed)
+/bench-results/

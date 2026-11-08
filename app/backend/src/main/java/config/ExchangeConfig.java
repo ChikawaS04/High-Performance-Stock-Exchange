@@ -32,6 +32,7 @@ public final class ExchangeConfig {
     public static final String JOURNAL_TERM_LENGTH    = "JOURNAL_TERM_LENGTH";
     public static final String JOURNAL_SEGMENT_LENGTH = "JOURNAL_SEGMENT_LENGTH";
     public static final String ENGINE_IDLE_STRATEGY   = "ENGINE_IDLE_STRATEGY";
+    public static final String JOURNAL_ARCHIVE_THREADING = "JOURNAL_ARCHIVE_THREADING";
     // Session reference data (P15-8). With DB_URL set, the database supplies all but the symbol, which names its row.
     public static final String SESSION_SYMBOL        = "SESSION_SYMBOL";
     public static final String SESSION_TICK_SIZE      = "SESSION_TICK_SIZE";
@@ -50,6 +51,23 @@ public final class ExchangeConfig {
         private final String value;
 
         EngineIdle(String value) { this.value = value; }
+
+        /** The environment variable's spelling. */
+        public String value() { return value; }
+    }
+
+    /**
+     * How the Archive runs its work (P15-13). SHARED, the default, runs the conductor, recorder and
+     * replayer on one thread. DEDICATED gives each its own thread (three in all, each with Aeron's
+     * default backoff idle), so replays such as a catching-up Reporter's never share a thread with
+     * recording, at the cost of two more threads.
+     */
+    public enum ArchiveThreading {
+        SHARED("shared"), DEDICATED("dedicated");
+
+        private final String value;
+
+        ArchiveThreading(String value) { this.value = value; }
 
         /** The environment variable's spelling. */
         public String value() { return value; }
@@ -88,6 +106,7 @@ public final class ExchangeConfig {
     private final int     journalTermLength;
     private final int     journalSegmentLength;
     private final EngineIdle engineIdle;
+    private final ArchiveThreading archiveThreading;
     private final String  sessionSymbol;
     private final long    sessionTickSize;
     private final long    sessionLotSize;
@@ -108,6 +127,7 @@ public final class ExchangeConfig {
         this.journalTermLength    = lengthValue(env, JOURNAL_TERM_LENGTH, DEFAULT_JOURNAL_TERM_LENGTH);
         this.journalSegmentLength = lengthValue(env, JOURNAL_SEGMENT_LENGTH, DEFAULT_JOURNAL_SEGMENT_LENGTH);
         this.engineIdle           = engineIdleValue(env, ENGINE_IDLE_STRATEGY, EngineIdle.BACKOFF);
+        this.archiveThreading     = archiveThreadingValue(env, JOURNAL_ARCHIVE_THREADING, ArchiveThreading.SHARED);
         this.sessionSymbol        = symbolValue(env, SESSION_SYMBOL, DEFAULT_SESSION_SYMBOL);
         this.sessionTickSize      = longValue(env, SESSION_TICK_SIZE, DEFAULT_SESSION_TICK_SIZE, 1L);
         this.sessionLotSize       = longValue(env, SESSION_LOT_SIZE, DEFAULT_SESSION_LOT_SIZE, 1L);
@@ -194,6 +214,9 @@ public final class ExchangeConfig {
     /** The engine agent's idle strategy. */
     public EngineIdle engineIdle() { return engineIdle; }
 
+    /** How the Archive runs its conductor, recorder and replayer. */
+    public ArchiveThreading archiveThreading() { return archiveThreading; }
+
     @Override
     public String toString() {
         return "ExchangeConfig{port=" + port
@@ -208,6 +231,7 @@ public final class ExchangeConfig {
                 + ", journalTermLength=" + journalTermLength
                 + ", journalSegmentLength=" + journalSegmentLength
                 + ", engineIdle=" + engineIdle.value()
+                + ", archiveThreading=" + archiveThreading.value()
                 + ", sessionSymbol=" + sessionSymbol
                 + ", sessionTickSize=" + sessionTickSize
                 + ", sessionLotSize=" + sessionLotSize
@@ -291,6 +315,17 @@ public final class ExchangeConfig {
             if (idle.value().equals(wanted)) return idle;
         }
         throw new IllegalArgumentException(name + " must be backoff, sleeping, yielding or busy-spin: " + value);
+    }
+
+    private static ArchiveThreading archiveThreadingValue(Map<String, String> env, String name,
+                                                          ArchiveThreading fallback) {
+        String value = raw(env, name);
+        if (value == null) return fallback;
+        String wanted = value.toLowerCase(Locale.ROOT);
+        for (ArchiveThreading threading : ArchiveThreading.values()) {
+            if (threading.value().equals(wanted)) return threading;
+        }
+        throw new IllegalArgumentException(name + " must be shared or dedicated: " + value);
     }
 
     private static boolean booleanValue(Map<String, String> env, String name, boolean fallback) {

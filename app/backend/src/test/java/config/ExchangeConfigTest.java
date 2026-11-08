@@ -120,6 +120,20 @@ class ExchangeConfigTest {
     }
 
     @Test
+    void archiveThreadingDefaultsToSharedAndAcceptsEachValue() {
+        assertEquals(ExchangeConfig.ArchiveThreading.SHARED, ExchangeConfig.from(Map.of()).archiveThreading());
+        for (ExchangeConfig.ArchiveThreading threading : ExchangeConfig.ArchiveThreading.values()) {
+            assertEquals(threading,
+                    ExchangeConfig.from(Map.of("JOURNAL_ARCHIVE_THREADING", threading.value())).archiveThreading());
+        }
+        assertEquals(ExchangeConfig.ArchiveThreading.DEDICATED,
+                ExchangeConfig.from(Map.of("JOURNAL_ARCHIVE_THREADING", "Dedicated")).archiveThreading(),
+                "case-insensitive");
+        assertRejected(Map.of("JOURNAL_ARCHIVE_THREADING", "invoker"), "JOURNAL_ARCHIVE_THREADING");
+        assertTrue(ExchangeConfig.from(Map.of()).toString().contains("archiveThreading=shared"));
+    }
+
+    @Test
     void sessionReferenceDataDefaultsToTheEnginesValuesAndNewYork() {
         ExchangeConfig cfg = ExchangeConfig.from(Map.of());
         assertEquals("ASML", cfg.sessionSymbol());

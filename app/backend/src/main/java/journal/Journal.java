@@ -61,7 +61,9 @@ import java.util.concurrent.locks.LockSupport;
  * one daemon thread, {@value #KEEP_ALIVE_THREAD_NAME}, polls the client. Its calls take the client's
  * lock, so it can never read a response another caller is waiting for.
  *
- * Threading: driver and Archive each run in SHARED mode, one thread apiece. The publications
+ * Threading: the driver runs in SHARED mode on one thread. The Archive runs SHARED on one thread
+ * by default, or DEDICATED (conductor, recorder and replayer on three threads) when
+ * {@code JOURNAL_ARCHIVE_THREADING} says so (P15-13). The publications
  * this class opens are each used by one writer thread; open and close are startup and shutdown
  * calls from one thread.
  */
@@ -187,8 +189,9 @@ public final class Journal implements AutoCloseable {
             CloseHelper.quietCloseAll(archive, aeron, driver);
             throw e;
         }
-        log.info("Journal started: archive={} aeron={} termLength={} segmentLength={}",
-                config.archiveDir(), config.aeronDir(), config.journalTermLength(), config.journalSegmentLength());
+        log.info("Journal started: archive={} aeron={} termLength={} segmentLength={} archiveThreading={}",
+                config.archiveDir(), config.aeronDir(), config.journalTermLength(), config.journalSegmentLength(),
+                config.archiveThreading().value());
         return new Journal(config, driver, aeron, archive, keepAliveIntervalMs);
     }
 
@@ -274,11 +277,20 @@ public final class Journal implements AutoCloseable {
                 .segmentFileLength(config.journalSegmentLength())
                 .fileSyncLevel(0)
                 .recordChecksum(Crc32cChecksum.INSTANCE)   // lets crash repair verify a page-straddling last frame
-                .threadingMode(ArchiveThreadingMode.SHARED)
+                .threadingMode(archiveThreadingMode(config.archiveThreading()))
                 .controlChannelEnabled(false)
                 .recordingEventsEnabled(false)
                 .replicationChannel(IPC_CHANNEL)
                 .archiveClientContext(new AeronArchive.Context().controlResponseChannel(IPC_CHANNEL));
+    }
+
+    /** {@code JOURNAL_ARCHIVE_THREADING} (P15-13); SHARED unless configured otherwise. */
+    static ArchiveThreadingMode archiveThreadingMode(ExchangeConfig.ArchiveThreading threading) {
+        switch (threading) {
+            case SHARED:    return ArchiveThreadingMode.SHARED;
+            case DEDICATED: return ArchiveThreadingMode.DEDICATED;
+            default:        throw new IllegalArgumentException("Unmapped archive threading: " + threading);
+        }
     }
 
     /** The configuration this journal was launched with. */
