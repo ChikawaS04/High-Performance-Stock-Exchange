@@ -56,6 +56,28 @@ class ClearingVenueTest {
         return closed.seq;
     }
 
+    /** P15-11 finding: heldBy said "reporter STARTING" until the next poll; the Reporter now wakes clearing. */
+    @Test
+    void clearingStopsShowingTheReporterAsHoldingOnceItRuns() {
+        try (JournaledVenue venue = JournaledVenue.create(root)) {
+            venue.startAndOpen(venue.gateway());
+            Reporter reporter = reporter(venue);
+            Clearing clearing = clearing(venue, reporter);
+            reporter.onRunPending(clearing::wake);
+            clearing.start();
+            try {
+                await("clearing's first cycle", () -> "reporter STARTING".equals(clearing.heldBy()));
+                reporter.start();
+                // The poll is a minute, so only the Reporter's wake can clear heldBy within the await.
+                await("heldBy cleared (heldBy " + clearing.heldBy() + ", reporter " + reporter.state() + ")",
+                        () -> clearing.heldBy() == null && "RUNNING".equals(reporter.state()));
+            } finally {
+                assertTrue(clearing.stop());
+                assertTrue(reporter.stop());
+            }
+        }
+    }
+
     @Test
     void aClosedDayIsClearedOnceTheReporterHasIt() {
         try (JournaledVenue venue = JournaledVenue.create(root)) {

@@ -43,7 +43,7 @@ class MigrationsTest {
     @Test
     void everyMigrationAppliesToAnEmptyDatabase() {
         MigrationInfo[] applied = new Migrator(TestDatabase.database(), true).flyway().info().applied();
-        assertEquals(7, applied.length);
+        assertEquals(8, applied.length);
         for (MigrationInfo migration : applied) {
             assertEquals(MigrationState.SUCCESS, migration.getState(), migration.getScript());
         }
@@ -86,9 +86,16 @@ class MigrationsTest {
     }
 
     @Test
+    void tradeHistoryPagesThroughAPartialIndexOfFillsByDate() {
+        assertEquals("CREATE INDEX executions_fills_by_date ON public.executions USING btree (business_date, outbound_seq)"
+                + " WHERE (trade_id IS NOT NULL)", TestDatabase.queryOne("SELECT indexdef FROM pg_indexes"
+                + " WHERE indexname = 'executions_fills_by_date'"));
+    }
+
+    @Test
     void aSecondMigrateChangesNothing() {
         new Migrator(TestDatabase.database(), true).run();
-        assertEquals("7", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
+        assertEquals("8", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
         assertEquals("1", TestDatabase.queryOne("SELECT count(*) FROM instrument"));
     }
 

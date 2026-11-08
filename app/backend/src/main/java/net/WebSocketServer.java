@@ -2,6 +2,7 @@ package net;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import gateway.OrderGateway;
+import http.ApiHandler;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -29,7 +30,7 @@ import util.BookFrameCache;
 import util.VenueStatus;
 
 /**
- * Netty WebSocket server (SRS §3.6). Exposes {@code /ws} and, through {@link HttpRouter}, {@code /health} on the same port (P15-7); registers handshaken clients in a
+ * Netty WebSocket server (SRS §3.6). Exposes {@code /ws} and, through {@link HttpRouter}, {@code /health} and {@code /api} on the same port (P15-7, P15-12); registers handshaken clients in a
  * shared {@link ChannelGroup}, and feeds inbound manual orders to the FIX gateway (P4-5).
  *
  * <p><b>Single-writer invariant (decision 2).</b> The worker group is <b>one thread</b>, so every
@@ -72,6 +73,9 @@ public final class WebSocketServer {
     /** What {@code /health} reports (P15-7); null when this server serves no {@code /health}. */
     private final VenueStatus status;
 
+    /** The {@code /api} routes (P15-12); null when this server serves none. Closed by {@link #stop()}. */
+    private final ApiHandler api;
+
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock) {
         this(port, gateway, clock, null);
     }
@@ -91,11 +95,23 @@ public final class WebSocketServer {
      */
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend,
                            VenueStatus status) {
+        this(port, gateway, clock, resend, status, null);
+    }
+
+    /**
+     * @param status what {@code GET /health} reports, as in the five-argument constructor
+     * @param api    the {@code /api} routes (P15-12); null means this server answers all of {@code /api}
+     *               with 404. The server owns it from here and closes it in {@link #stop()}, after the
+     *               clients and before the event loops
+     */
+    public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend,
+                           VenueStatus status, ApiHandler api) {
         this.port = port;
         this.gateway = gateway;
         this.clock = clock;
         this.resend = resend;
         this.status = status;
+        this.api = api;
     }
 
     /** Shared connected-client registry; P4-6's publisher writes execution/book frames to this. */
@@ -156,7 +172,7 @@ public final class WebSocketServer {
                         p.addLast(new HttpServerCodec());
                         p.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH));
                         // Exact /ws passes to the handshake; /health and every other path end here.
-                        p.addLast(new HttpRouter(WEBSOCKET_PATH, status, objectMapper));
+                        p.addLast(new HttpRouter(WEBSOCKET_PATH, status, objectMapper, api));
                         p.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH));
                         p.addLast(new WebSocketHeartbeatHandler(HEARTBEAT_INTERVAL_SECONDS));
                         p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock, bookFrameCache,
@@ -182,6 +198,9 @@ public final class WebSocketServer {
         channelGroup.close().awaitUninterruptibly();
         if (resend != null) {
             resend.close();   // a resend in progress sees its channel closed and stops
+        }
+        if (api != null) {
+            api.close();      // no more /api reads; an answer still in flight is dropped with its channel
         }
         boolean terminated = true;
         if (workerGroup != null) {

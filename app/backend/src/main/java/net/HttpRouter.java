@@ -2,6 +2,9 @@ package net;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import http.ApiHandler;
+import http.ApiRequest;
+import http.ApiResponse;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
@@ -25,6 +28,8 @@ import util.ReporterStatus;
 import util.VenueStatus;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Routes plain HTTP on the WebSocket port (SRS 3.6, P15-7). Sits after the aggregator, so it sees
@@ -38,9 +43,21 @@ import java.nio.charset.StandardCharsets;
  *   <li>Every other route matches on the path only. {@code GET /health} answers 200 with a small
  *       JSON body, or 503 with the same body when the venue is not running; another method on
  *       {@code /health} gets 405 with {@code Allow: GET}.</li>
- *   <li>Anything else gets 404: {@code /api} until P15-12, and a path of {@code /ws} with any
- *       other URI (such as {@code /ws?x=1}), which never upgraded and used to get no answer.</li>
+ *   <li>{@code /api} and every path under it go to the {@link ApiHandler} (P15-12): a route that is
+ *       not one of its own is a 404, another method on a route a 405 with {@code Allow: GET}. With no
+ *       handler (no database configured) all of {@code /api} is a 404, as {@code /health} is with no
+ *       status.</li>
+ *   <li>Anything else gets 404, including a path of {@code /ws} with any other URI (such as
+ *       {@code /ws?x=1}), which never upgraded and used to get no answer.</li>
  * </ul>
+ *
+ * <b>Order of answers (P15-12).</b> An {@code /api} GET is answered later, from the api executor, so
+ * a keep-alive client that pipelines a second request could otherwise get the answers out of order.
+ * While an {@code /api} answer is outstanding the router stops reading the channel and holds any
+ * request already decoded (at most {@value #MAX_HELD}, beyond which it closes the connection); when
+ * the answer is written it handles the held requests in arrival order, then reads again. The
+ * request object never leaves the event loop: its path and parameters are copied, and the answer
+ * comes back as bytes that the loop turns into a response.
  *
  * Keep-alive follows the request ({@link HttpUtil#isKeepAlive}); a request that does not keep
  * the connection alive is answered and the channel closed. Every response sets
@@ -64,9 +81,19 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
     private static final byte[] METHOD_NOT_ALLOWED = "{\"error\":\"METHOD_NOT_ALLOWED\"}".getBytes(StandardCharsets.UTF_8);
     private static final byte[] BAD_REQUEST = "{\"error\":\"BAD_REQUEST\"}".getBytes(StandardCharsets.UTF_8);
 
+    static final String API_PATH = "/api";
+    /** Requests held behind an outstanding /api answer on one channel, at most. */
+    static final int MAX_HELD = 16;
+
     private final String webSocketPath;
     private final VenueStatus status;
     private final ObjectMapper objectMapper;
+    private final ApiHandler api;
+
+    /** True while an /api answer for this channel is outstanding; event loop only. */
+    private boolean awaitingApi;
+    /** Requests decoded while {@link #awaitingApi}, each retained; event loop only. */
+    private final ArrayDeque<FullHttpRequest> held = new ArrayDeque<>();
 
     /**
      * @param webSocketPath the path the WebSocket protocol handler upgrades
@@ -74,13 +101,35 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
      *                      {@code /health} route, and it answers 404
      */
     public HttpRouter(String webSocketPath, VenueStatus status, ObjectMapper objectMapper) {
+        this(webSocketPath, status, objectMapper, null);
+    }
+
+    /**
+     * @param api the {@code /api} routes; null means the server serves none, and all of {@code /api} is a 404
+     */
+    public HttpRouter(String webSocketPath, VenueStatus status, ObjectMapper objectMapper, ApiHandler api) {
         this.webSocketPath = webSocketPath;
         this.status = status;
         this.objectMapper = objectMapper;
+        this.api = api;
     }
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (awaitingApi) {
+            if (held.size() >= MAX_HELD) {
+                log.warn("Closing {}: more than {} requests pipelined behind an /api answer",
+                        ctx.channel().remoteAddress(), MAX_HELD);
+                ctx.close();
+                return;
+            }
+            held.add(req.retain());   // released after it is handled, or when the channel goes
+            return;
+        }
+        route(ctx, req);
+    }
+
+    private void route(ChannelHandlerContext ctx, FullHttpRequest req) {
         if (req.decoderResult().isFailure()) {
             send(ctx, req, HttpResponseStatus.BAD_REQUEST, BAD_REQUEST, false);
             return;
@@ -101,7 +150,96 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             health(ctx, req);
             return;
         }
+        if (api != null && (API_PATH.equals(path) || path.startsWith(API_PATH + "/"))) {
+            api(ctx, req, path);
+            return;
+        }
         send(ctx, req, HttpResponseStatus.NOT_FOUND, NOT_FOUND, HttpUtil.isKeepAlive(req));
+    }
+
+    private void api(ChannelHandlerContext ctx, FullHttpRequest req, String path) {
+        boolean keepAlive = HttpUtil.isKeepAlive(req);
+        if (!api.isRoute(path)) {
+            send(ctx, req, HttpResponseStatus.NOT_FOUND, NOT_FOUND, keepAlive);
+            return;
+        }
+        if (!HttpMethod.GET.equals(req.method())) {
+            FullHttpResponse response = response(req, HttpResponseStatus.METHOD_NOT_ALLOWED, METHOD_NOT_ALLOWED);
+            response.headers().set(HttpHeaderNames.ALLOW, HttpMethod.GET.name());
+            write(ctx, response, keepAlive);
+            return;
+        }
+        HttpVersion version = req.protocolVersion();
+        ApiRequest request = new ApiRequest(path, new QueryStringDecoder(req.uri()).parameters());
+        awaitingApi = true;
+        ApiResponse now = api.handle(request, answer -> answerFromExecutor(ctx, version, keepAlive, answer));
+        if (now != null) {
+            answerApi(ctx, version, keepAlive, now);
+        } else {
+            ctx.channel().config().setAutoRead(false);   // nothing more is read until the answer is written
+        }
+    }
+
+    /** Called on an api executor thread: the answer is handed to this channel's event loop. */
+    private void answerFromExecutor(ChannelHandlerContext ctx, HttpVersion version, boolean keepAlive,
+                                    ApiResponse answer) {
+        try {
+            ctx.executor().execute(() -> answerApi(ctx, version, keepAlive, answer));
+        } catch (RejectedExecutionException e) {
+            // The event loop has shut down (server stop): the channel is gone with it.
+        }
+    }
+
+    /** On the event loop: writes the /api answer, then handles what was held behind it. */
+    private void answerApi(ChannelHandlerContext ctx, HttpVersion version, boolean keepAlive, ApiResponse answer) {
+        awaitingApi = false;
+        if (!ctx.channel().isActive()) {
+            releaseHeld();
+            return;
+        }
+        ByteBuf content = Unpooled.wrappedBuffer(answer.body());
+        FullHttpResponse response = new DefaultFullHttpResponse(version, HttpResponseStatus.valueOf(answer.status()),
+                content);
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, JSON);
+        HttpUtil.setContentLength(response, content.readableBytes());
+        response.headers().set(HttpHeaderNames.CACHE_CONTROL, HttpHeaderValues.NO_STORE);
+        if (answer.retryAfterSeconds() > 0) {
+            response.headers().set(HttpHeaderNames.RETRY_AFTER, answer.retryAfterSeconds());
+        }
+        write(ctx, response, keepAlive);
+        if (!keepAlive) {
+            releaseHeld();   // the channel closes after this write; nothing after it is answered
+            return;
+        }
+        FullHttpRequest next;
+        while (!awaitingApi && (next = held.poll()) != null) {
+            try {
+                route(ctx, next);
+            } finally {
+                next.release();
+            }
+        }
+        if (!awaitingApi) {
+            ctx.channel().config().setAutoRead(true);
+        }
+    }
+
+    private void releaseHeld() {
+        FullHttpRequest r;
+        while ((r = held.poll()) != null) {
+            r.release();
+        }
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        releaseHeld();
+        super.channelInactive(ctx);
+    }
+
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) {
+        releaseHeld();
     }
 
     /**

@@ -125,7 +125,9 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
     }
 
     /**
-     * Runs {@code listener} on the Reporter thread after each commit that recorded a pending clearing run.
+     * Runs {@code listener} on the Reporter thread after each commit that recorded a pending clearing run,
+     * and each time the Reporter enters RUNNING, so clearing sees at once that it is no longer held
+     * (P15-12; before, {@code /health} could show "reporter STARTING" for up to one clearing poll).
      * It must not block: clearing's is an unpark. Set before {@link #start()}.
      */
     public void onRunPending(Runnable listener) {
@@ -244,6 +246,10 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
                     checkpoint.inboundSeq(), inboundFrom, checkpoint.outboundSeq(), outboundFrom);
         }
         state = "RUNNING";
+        Runnable running = onRunPending;
+        if (running != null) {
+            running.run();
+        }
 
         Pass pass = new Pass(attributor, inboundFrom, outboundFrom);
         try (RecordingFollower commands = new RecordingFollower(journal.archive(), inbound.recordingId(),

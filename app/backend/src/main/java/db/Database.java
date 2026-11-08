@@ -24,6 +24,8 @@ public final class Database {
      */
     public record Timing(int attempts, long retryDelayMs, int connectTimeoutSeconds, int socketTimeoutSeconds) {
         public static final Timing PRODUCTION = new Timing(3, 2_000L, 5, 30);
+        /** For /api reads (P15-12): one try, a short connect bound, and a read bound above the statement timeout. */
+        public static final Timing API = new Timing(1, 0L, 2, 10);
     }
 
     /** SQLState class of every connection exception. */

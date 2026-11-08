@@ -2,6 +2,9 @@ package net;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import http.ApiHandler;
+import http.ApiRequest;
+import http.ApiResponse;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.DefaultChannelId;
@@ -28,6 +31,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -262,9 +268,209 @@ class HttpRouterTest {
     }
 
     @Test
-    void apiIs404UntilItExists() {
+    void apiIs404WithoutAHandler() {
         assertStatus(get("/api"), HttpResponseStatus.NOT_FOUND);
         assertStatus(get("/api/trades?date=20261102"), HttpResponseStatus.NOT_FOUND);
+    }
+
+    // --- /api (P15-12) ---
+
+    /** A handler that answers at once when {@link #now} is set, or keeps the callback for the test. */
+    private static final class StubApi implements ApiHandler {
+        final List<ApiRequest> requests = new ArrayList<>();
+        final List<Consumer<ApiResponse>> waiting = new ArrayList<>();
+        ApiResponse now;
+        boolean closed;
+
+        @Override public boolean isRoute(String path) { return Set.of("/api/trades", "/api/reports/daily").contains(path); }
+
+        @Override public ApiResponse handle(ApiRequest request, Consumer<ApiResponse> done) {
+            requests.add(request);
+            if (now != null) return now;
+            waiting.add(done);
+            return null;
+        }
+
+        @Override public void close() { closed = true; }
+    }
+
+    private static final ApiResponse OK_BODY = ApiResponse.ok("{\"ok\":1}".getBytes(StandardCharsets.UTF_8));
+
+    private EmbeddedChannel apiChannel(StubApi api) {
+        channel.finishAndReleaseAll();
+        channel = new EmbeddedChannel(DefaultChannelId.newInstance(), new HttpRouter("/ws", status, mapper, api));
+        return channel;
+    }
+
+    /** Answers the oldest waiting request from another thread, as the executor does, then runs the loop's tasks. */
+    private void answerFromAnotherThread(StubApi api, ApiResponse answer) throws InterruptedException {
+        Consumer<ApiResponse> done = api.waiting.remove(0);
+        Thread t = new Thread(() -> done.accept(answer), "api-test");
+        t.start();
+        t.join(10_000L);
+        assertFalse(t.isAlive());
+        channel.runPendingTasks();
+    }
+
+    private String body(FullHttpResponse response) {
+        return new String(bytes(response), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void underApiOnlyTheHandlersRoutesExist() {
+        StubApi api = new StubApi();
+        apiChannel(api);
+        for (String uri : List.of("/api", "/api/", "/api/trades/", "/api/nope?date=20261107", "/apix")) {
+            assertStatus(get(uri), HttpResponseStatus.NOT_FOUND);
+        }
+        assertTrue(api.requests.isEmpty(), "a path that is not a route never reaches the handler");
+    }
+
+    @Test
+    void anotherMethodOnARouteIs405WithAllowGet() {
+        StubApi api = new StubApi();
+        apiChannel(api);
+        for (HttpMethod method : List.of(HttpMethod.POST, HttpMethod.HEAD, HttpMethod.DELETE)) {
+            FullHttpResponse response = exchange(request(HttpVersion.HTTP_1_1, method, "/api/trades?date=20261107"));
+            try {
+                assertEquals(HttpResponseStatus.METHOD_NOT_ALLOWED, response.status(), method.name());
+                assertEquals("GET", response.headers().get(HttpHeaderNames.ALLOW));
+            } finally {
+                response.release();
+            }
+        }
+        assertTrue(api.requests.isEmpty());
+    }
+
+    @Test
+    void theHandlerGetsTheCopiedPathAndParameters() {
+        StubApi api = new StubApi();
+        api.now = OK_BODY;
+        apiChannel(api);
+        exchange(get("/api/trades?date=20261107&limit=5&limit=6")).release();
+        assertEquals(new ApiRequest("/api/trades", Map.of("date", List.of("20261107"), "limit", List.of("5", "6"))),
+                api.requests.get(0));
+    }
+
+    @Test
+    void anImmediateAnswerKeepsItsStatusBodyAndRetryAfter() {
+        StubApi api = new StubApi();
+        api.now = ApiResponse.BUSY;
+        apiChannel(api);
+        FullHttpResponse response = exchange(get("/api/trades?date=20261107"));
+        try {
+            assertEquals(HttpResponseStatus.SERVICE_UNAVAILABLE, response.status());
+            assertEquals("1", response.headers().get(HttpHeaderNames.RETRY_AFTER));
+            assertEquals("no-store", response.headers().get(HttpHeaderNames.CACHE_CONTROL));
+            assertEquals("application/json", response.headers().get(HttpHeaderNames.CONTENT_TYPE));
+            assertEquals("{\"error\":\"BUSY\"}", body(response));
+        } finally {
+            response.release();
+        }
+        assertTrue(channel.config().isAutoRead());
+    }
+
+    @Test
+    void aLaterAnswerIsWrittenOnTheLoopAndReadingResumes() throws Exception {
+        StubApi api = new StubApi();
+        apiChannel(api);
+        channel.writeInbound(get("/api/trades?date=20261107"));
+        assertNull(channel.readOutbound(), "nothing is written before the executor answers");
+        assertFalse(channel.config().isAutoRead(), "the channel is not read while the answer is outstanding");
+
+        answerFromAnotherThread(api, OK_BODY);
+        FullHttpResponse response = channel.readOutbound();
+        try {
+            assertEquals(HttpResponseStatus.OK, response.status());
+            assertEquals("{\"ok\":1}", body(response));
+            assertNull(response.headers().get(HttpHeaderNames.RETRY_AFTER));
+            assertEquals(bytes(response).length, response.headers().getInt(HttpHeaderNames.CONTENT_LENGTH));
+        } finally {
+            response.release();
+        }
+        assertTrue(channel.config().isAutoRead());
+        assertTrue(channel.isOpen());
+    }
+
+    @Test
+    void pipelinedRequestsAreAnsweredInTheOrderTheyArrived() throws Exception {
+        StubApi api = new StubApi();
+        apiChannel(api);
+        FullHttpRequest health = get("/health");
+        FullHttpRequest second = get("/api/reports/daily?date=20261107");
+        channel.writeInbound(get("/api/trades?date=20261107"));
+        channel.writeInbound(health);
+        channel.writeInbound(second);
+        assertNull(channel.readOutbound(), "/health waits behind the /api answer");
+        assertEquals(1, api.requests.size(), "the second /api request is held, not started");
+
+        answerFromAnotherThread(api, ApiResponse.ok("{\"n\":1}".getBytes(StandardCharsets.UTF_8)));
+        FullHttpResponse first = channel.readOutbound();
+        FullHttpResponse healthAnswer = channel.readOutbound();
+        try {
+            assertEquals("{\"n\":1}", body(first));
+            assertTrue(body(healthAnswer).contains("\"running\""), "then /health");
+        } finally {
+            first.release();
+            healthAnswer.release();
+        }
+        assertEquals(0, health.refCnt(), "a held request is released once handled");
+        assertNull(channel.readOutbound(), "the second /api answer is still outstanding");
+        assertEquals("/api/reports/daily", api.requests.get(1).path());
+        assertFalse(channel.config().isAutoRead());
+
+        answerFromAnotherThread(api, ApiResponse.ok("{\"n\":2}".getBytes(StandardCharsets.UTF_8)));
+        FullHttpResponse last = channel.readOutbound();
+        try {
+            assertEquals("{\"n\":2}", body(last));
+        } finally {
+            last.release();
+        }
+        assertEquals(0, second.refCnt());
+        assertTrue(channel.config().isAutoRead());
+    }
+
+    @Test
+    void heldRequestsAreReleasedWhenTheChannelCloses() {
+        StubApi api = new StubApi();
+        apiChannel(api);
+        channel.writeInbound(get("/api/trades?date=20261107"));
+        FullHttpRequest held = get("/health");
+        channel.writeInbound(held);
+        assertEquals(1, held.refCnt());
+        channel.close();
+        assertEquals(0, held.refCnt());
+        api.waiting.remove(0).accept(OK_BODY);   // a late answer for a closed channel is dropped
+        channel.runPendingTasks();
+        assertNull(channel.readOutbound());
+    }
+
+    @Test
+    void tooManyPipelinedRequestsCloseTheConnection() {
+        StubApi api = new StubApi();
+        apiChannel(api);
+        channel.writeInbound(get("/api/trades?date=20261107"));
+        List<FullHttpRequest> held = new ArrayList<>();
+        for (int i = 0; i <= HttpRouter.MAX_HELD; i++) {
+            FullHttpRequest r = get("/health");
+            held.add(r);
+            channel.writeInbound(r);
+        }
+        assertFalse(channel.isOpen(), "request " + (HttpRouter.MAX_HELD + 1) + " behind an answer closes the connection");
+        for (FullHttpRequest r : held) {
+            assertEquals(0, r.refCnt());
+        }
+    }
+
+    @Test
+    void withoutKeepAliveTheChannelClosesAfterTheAnswer() throws Exception {
+        StubApi api = new StubApi();
+        apiChannel(api);
+        channel.writeInbound(request(HttpVersion.HTTP_1_0, HttpMethod.GET, "/api/trades?date=20261107"));
+        answerFromAnotherThread(api, OK_BODY);
+        FullHttpResponse response = channel.readOutbound();
+        response.release();
+        assertFalse(channel.isOpen());
     }
 
     // --- /ws ---

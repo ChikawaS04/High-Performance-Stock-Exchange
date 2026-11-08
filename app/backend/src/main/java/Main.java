@@ -3,6 +3,7 @@ import config.ExchangeConfig;
 import db.DatabaseReferenceSource;
 import engine.MatchingEngine;
 import gateway.OrderGateway;
+import http.ApiService;
 import journal.JournaledPipeline;
 import market.MarketDataService;
 import net.ResendService;
@@ -78,6 +79,8 @@ import java.util.concurrent.CountDownLatch;
  * thread from the moment the port is bound (P15-10); it reads only the recordings, so it cannot delay
  * matching. End-of-day clearing (P15-11) runs on its own thread too, woken when the Reporter records
  * a closed day, and nets and rolls that day forward once every execution up to the close is applied.
+ * The read-only {@code /api} reports (P15-12) run on their own executor with their own connections,
+ * never on an event loop; without {@code DB_URL} the server answers all of {@code /api} with 404.
  *
  * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), stop clearing, stop the Reporter, then drain the
  * pipeline by progress, write a snapshot of the final state and close the journal, so the next
@@ -136,8 +139,10 @@ public final class Main {
         // RESEND: replays the outbound recording with the live EXEC serializer; the server owns it.
         ResendService resend = new ResendService(pipeline.outboundHistory(), new ExecutionFrames()::toJson);
         // Constructed before the publisher: the server owns the ChannelGroup and the BOOK cache.
-        // The pipeline is what GET /health reports (P15-7).
-        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend, pipeline);
+        // The pipeline is what GET /health reports (P15-7). With a database, /api serves the reports (P15-12);
+        // the server owns the api and closes it when it stops.
+        ApiService api = config.dbUrl() == null ? null : ApiService.forVenue(config);
+        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend, pipeline, api);
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
 
         // --- 4. Subscribers (must precede start). Independent consumers, each with its own
@@ -175,8 +180,9 @@ public final class Main {
             return;
         }
 
-        log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws, health: http://localhost:{}/health",
-                server.boundPort(), server.boundPort());
+        log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws, health: http://localhost:{}/health{}",
+                server.boundPort(), server.boundPort(),
+                api == null ? "" : ", reports: http://localhost:" + server.boundPort() + "/api/...");
         log.info("Submit an order:  {}", "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\","
                 + "\"price\":1500000,\"qty\":10,\"symbol\":\"ASML\"}");
         log.info("Cancel an order:  {}", "{\"type\":\"CANCEL\",\"clOrdId\":2,\"origClOrdId\":1}");
@@ -200,7 +206,7 @@ public final class Main {
             boolean clean = false;
             try {
                 scheduler.stop(SCHEDULER_STOP_TIMEOUT_MS);  // no more session commands
-                server.stop();                // no new frames can enter the gateway; resend stopped
+                server.stop();                // no new frames can enter the gateway; resend and /api stopped
                 if (clearing != null) {
                     clearing.stop();          // a run in progress commits or rolls back; the next start finds it
                 }
