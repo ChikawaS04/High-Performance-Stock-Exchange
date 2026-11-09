@@ -1,36 +1,27 @@
 # High Performance Stock Exchange
 
-A miniature stock exchange in Java and React: a FIX order gateway, a lock-free LMAX Disruptor event
-pipeline, a single-threaded price-time priority matching engine, a market data and execution
-dissemination layer, and a direct-access participant terminal.
+A miniature stock exchange in Java and React. Raw FIX bytes arrive at a gateway, are sequenced and
+written to an Aeron Archive journal, and only then reach a single-threaded, deterministic,
+price-time priority matching engine. Every execution is journaled too. The venue recovers its exact
+state after a crash, runs trading days on a calendar, moves its record into PostgreSQL off the
+critical path, clears each day, and serves reports over HTTP. A React terminal connects as a
+direct-access participant.
 
 ![Java](https://img.shields.io/badge/Java-21%20LTS-orange)
 ![Build](https://img.shields.io/badge/build-Maven-blue)
-![Backend tests](https://img.shields.io/badge/backend%20tests-257%20passing-brightgreen)
-![Frontend tests](https://img.shields.io/badge/frontend%20tests-388%20passing-brightgreen)
-![Disruptor](https://img.shields.io/badge/transport-LMAX%20Disruptor-lightgrey)
+![Backend tests](https://img.shields.io/badge/backend%20tests-867%20passing-brightgreen)
+![Frontend tests](https://img.shields.io/badge/frontend%20tests-402%20passing-brightgreen)
+![Journal](https://img.shields.io/badge/journal-Aeron%20Archive-lightgrey)
+![Database](https://img.shields.io/badge/database-PostgreSQL%20%2B%20Flyway-336791)
 ![Bench](https://img.shields.io/badge/benchmarks-JMH%201.37-informational)
 ![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-61dafb)
 
-This is the venue side of a market, not the broker side. Raw FIX bytes arrive at a gateway, cross a
-lock-free ring buffer into a single-threaded matching engine, match under price-time priority, and
-fan out as execution reports, depth snapshots and a trade tape to every subscriber, including a
-React terminal over WebSocket. The system owns the book and produces the trades. Nothing here routes
-an order out to somewhere else, because there is nowhere else: this is where the order rests and
-where the fill is born.
-
-It began as a matching engine and outgrew that name. The engine is still the core, but it is now one
-component among several that together make a working, if small, exchange: member connectivity over a
-FIX protocol subset, a matching core, market data dissemination, a trade reporting tape, and a
-participant-facing terminal with its own order entry, blotter, depth views, price chart and FIX
-stream inspector.
-
-It is a portfolio project, and every architectural decision is made to demonstrate the skills that
-matter in trading-systems engineering: mechanical sympathy, lock-free data structures, protocol-level
-networking, honest measurement, and disciplined scope.
-
-The performance characteristics below are measured with JMH, not asserted. Each number is traceable
-to a recorded benchmark run, and each is reported with its methodology and its caveats.
+This is the venue side of a market, not the broker side. The system owns the book and produces the
+trades. Nothing here routes an order somewhere else, because there is nowhere else: this is where
+the order rests and where the fill is born. It is a portfolio project, built to show the skills
+that matter in trading-systems engineering: mechanical sympathy, lock-free single-writer pipelines,
+journaling and deterministic replay, protocol-level networking, honest measurement and disciplined
+scope.
 
 ---
 
@@ -38,15 +29,22 @@ to a recorded benchmark run, and each is reported with its methodology and its c
 
 - [What this system is, and is not](#what-this-system-is-and-is-not)
 - [Architecture](#architecture)
+- [The journal and determinism](#the-journal-and-determinism)
+- [Recovery](#recovery)
+- [Durability guarantee](#durability-guarantee)
+- [Sessions and the calendar](#sessions-and-the-calendar)
+- [Startup and graceful shutdown](#startup-and-graceful-shutdown)
+- [PostgreSQL](#postgresql)
+- [Configuration and running](#configuration-and-running)
+- [Wire protocol](#wire-protocol)
+- [/health](#health)
+- [/api](#api)
 - [The participant terminal](#the-participant-terminal)
 - [Performance](#performance)
 - [Design principles](#design-principles)
 - [Technology stack](#technology-stack)
 - [Project structure](#project-structure)
-- [Building and running](#building-and-running)
-- [Benchmarking](#benchmarking)
-- [Testing](#testing)
-- [Scope](#scope)
+- [Building, testing and benchmarking](#building-testing-and-benchmarking)
 - [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
 
@@ -54,234 +52,808 @@ to a recorded benchmark run, and each is reported with its methodology and its c
 
 ## What this system is, and is not
 
-The distinction drives almost every design decision in the repository, so it is stated up front.
-
 **It is an exchange venue.** It accepts member order flow, maintains the central limit order book,
-decides which orders trade and at what price, and publishes the resulting executions and market data.
-The book is authoritative here. There is no upstream venue to route to and no downstream broker to
-report to.
+decides which orders trade and at what price, journals every command and every execution, and
+publishes the resulting executions and market data. After the trading day it nets each
+participant's fills, rolls accounts forward and serves reports.
 
 **It is not an order management system, and not a brokerage.** An OMS manages a client's orders and
-routes them to venues. This system is the thing being routed to. The React terminal is not a broker
-front end: it is a direct-access participant connected to the venue, in the same position a member
-firm's trading screen would be.
+routes them to venues. This system is the thing being routed to. The React terminal is a
+direct-access participant connected to the venue, in the position a member firm's trading screen
+would be.
 
-**What a real exchange has that this deliberately does not:** multi-symbol and multi-venue routing,
-member accounts, pre-trade risk and credit checks, authentication, persistence and crash recovery,
-auction and halt states, and a clearing path. These are listed in [Scope](#scope) rather than hidden,
-because the gap between this and a production venue is part of what the project is meant to show an
-interviewer is understood.
+**What a real exchange has that this deliberately does not:** multiple instruments, member
+authentication and per-participant sessions, pre-trade risk and credit checks, auction and halt
+states, intraday session hours, fees, and replication to a second machine. These are listed in
+[Known limitations](#known-limitations) rather than hidden.
 
 ---
 
 ## Architecture
 
-The pipeline is a single write path with no locks on the hot section. Each ring buffer has exactly
-one producer, so write contention is eliminated by design rather than by synchronization.
+One command's path, as built. Every ring and every stream has exactly one producer.
 
 ```mermaid
 flowchart TD
-    NET["WebSocket participant"] --> GW["Order Gateway<br/>FIX 4.2 parse and field validation"]
-    GW -->|single producer| IN["Inbound Ring Buffer<br/>LMAX Disruptor · OrderEvent"]
-    IN -->|single consumer| ME["Matching Engine<br/>single-threaded · price-time priority"]
-    ME -->|single producer| OUT["Outbound Ring Buffer<br/>ExecutionEvent"]
-    ME -->|single producer| SNAP["Snapshot Ring Buffer<br/>BookSnapshotEvent · top 20 per side"]
-    OUT --> WSP["WebSocket Publisher"]
-    OUT --> TL["Trade Logger"]
-    SNAP --> WSP
-    SNAP --> MDS["Market Data Service<br/>best bid/ask · mid · spread"]
-    WSP --> UI["Participant terminal<br/>React · depth · tape · chart · FIX inspector"]
-    CLK["EpochNanoClock<br/>one shared epoch-nanos domain"] -.-> GW
-    CLK -.-> ME
-    CLK -.-> NET
+    WS["WebSocket client<br/>terminal, bots, scripts"] -->|"NEW / CANCEL as JSON"| FH["WebSocketFrameHandler<br/>JSON to FIX bytes"]
+    SCHED["SessionScheduler<br/>calendar roll, 1 s tick"] -.->|"SESSION_OPEN / SESSION_CLOSE<br/>handed to the gateway's thread"| GW
+    FH --> GW["OrderGateway<br/>FIX parse, receipt timestamp"]
+    GW -->|"single producer"| IN["Inbound ring<br/>Disruptor, OrderEvent"]
+    IN --> SEQ["Sequencer<br/>inbound seq, SBE encode"]
+    SEQ -->|"Aeron IPC stream 1001"| ARC[("Aeron Archive<br/>inbound and outbound recordings")]
+    ARC -->|"gated: never past the recorded position (D11)"| AG["Engine agent<br/>decode, seq check"]
+    AG --> ME["MatchingEngineHandler and MatchingEngine<br/>single thread, deterministic"]
+    ME -->|"single producer"| OUT["Outbound ring<br/>ExecutionEvent"]
+    ME -->|"single producer"| SNAP["Snapshot ring<br/>BookSnapshotEvent"]
+    ME -.->|"at interval, at close, at shutdown"| SS["Snapshot writer<br/>snapshots on disk"]
+    OUT --> REC["OutboundRecorder"]
+    REC -->|"Aeron IPC stream 1002"| ARC
+    OUT --> PUB["WebSocketPublisher<br/>EXEC and SESSION frames"]
+    OUT --> TL["TradeLogger"]
+    SNAP --> PUB2["WebSocketPublisher<br/>BOOK frames"]
+    SNAP --> MDS["MarketDataService"]
+    ARC -->|"replay stream 1102"| RS["ResendService<br/>RESEND to one channel"]
+    ARC -->|"replays 1103 and 1104"| REP["Reporter"]
+    REP --> PG[("PostgreSQL")]
+    PG --> CLR["Clearing<br/>end of day"]
+    CLR --> PG
+    PG --> API["/api<br/>2-thread executor"]
+    HEALTH["/health"] -.->|"reads seqs and states"| AG
 ```
 
-**Order Gateway.** The protocol boundary. It receives raw bytes, parses FIX tag-value messages,
-validates structure and required fields, stamps receipt time, and publishes `OrderEvent`s onto the
-inbound ring buffer. It is the sole producer on that ring. Structural validation happens here; domain
-validation is delegated to the `Order` constructor so the two concerns stay separated. Two message
-types are supported: `NewOrderSingle` (35=D) and `OrderCancelRequest` (35=F).
+**Gateway.** The protocol boundary. JSON frames from the WebSocket become real FIX 4.2 tag-value
+bytes (`JsonToFix`) and go through the same `FixParser` an external member would hit, so there is no
+back door into the engine. The gateway validates structure, stamps the receipt time from one shared
+epoch-nanosecond clock and publishes onto the inbound ring. It is the ring's only producer: the
+session scheduler hands session commands to the gateway's thread rather than publishing itself.
 
-**Inbound ring buffer.** A lock-free Disruptor transport between the gateway and the engine. Carrier
-objects (`OrderEvent`) are pre-allocated and reused: the gateway copies fields into a slot, the
-engine reads them out, and the slot is recycled. Single producer, single consumer.
+**Sequencer.** The inbound ring's only consumer. It gives each command the next inbound seq (1, 2,
+3, with no gaps), keeps the journaled timestamp from going backwards, encodes the command with SBE
+and offers it to a recorded Aeron IPC stream. On back-pressure it retries the same bytes and never
+drops or reorders a command.
 
-**Matching Engine.** The core. It maintains the limit order book and executes price-time priority
-matching on a single thread as the sole consumer of the inbound ring. No locks, no synchronization,
-no contention. The book is a `TreeMap<Long, Deque<Order>>` per side (natural ordering for asks,
-reverse ordering for bids), with an `ArrayDeque` at each price level for FIFO time priority and a
-`HashMap<Long, Order>` for O(1) cancel lookup, plus two `ArrayDeque` peg pools (one per side) that
-hold resting midpoint-peg orders outside the price map. Fills use the passive price convention,
-meaning the resting order's price. The engine has no knowledge of FIX, JSON, or WebSocket.
+**Engine agent.** An Agrona agent on its own thread that polls the inbound stream but never reads a
+command the Archive has not yet recorded. It checks every seq is exactly one more than the last,
+then drives `MatchingEngineHandler`, which owns the outbound seq, the session state and the
+publishing onto the two outbound rings; the trade id counter lives in `MatchingEngine`. The engine reads no clock, no database and no other
+external state.
 
-Every order carries a time in force and an order type. Time in force is GTC (an unfilled remainder
-rests), IOC (the remainder expires rather than resting) or FOK (the order fills completely or
-expires with the book untouched, decided by a pre-trade availability check that shares its
-eligibility rule with the match loop). An unfilled IOC or FOK remainder is reported with the
-`ORDER_EXPIRED` execution type, distinct from a cancel. Two non-plain order types sit on top of the
-limit book: an iceberg rests with a displayed tip over a hidden reserve, reloading to the back of
-its price-level queue each time the tip is consumed, so depth snapshots show only the tip; a
-midpoint peg is non-displayed, rests in a separate FIFO pool, and executes only at the exact
-midpoint of the venue's own lit book, inactive while either lit side is empty. Because limit prices
-are `long` units of $0.0001 on the one-cent tick, a midpoint can fall on a half-cent and a fill can
-print sub-penny.
+**Matching engine.** A `TreeMap<Long, ArrayDeque<Order>>` per side (price-time priority, fills at
+the resting order's price), a `HashMap<Long, Order>` for cancels, and two FIFO pools for midpoint
+peg orders outside the price map. Time in force is GTC, IOC or FOK (an unfilled IOC or FOK remainder
+gets `ORDER_EXPIRED`); icebergs show a tip over a hidden reserve; a midpoint peg executes only at
+the exact midpoint of the lit book, so a print can be sub-penny. Prices are `long` units of $0.0001
+on a one-cent tick (100 units).
 
-**Outbound and snapshot rings.** The engine is the single producer on two outbound Disruptor rings:
-one carrying `ExecutionEvent`s (accepted, filled, partially filled, cancelled, rejected, expired) and one
-carrying `BookSnapshotEvent` depth snapshots bounded at 20 levels per side. Each consumer holds its
-own sequence counter, so a new subscriber is added by registering a consumer with no engine change.
+**Outbound side.** The outbound ring feeds the outbound recorder (the only writer of the recorded
+outbound stream, fail-stop on error), the WebSocket publisher and the trade logger. The snapshot
+ring carries depth (20 levels a side) to the publisher and `MarketDataService`. Publisher and logger
+errors are logged and never stall the engine.
 
-**Market data and trade reporting.** `MarketDataService` consumes the snapshot ring and derives best
-bid, best ask, midpoint and spread. `TradeLogger` consumes the outbound ring as the server-side trade
-tape, logging fills and ignoring everything else. Neither blocks the other, and neither blocks the
-engine.
+**Off the critical path.** RESEND, the Reporter and clearing each read the Archive recordings or the
+database on their own threads. `/api` runs its queries on a dedicated two-thread executor, never on
+a Netty event loop. None of them can delay matching.
 
-**Publishers and terminal.** The WebSocket publisher serializes execution and snapshot events to JSON
-via Jackson and pushes them to all connected clients over Netty. The React terminal renders the live
-market and submits orders back through the gateway. Orders entered in the UI are encoded to real FIX
-bytes at the network edge (`JsonToFix`) and fed through the same `FixParser` an external member would
-hit, so there is no privileged back door into the engine.
+---
 
-**Time.** A single `EpochNanoClock` instance is constructed at startup and shared by the gateway
-receipt stamp, the engine handler's execution and snapshot stamps, and the raw FIX echo at the
-WebSocket edge. It anchors `System.currentTimeMillis()` against `System.nanoTime()` once, then serves
-`anchor + elapsed`, which yields true epoch nanoseconds at nanosecond resolution. The transform is
-affine, so inter-event deltas remain exact and the end-to-end latency measurement is unaffected by
-the epoch conversion. One instance is load-bearing: two anchors would differ by the anchor skew and
-corrupt a receipt-to-publish delta.
+## The journal and determinism
+
+**What is journaled.** Two Aeron IPC streams, both recorded by Aeron Archive inside the exchange
+process:
+
+| Stream | Writer | Holds |
+|--------|--------|-------|
+| 1001, inbound | Sequencer | every command: NEW, CANCEL, SESSION_OPEN, SESSION_CLOSE, each with its inbound seq and timestamp |
+| 1002, outbound | Outbound recorder | every execution event, including SESSION_OPENED and SESSION_CLOSED, each with its outbound seq |
+
+Each stream is one continuous recording: the first start begins it and every later start extends
+it. Recordings are append-only and never edited. Replay stream ids 1101 (startup recovery), 1102
+(RESEND), 1103 and 1104 (the Reporter) are never recorded. Only IPC is used; the venue opens no UDP
+port.
+
+**Gating rule (D11).** The engine agent never processes a fragment that ends beyond the Archive's
+recorded position for the inbound stream, read from the Archive's recording position counter. No
+command is matched before it is in the journal.
+
+**Receipt timestamps.** The journaled timestamp is the gateway's receipt stamp. If it is earlier than
+the last journaled one (possible only across a restart), the sequencer uses the last one instead, so
+journal timestamps never decrease. Every EXEC and BOOK the engine emits carries the timestamp of the
+command that caused it, never a clock reading, so a replay reproduces every event field for field.
+
+**Engine-owned trade id and seq.** The trade id counter lives in the engine and the outbound seq in
+the handler's single publish point; both are part of the snapshot, so replay regenerates identical
+trade ids and seqs. There is no static id generator. Order ids are the clients' ClOrdIDs; a NEW that
+reuses the id of a still-resting order is rejected.
+
+**commandSeq.** Every execution event carries `commandSeq`, the inbound seq of the command that
+caused it (journal schema version 1). The Reporter uses it to attribute each event to its order
+without re-running the engine. It is not on the WebSocket wire.
+
+---
+
+## Recovery
+
+**Snapshots.** The engine writes a snapshot of its complete state (both books in queue order, both
+peg pools, every resting order's fields including iceberg slices, the trade id counter, the outbound
+seq, the last inbound seq and its journal position, and the session state) every `SNAPSHOT_INTERVAL`
+commands, at session close and at graceful shutdown. The engine thread encodes it between two
+commands into a preallocated buffer; a separate writer thread computes a CRC32C, writes a temporary
+file and renames it atomically. The newest three are kept. A snapshot with a bad name, length,
+checksum, schema or content is skipped with a WARN naming the reason.
+
+**Replay.** On startup the venue loads the newest valid snapshot (or none), replays the inbound
+recording from the command after it to the end, and checks that the applied seq equals the last
+journaled seq. Replay uses the same apply path as live matching, on the engine thread.
+
+**The D13 floor.** During replay every event still takes its seq, but an event whose seq is at or
+below the last seq in the outbound recording is suppressed. An event above it (produced before a
+crash but not yet recorded) is published and recorded once. At the floor, the regenerated event is
+compared field by field with the last recorded one. A snapshot newer than the outbound recording is
+skipped in favour of an older one or a full replay, so the unrecorded tail is always regenerated.
+
+**Refusals.** A mismatch stops startup with exit code 2 and a message that says what to do:
+
+| Mismatch | Remedy in the message |
+|----------|-----------------------|
+| Snapshot beyond the journal (the journal lost commands) | move the newer snapshots aside |
+| Journal replaced or deleted (recording id differs, position before its start) | restore the archive or delete the snapshots |
+| Replay ends short, or a seq mismatch | names the expected and actual seqs |
+| Outbound recording ends beyond what replay regenerates, or exists while the inbound journal is empty | restore the archive from a consistent backup or move the data directory aside |
+| The regenerated event at the floor differs from the recorded one | run the build that wrote this data |
+| A genuinely torn last fragment after a crash mid-write | the exact `ArchiveTool verify` command, generated at runtime |
+| Data written before sessions existed (see [Known limitations](#known-limitations)) | move the data directory aside |
+| A configuration value that does not parse, or a reachable database with something wrong in it | names the variable or the reason |
+
+A missing outbound recording with inbound history present is the one case that rebuilds instead of
+refusing: a full replay regenerates and records every event once.
+
+**Restart soon after a crash.** A crashed media driver's heartbeat stays fresh for up to 10 s, and
+a start during that window is refused by Aeron. `Journal.launch` retries once, after 11 s, with a
+WARN. A live second instance keeps its heartbeat fresh, so the retry is refused too and the venue
+exits 2 without touching the running one.
+
+**Fail-stop.** An exception in the sequencer, the engine agent or the outbound recorder logs
+`FATAL ... venue halted` and calls `Runtime.halt(70)`, skipping the shutdown hook on purpose. The
+next start recovers from the newest snapshot and the journal. Rejected orders are normal outputs,
+not failures.
+
+---
+
+## Durability guarantee
+
+Stated exactly as SRS §3.9 has it: a command counts as journaled once Aeron Archive has written it
+to the recording file, which places it in the operating system's page cache. The Archive runs with
+`fileSyncLevel 0` and does not force data to disk on each write. A journaled command therefore
+survives a crash of the exchange process, but the last moments before a failure of the whole
+machine (a power loss, a kernel panic) can be lost. The outbound recording has the same guarantee.
+
+Snapshots are not fsynced either: forcing them would make "snapshot ahead of journal" after a power
+loss more likely, and a torn snapshot fails its checksum and is skipped. The engine never processes
+an unjournaled command.
+
+---
+
+## Sessions and the calendar
+
+The venue has trading days. `SESSION_OPEN` and `SESSION_CLOSE` are commands on the inbound ring,
+sequenced and journaled like orders, and acknowledged by `SESSION_OPENED` and `SESSION_CLOSED`
+events that reach clients as SESSION frames. `SESSION_OPEN` carries every value that affects
+matching (business date, symbol, tick size, lot size, price scale), so replay never needs the
+database.
+
+- **NEW is rejected while closed** (`ORDER_REJECTED`); CANCEL is accepted in either state.
+- **Auto-open:** with `SESSION_AUTO_OPEN=true` (the default) the session controller opens today, in
+  `SESSION_TIME_ZONE`, at startup if it is a trading day, before the port binds.
+- **The calendar roll:** a scheduler thread ticks every second. A session still open on an earlier
+  date is closed (with a snapshot at close), then today is opened if it is a trading day. A date with
+  no row in `trading_calendar` is a trading day, so the demo trades every day. Sessions span the
+  whole calendar day; there are no intraday hours.
+- **Graceful shutdown never closes the day.** A restart is not the end of the trading day: GTC orders
+  persist through the snapshot and the journal, and the next start resumes the open session. Closing
+  on every restart would also run end-of-day clearing on every restart.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Closed: first start, never opened
+    Closed --> Open: SESSION_OPEN for today (auto-open, trading day)
+    Open --> Open: restart on the same day (recovered, trading resumes)
+    Open --> Closed: SESSION_CLOSE when the date rolls past the open day
+    Closed --> Closed: today already closed, or not a trading day, or auto-open off
+```
+
+Clearing is not a session state: it runs on its own thread once the Reporter has recorded a close,
+while the venue is already trading the next day.
+
+A recovered state dated after today (the clock or time zone moved backwards) refuses startup with
+exit 2. Once running, the scheduler logs an ERROR and takes no action in that case.
+
+---
+
+## Startup and graceful shutdown
+
+**Startup order** (`Main`, `JournaledPipeline`, `VenueStartup`):
+
+1. Read configuration. With `DB_URL` set, run the schema step (migrate or validate) and open the
+   reference source; something wrong in the database refuses startup here, before the journal.
+2. Launch the media driver and Archive; open or extend both recordings; load the newest valid
+   snapshot and check it against both journals; open the sequencer; subscribe the engine.
+3. Build the gateway, the resend service, the server and the publisher, and register the outbound
+   and snapshot consumers.
+4. Start the consumers; the engine thread replays the journal tail (publishing only what the outbound
+   recording lacks) and publishes the recovered book; then the sequencer starts.
+5. Create the server's event loops; the session controller issues any session commands on the
+   gateway's thread and waits until the engine has applied them; check the venue is still running.
+6. Bind the port. Only now can a client connect, so no order arrives before the session is open.
+7. Start the session scheduler; with `DB_URL` set, start clearing and the Reporter.
+
+**Graceful shutdown** runs from the JVM shutdown hook on Ctrl+C or a termination signal (exit code
+130 on Ctrl+C):
+
+```mermaid
+sequenceDiagram
+    participant Hook as Shutdown hook
+    participant Sched as SessionScheduler
+    participant Srv as WebSocketServer
+    participant Clr as Clearing
+    participant Rep as Reporter
+    participant Pipe as JournaledPipeline
+    participant Jrn as Journal
+    Hook->>Sched: stop (no more session commands)
+    Hook->>Srv: stop (clients closed, then RESEND and /api)
+    Hook->>Clr: stop (a run in progress commits or rolls back)
+    Hook->>Rep: stop (resumes from its checkpoint next start)
+    Hook->>Pipe: shutdown
+    Pipe->>Pipe: inbound ring drained, every command journaled
+    Pipe->>Pipe: engine applies the last journaled seq, agent closed
+    Pipe->>Pipe: outbound and snapshot rings drained
+    Pipe->>Pipe: final snapshot written
+    Pipe->>Jrn: close (both recordings reach their positions, recordings stopped)
+    Hook->>Hook: log Shutdown complete
+```
+
+Every wait is bounded at 10 s; a wait that times out is logged and shutdown moves on, so the journal
+always closes. After a fatal error the drains are skipped. The next start after a clean shutdown
+replays nothing.
+
+---
+
+## PostgreSQL
+
+PostgreSQL is the venue's system of record for everything outside the trading day. It is never on
+the critical path, and the engine never reads it. Without `DB_URL` the venue runs exactly the same,
+with session reference data from configuration and no Reporter, clearing or `/api`.
+
+### Setup
+
+Created by hand once (for example in pgAdmin): a login role `exchange` (no superuser, no createdb,
+no createrole) and the databases it owns, `exchange_dev` for running and `exchange_test` for the test
+suite. Nothing else is ever created by hand: Flyway owns the schema.
+
+| Migration | Adds |
+|-----------|------|
+| V1 reference data | `instrument` (seeded ASML: tick 100, lot 1, scale 10000), `trading_calendar` (no rows: every day trades), `participant` (seeded 1, House terminal, INTERNAL) |
+| V2 accounts | `account`, `account_balance` and `account_position` by business date, `house_position` |
+| V3 trading record | `orders` keyed by inbound seq, `executions` keyed by outbound seq, `order_audit` keyed by stream and seq |
+| V4 clearing | `clearing_run`, `clearing_obligation` |
+| V5 market data and Reporter | `candle` (one-minute), `reporter_checkpoint` |
+| V6 Reporter resume | checkpoint positions, session and recording identity; candle key includes the business date; open-orders index |
+| V7 clearing runs | run status PENDING or COMPLETE with completion fields; obligation quantity checks |
+| V8 report indexes | fills by business date and outbound seq |
+
+Prices and amounts are `bigint` units of $0.0001, timestamps `bigint` epoch nanoseconds, business
+dates `int` YYYYMMDD.
+
+**When migrations run.** `DB_MIGRATE_ON_START=true` (the default) runs Flyway migrate at startup.
+`false` only validates (pending or changed migrations refuse startup), for a deployment where
+`db.MigrateCommand` runs first as its own step: it needs `DB_URL` and exits 0, or 1 with the reason.
+Flyway clean is hard-coded off in production.
+
+### The Reporter
+
+One thread replays both recordings from its checkpoint and follows them: order details from the
+inbound stream, every event from the outbound stream, attributed to orders through `commandSeq`. It
+writes `orders`, `executions`, `order_audit`, one-minute `candle` rows and a PENDING `clearing_run`
+row for each closed day, in batches of up to 1,000 events or 200 ms, with the checkpoint in the same
+transaction. Every insert is keyed so that applying an event twice changes nothing, so a crash at
+any point neither loses nor duplicates a row. It reads only the recordings, never a ring, so a slow
+or absent database cannot affect matching. On failure it backs off (250 ms doubling to 30 s) and
+resumes from the checkpoint.
+
+### Clearing
+
+When the Reporter records a close, clearing (its own thread) waits until the Reporter's checkpoint has
+passed the `SESSION_CLOSED` seq, then in one transaction per date:
+
+- nets each participant's fills per symbol into bought, sold, net quantity and a **cash obligation =
+  value bought minus value sold, so a positive obligation means the participant pays**;
+- rolls positions forward to the next business date, and for external participants their cash
+  (next cash = opening cash minus the obligation); the house rolls its position with no cash row;
+- writes `clearing_obligation` and the next date's rows, and marks the run COMPLETE.
+
+**Opening-value semantics.** Each `account_balance`, `account_position` and `house_position` row holds
+the opening value of its date. The opening value used for a cleared date is the latest row dated on
+or before it (zero if none), so the row at `next_business_date` is the closing value of the cleared
+day. Pending dates clear in ascending order. A COMPLETE run writes nothing on a re-run. Invariants
+(no lost or double-counted fill, every symbol nets to zero, no overflow, no later-dated row) stop
+clearing loudly rather than write a wrong result.
+
+### Unreachable versus inconsistent
+
+| Situation (`DB_URL` set) | Behaviour |
+|--------------------------|-----------|
+| Unreachable at startup | 3 attempts, 2 s apart, 5 s connect timeout; then an ERROR and the venue starts without it. A recovered open day keeps trading. A day that needs opening stays closed (NEW rejected, `/health` CLOSED) and the scheduler retries every 30 s |
+| Unreachable while running | matching continues; the Reporter and clearing back off; `/api` answers 503 `DATABASE_UNAVAILABLE`; `/health` stays 200; the Reporter catches up from its checkpoint when the database returns |
+| Reachable but wrong at startup (migration or validation fails, authentication fails, missing database, no instrument row, values the engine refuses) | refuse startup, exit 2, with the reason |
+| Inconsistent data while running (SQLState class 22 or 23, an attribution or clearing invariant) | that component's state becomes FAILED and its thread stops; the venue keeps trading; nothing is skipped; restart after fixing |
+
+The venue never falls back to configuration when `DB_URL` is set: that would journal a
+`SESSION_OPEN` whose values the database may not hold.
+
+### Schema as built
+
+```mermaid
+erDiagram
+    participant ||--o| account : "has (external only)"
+    account ||--o{ account_balance : "cash by date"
+    account ||--o{ account_position : "positions by date"
+    instrument ||--o{ account_position : symbol
+    instrument ||--o{ house_position : symbol
+    instrument ||--o{ orders : symbol
+    instrument ||--o{ candle : symbol
+    instrument ||--o{ clearing_obligation : symbol
+    participant ||--o{ orders : places
+    participant ||--o{ executions : "aggressor or passive"
+    participant ||--o{ clearing_obligation : owes
+    orders ||--o{ executions : "order or passive order"
+    orders ||--o{ order_audit : trail
+    clearing_run ||--o{ clearing_obligation : nets
+
+    instrument {
+        varchar symbol PK
+        bigint tick_size
+        bigint lot_size
+        bigint price_scale
+    }
+    trading_calendar {
+        int business_date PK
+        boolean is_trading_day
+        text description
+    }
+    participant {
+        bigint participant_id PK
+        text name
+        varchar participant_type "INTERNAL or EXTERNAL"
+    }
+    account {
+        bigint account_id PK
+        bigint participant_id FK "unique"
+    }
+    account_balance {
+        bigint account_id PK, FK
+        int business_date PK
+        bigint cash "opening value"
+    }
+    account_position {
+        bigint account_id PK, FK
+        int business_date PK
+        varchar symbol PK, FK
+        bigint quantity "opening value"
+    }
+    house_position {
+        int business_date PK
+        varchar symbol PK, FK
+        bigint quantity "opening value"
+    }
+    orders {
+        bigint inbound_seq PK
+        bigint order_id "client ClOrdID"
+        bigint participant_id FK
+        int business_date
+        varchar symbol FK
+        varchar side
+        varchar ord_type
+        varchar time_in_force
+        bigint limit_price
+        bigint quantity
+        bigint display_quantity
+        bigint received_ts
+        varchar status
+        bigint cum_quantity
+        bigint last_outbound_seq
+    }
+    executions {
+        bigint outbound_seq PK
+        varchar event_type
+        bigint order_inbound_seq FK
+        bigint order_id
+        bigint trade_id "unique when set"
+        bigint price
+        bigint filled_quantity
+        bigint remaining_quantity
+        bigint aggressor_order_id
+        bigint passive_order_id
+        bigint passive_order_inbound_seq FK
+        varchar aggressor_side
+        bigint aggressor_participant_id FK
+        bigint passive_participant_id FK
+        int business_date
+        bigint event_ts
+    }
+    order_audit {
+        varchar stream PK "IN or OUT"
+        bigint seq PK
+        bigint order_inbound_seq FK
+        bigint order_id
+        varchar event
+        int business_date
+        bigint event_ts
+        bigint price
+        bigint quantity
+        bigint remaining_quantity
+    }
+    clearing_run {
+        int business_date PK
+        varchar status "PENDING or COMPLETE"
+        bigint close_outbound_seq
+        bigint started_ts
+        bigint completed_ts
+        bigint closed_ts
+        int next_business_date
+        bigint fill_count
+        bigint volume
+    }
+    clearing_obligation {
+        int business_date PK, FK
+        bigint participant_id PK, FK
+        varchar symbol PK, FK
+        bigint bought_quantity
+        bigint sold_quantity
+        bigint net_quantity
+        bigint cash_obligation "positive means pays"
+    }
+    candle {
+        varchar symbol PK, FK
+        int business_date PK
+        bigint bucket_start_ts PK
+        bigint open
+        bigint high
+        bigint low
+        bigint close
+        bigint volume
+        bigint trade_count
+        bigint last_outbound_seq
+    }
+    reporter_checkpoint {
+        smallint id PK "always 1"
+        bigint last_inbound_seq
+        bigint last_outbound_seq
+        bigint inbound_position
+        bigint outbound_position
+        int session_business_date
+        varchar session_symbol FK
+        bigint inbound_recording_id
+        bigint inbound_recording_ts
+        bigint outbound_recording_id
+        bigint outbound_recording_ts
+    }
+```
+
+Foreign keys between the trading-record tables are `DEFERRABLE INITIALLY DEFERRED`, so the Reporter
+can write a batch read from both recordings in one transaction. `executions.order_inbound_seq` is
+NULL for a rejected cancel of an unknown order.
+
+---
+
+## Configuration and running
+
+Every setting is an environment variable read by `config/ExchangeConfig`. Blank means unset; a
+malformed value refuses startup (exit 2) naming the variable.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `EXCHANGE_PORT` | `8080` | the one port for `/ws`, `/health` and `/api` (1 to 65535) |
+| `EXCHANGE_DATA_DIR` | `data` under the working directory | persistent data: Archive recordings in `archive/`, snapshots in `snapshots/`; must survive restarts |
+| `AERON_DIR` | `<java.io.tmpdir>/aeron-exchange` | the media driver's working directory; may be lost on restart |
+| `SNAPSHOT_INTERVAL` | `10000` | inbound commands between periodic snapshots |
+| `SESSION_AUTO_OPEN` | `true` | open today's session at startup and on the calendar roll (`true` or `false`) |
+| `SESSION_TIME_ZONE` | `America/New_York` | the zone in which "today" and the calendar roll are computed |
+| `SESSION_SYMBOL` | `ASML` | the instrument (1 to 8 of `[A-Z0-9.]`); with `DB_URL` set, the `instrument` row read |
+| `SESSION_TICK_SIZE` | `100` | without `DB_URL` only; the engine accepts only 100 |
+| `SESSION_LOT_SIZE` | `1` | without `DB_URL` only; the engine accepts only 1 |
+| `SESSION_PRICE_SCALE` | `10000` | without `DB_URL` only; the engine accepts only 10000 |
+| `DB_URL` | unset | JDBC URL of the database; unset runs without PostgreSQL, the Reporter, clearing and `/api` |
+| `DB_USER` | unset | database user |
+| `DB_PASSWORD` | unset | database password; never printed (a `password=` URL parameter is masked too) |
+| `DB_MIGRATE_ON_START` | `true` | `true` runs Flyway migrate at startup; `false` validates only |
+| `JOURNAL_TERM_LENGTH` | `262144` (256 KiB) | IPC term length for new recordings; a power of two, 64 KiB to 1 GiB |
+| `JOURNAL_SEGMENT_LENGTH` | `16777216` (16 MiB) | Archive segment file size; a power of two, at least the term length (preallocated) |
+| `ENGINE_IDLE_STRATEGY` | `backoff` | how the engine agent waits: `backoff`, `sleeping`, `yielding` or `busy-spin` (benchmarks only) |
+| `JOURNAL_ARCHIVE_THREADING` | `shared` | Archive threads: `shared` (one) or `dedicated` (three) |
+
+Test-only variables, read by the test suite and never by the venue: `TEST_DB_URL`, `TEST_DB_USER`,
+`TEST_DB_PASSWORD`. They must point at `exchange_test`; the suite refuses to clean any database whose
+server-reported name is not exactly `exchange_test`. With `TEST_DB_URL` unset the database test
+classes are skipped and the skip is reported.
+
+**The JVM flag.** Agrona needs `--add-exports java.base/jdk.internal.misc=ALL-UNNAMED` on every JVM
+that runs the venue, on JDK 21 and 25 alike. Without it the first buffer access fails with
+`IllegalAccessError`. Surefire, the Maven execution and the IntelliJ run configuration already pass
+it.
+
+**Ways to run** (from `app/backend`, with JDK 21 or later):
+
+```bash
+mvn -q compile exec:exec@exchange
+```
+
+```bash
+mvn -q compile exec:exec@migrate
+```
+
+The first runs `Main` with the flag on the JDK Maven runs on. The second runs `db.MigrateCommand`
+(requires `DB_URL`). In IntelliJ, use the shared run configuration **Exchange Main**
+(`.run/Exchange Main.run.xml`: the flag, working directory `app/backend`). For a graceful stop with
+Ctrl+C, run `java` directly rather than through Maven so the signal reaches the venue's JVM.
+
+---
+
+## Wire protocol
+
+One WebSocket at `ws://host:port/ws` (exact path; `/ws/` or a query string gets 404). All prices
+are `long` units of $0.0001.
+
+**In:**
+
+```json
+{"type":"NEW","clOrdId":1001,"side":"BUY","ordType":"LIMIT","tif":"GTC","price":1480000,"qty":30,"maxFloor":0,"symbol":"ASML"}
+{"type":"CANCEL","clOrdId":1008,"origClOrdId":1001}
+{"type":"RESEND","fromSeq":17}
+```
+
+`ordType` is `LIMIT` or `PEG_MID` (price `-1`), `tif` is `GTC`, `IOC` or `FOK`, `maxFloor` above 0
+makes an iceberg; missing values default to `LIMIT`, `GTC` and 0. A malformed or unknown frame is
+logged and dropped.
+
+**Out** (examples from a live run):
+
+```json
+{"type":"EXEC","seq":7,"execType":"ORDER_PARTIALLY_FILLED","orderId":1006,"tradeId":1,"price":1510000,"filledQuantity":15,"remainingQuantity":5,"aggressorOrderId":1006,"passiveOrderId":1003,"aggressorSide":"BUY","aggressorParticipantId":1,"passiveParticipantId":1,"timestamp":1794253914685663800}
+{"type":"BOOK","bestBid":1490000,"bestAsk":1510000,"bids":[[1490000,20],[1480000,30]],"asks":[[1510000,20],[1520000,10]],"lastSeq":8,"timestamp":1794253914685663700}
+{"type":"SESSION","seq":19,"state":"OPEN","businessDate":20261110,"timestamp":1794254415957247200}
+{"type":"RESEND_COMPLETE","fromSeq":17,"toSeq":20,"count":4}
+{"type":"RESEND_REJECTED","fromSeq":17,"reason":"BUSY"}
+```
+
+- **EXEC** carries the outbound `seq`; execution types are `ORDER_ACCEPTED`, `ORDER_FILLED`,
+  `ORDER_PARTIALLY_FILLED`, `ORDER_CANCELLED`, `ORDER_REJECTED`, `ORDER_EXPIRED`. One EXEC per trade,
+  naming the aggressor; the passive order gets no EXEC of its own.
+- **BOOK** is sent on connect (the cached latest book) and after every command; `lastSeq` is the last
+  EXEC seq it reflects.
+- **FIX** (`{"type":"FIX","direction":"INBOUND","raw":...,"seqNum":N,"timestamp":T}`) echoes, to the
+  sending channel only, the exact FIX bytes the parser consumed, SOH delimiters included.
+- **SESSION** carries `SESSION_OPENED` and `SESSION_CLOSED` with their seq; EXEC and SESSION share one
+  seq space.
+- **RESEND** replays every recorded event from `fromSeq` to the requesting channel only, byte-identical
+  to the live frames, then `RESEND_COMPLETE` (`toSeq` is the last seq sent; with `count` 0 it is the
+  recording's last seq). A `fromSeq` below 1 resends from 1; one beyond the end sends `count` 0.
+  `RESEND_REJECTED` reasons: `IN_PROGRESS` (this channel already has one pending), `BUSY` (more than 4
+  queued venue-wide), `FAILED` (a stall or read error; retry from the last seq received).
+
+**Client rule: dedupe by seq.** Live and resent frames reach a channel from different threads with no
+ordering between them, so a client can see a seq twice, in either order. Frames with the same seq are
+identical: keep one per seq and apply in seq order. After `RESEND_COMPLETE` with `toSeq` M, every seq
+up to M has been delivered.
+
+---
+
+## /health
+
+`GET /health` on the same port, `Cache-Control: no-store`. From a live run with a database:
+
+```json
+{"running":true,"session":"OPEN","businessDate":20261110,
+ "appliedInboundSeq":18,"journaledInboundSeq":18,"recordedOutboundSeq":19,"publishedOutboundSeq":19,
+ "reporter":{"state":"RUNNING","inboundSeq":18,"outboundSeq":19,"outboundLag":0},
+ "clearing":{"state":"IDLE","lastClearedDate":20261109,"pendingDate":null,"heldBy":null}}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `running` | recovery finished and no fatal error |
+| `session`, `businessDate` | `OPEN` with the open day, or `CLOSED` with the last closed day (null if none) |
+| `appliedInboundSeq` | last command the engine applied |
+| `journaledInboundSeq` | last command the sequencer offered to the recorded stream (can trail applied by one for an instant) |
+| `recordedOutboundSeq`, `publishedOutboundSeq` | last event offered to the outbound recording, and last published on the outbound ring |
+| `reporter` | `state` (STARTING, RUNNING, BACKING_OFF, FAILED, STOPPED), its checkpoint seqs, and `outboundLag` behind the recording; absent without `DB_URL` |
+| `clearing` | `state` (STARTING, IDLE, WAITING, HELD, BACKING_OFF, FAILED, STOPPED), `lastClearedDate`, `pendingDate`, and `heldBy` (the Reporter, when it is not RUNNING); absent without `DB_URL` |
+
+**200 versus 503.** 200 while `running` is true, 503 with the same body otherwise. In production a
+fatal error halts the JVM at once, so 503 is seen only in the instant before the halt. The Reporter
+and clearing never change the status: a database outage leaves `/health` at 200. Other methods get
+405 with `Allow: GET`.
+
+---
+
+## /api
+
+Read-only HTTP GET reports from the database, served only when `DB_URL` is set: without it every
+`/api` path answers 404. Queries run on a dedicated executor (2 threads, at most 16 requests queued
+or running), on read-only REPEATABLE READ connections with a 5 s statement timeout, never on a Netty
+event loop. Parameters are checked on the event loop first, so a bad request never takes an executor
+slot.
+
+| Route | Parameters |
+|-------|------------|
+| `/api/trades` | `date`, optional `afterSeq`, `limit` |
+| `/api/reports/daily` | `date` |
+| `/api/reports/volume` | `from`, `to`, optional `symbol` |
+| `/api/reports/statement` | `participantId`, `date`, optional `afterSeq`, `limit` |
+| `/api/candles` | `symbol`, `date`, optional `interval` |
+
+Dates are YYYYMMDD (19700101 to 99991231); `limit` defaults to 100, at most 1,000; a volume range is
+at most 366 days, both ends included; `interval` is 1 (default), 5, 15, 30 or 60 minutes. Trades and
+statements page by keyset on `outbound_seq`: pass `nextAfterSeq` back as `afterSeq`.
+
+**Every response** carries:
+
+- `asOfOutboundSeq`: the Reporter's checkpoint, read in the same snapshot as the rows, so the rows are
+  exactly those up to that seq;
+- `dayStatus`: `OPEN` (the session is open on that date), `CLOSED` (closed, clearing PENDING),
+  `CLEARED` (clearing COMPLETE) or `NONE` (no session recorded for that date). It reflects what the
+  Reporter has written, so a day the engine has just opened reads `NONE` until the Reporter catches up.
+
+Obligations and closing values are null unless the day is `CLEARED`.
+
+**VWAP rule.** Notional (price times quantity) is summed exactly in SQL; VWAP is notional divided by
+volume, rounded half even in integer arithmetic, and the exact `notional` and `volume` are returned
+beside it so a client can recompute it.
+
+Examples from the acceptance run (20261109 cleared, 20261110 open):
+
+`GET /api/reports/daily?date=20261109`
+
+```json
+{"businessDate":20261109,"dayStatus":"CLEARED","asOfOutboundSeq":19,
+ "clearing":{"status":"COMPLETE","closeOutboundSeq":18,"closedTs":1794254415843209400,"completedTs":1794254417057476800,
+             "nextBusinessDate":20261110,"fillCount":7,"volume":52},
+ "symbols":[{"symbol":"ASML","tradeCount":7,"volume":52,"notional":78370000,"vwap":1507115,
+             "open":1510000,"high":1510000,"low":1490000,"close":1510000,
+             "firstTradeTs":1794253914685663800,"lastTradeTs":1794254321499450100}],
+ "obligations":[{"participantId":1,"symbol":"ASML","bought":52,"sold":52,"net":0,"cashObligation":0}]}
+```
+
+`GET /api/trades?date=20261110`
+
+```json
+{"businessDate":20261110,"dayStatus":"OPEN","asOfOutboundSeq":20,
+ "trades":[{"outboundSeq":20,"tradeId":8,"timestamp":1794254450766907900,"symbol":"ASML","price":1500000,"quantity":6,
+            "aggressorSide":"SELL","aggressorOrderId":1016,"passiveOrderId":1013,
+            "aggressorParticipantId":1,"passiveParticipantId":1}],
+ "nextAfterSeq":null}
+```
+
+`GET /api/reports/volume?from=20261109&to=20261109`
+
+```json
+{"from":20261109,"to":20261109,"symbol":null,"asOfOutboundSeq":19,
+ "days":[{"businessDate":20261109,"dayStatus":"CLEARED","symbol":"ASML","tradeCount":7,"volume":52,"notional":78370000,"vwap":1507115}],
+ "totals":[{"symbol":"ASML","tradeCount":7,"volume":52,"notional":78370000,"vwap":1507115}]}
+```
+
+`GET /api/reports/statement?participantId=1&date=20261109&limit=2` (one row per leg, from the
+participant's side; a self-trade shows both legs and `limit` counts trades)
+
+```json
+{"participant":{"participantId":1,"name":"House terminal","type":"INTERNAL","accountId":null},
+ "businessDate":20261109,"dayStatus":"CLEARED","asOfOutboundSeq":19,
+ "fills":[{"outboundSeq":7,"tradeId":1,"timestamp":1794253914685663800,"symbol":"ASML","role":"AGGRESSOR","side":"BUY","price":1510000,"quantity":15},
+          {"outboundSeq":7,"tradeId":1,"timestamp":1794253914685663800,"symbol":"ASML","role":"PASSIVE","side":"SELL","price":1510000,"quantity":15},
+          {"outboundSeq":8,"tradeId":2,"timestamp":1794253914685663800,"symbol":"ASML","role":"AGGRESSOR","side":"BUY","price":1510000,"quantity":5},
+          {"outboundSeq":8,"tradeId":2,"timestamp":1794253914685663800,"symbol":"ASML","role":"PASSIVE","side":"SELL","price":1510000,"quantity":5}],
+ "nextAfterSeq":8,
+ "obligations":[{"symbol":"ASML","bought":52,"sold":52,"net":0,"cashObligation":0}],
+ "cash":null,"positions":[{"symbol":"ASML","opening":0,"closing":0}]}
+```
+
+The house (internal) participant shows positions only; an external participant also shows cash.
+
+`GET /api/candles?symbol=ASML&date=20261109&interval=5` (aggregated from the one-minute rows:
+epoch-aligned, half-open buckets, never mixing two business dates)
+
+```json
+{"symbol":"ASML","businessDate":20261109,"dayStatus":"CLEARED","intervalMinutes":5,"asOfOutboundSeq":19,
+ "candles":[{"bucketStartTs":1794253800000000000,"open":1510000,"high":1510000,"low":1510000,"close":1510000,"volume":20,"tradeCount":2},
+            {"bucketStartTs":1794254100000000000,"open":1490000,"high":1510000,"low":1490000,"close":1510000,"volume":32,"tradeCount":5}]}
+```
+
+**Errors.** Error bodies are fixed and never echo the request.
+
+| Status | When |
+|--------|------|
+| 400 `BAD_REQUEST` | an unknown, repeated, missing or out-of-range parameter |
+| 404 `NOT_FOUND` | an unknown path (a trailing slash included), an unknown participant or symbol, or any `/api` path when `DB_URL` is unset |
+| 405 `METHOD_NOT_ALLOWED` | a method other than GET, with `Allow: GET` |
+| 503 `BUSY` | the executor already holds 16 requests; `Retry-After: 1` |
+| 503 `DATABASE_UNAVAILABLE` | the database cannot be reached or a statement timed out; `Retry-After: 5`. The venue itself is unaffected |
+| 500 | an arithmetic overflow, or anything unexpected |
 
 ---
 
 ## The participant terminal
 
-The frontend is a routed two-page terminal, not a demo page. It is styled as an institutional trading
-screen (IBM Plex Sans and Mono, tabular figures, flat charcoal surfaces) with no marketing chrome.
-The socket lives above the router, so navigation never drops the connection or resets session state.
+The frontend is a routed two-page terminal styled as an institutional trading screen. The socket
+lives above the router, so navigation never drops the connection.
 
 | Route | Contents |
 |---|---|
 | `/trading` | Depth ladder, cumulative depth curve, trade tape, order entry ticket, open orders blotter, cancel-by-ID ticket, FIX stream inspector |
-| `/chart` | Session price line with reference lines, plus a side panel holding session high, low, trade count, last print, and a second order ticket |
+| `/chart` | Session price line with reference lines, plus session high, low, trade count, last print and a second order ticket |
 
-A persistent header strip renders on both pages: last, change, bid, ask, mid, spread in cents and
-basis points, volume and session open.
+The order ticket carries side, time in force, order type (limit or midpoint peg), price on the
+one-cent tick, quantity and an optional iceberg display quantity. The depth views are fed only by
+BOOK frames; on connect the venue sends the current book, so a terminal that connects after a
+restart shows the recovered book at once. The FIX inspector shows the real bytes the parser
+consumed. An optional reference market-open line comes from the Alpaca market data API through the
+Vite dev proxy only (credentials in `app/frontend/.env.local`, never committed, never `VITE_`
+prefixed). The terminal does not use RESEND or SESSION frames (see
+[Known limitations](#known-limitations)).
 
-**Order entry.** The ticket carries the full order menu: a side, a time in force (GTC, IOC, FOK), an
-order type (limit or midpoint peg), a price on the one-cent tick, a quantity, and, for a resting
-limit order, an optional display quantity that makes it an iceberg. Choosing a midpoint peg disables
-the price field and submits at the mid. The blotter labels each working order by type (LMT, ICE,
-MID) and time in force, and shows an order ended by its time in force as a terminal, non-cancellable
-EXPIRED row.
-
-**Depth ladder and depth curve.** The ladder shows asks above and bids below with a pinned spread and
-mid bar, fed only by `BOOK` snapshot frames. The curve is a cumulative step function per side on one
-shared price axis, with a shared depth maximum across both sides so imbalance reads truthfully.
-Clicking the curve prefills the order ticket's price.
-
-**FIX stream inspector.** The honest one. Inbound entries show the real echoed SOH bytes the parser
-actually consumed, byte for byte, with no recomputed body length or checksum. Outbound entries show
-the actual execution JSON frames and are labelled as such, because the server builds no outbound
-tag-value message and the inspector does not fabricate a `35=8` that does not exist on the wire.
-
-**Session statistics.** High, low, trade count, volume and session open are accumulated in the
-reducer per fill rather than folded from the trade tape, because the tape is capped at 200 prints and
-would silently forget the extremes. They survive reconnects and navigation. See
-[Known limitations](#known-limitations) for what "session" means here.
-
-**Reference market open.** The chart and header can display the official market open for the real
-instrument, fetched once per app open from the Alpaca market data API. This is a reference line only.
-It never touches the engine, the book, or any price the venue produces, and the venue remains
-entirely self-contained without it.
-
-Frontend specifics, including the wire contract, the pure-helper conventions and the test layout,
-live in [`app/frontend/FrontendREADME.md`](app/frontend/FrontendREADME.md).
+Point it at a venue on another port with `VITE_WS_URL`, for example
+`VITE_WS_URL=ws://localhost:18080/ws`. Frontend details (wire contract, pure-helper conventions,
+test layout) are in [`app/frontend/FrontendREADME.md`](app/frontend/FrontendREADME.md).
 
 ---
 
 ## Performance
 
-All figures come from JMH 1.37 on JDK 21.0.8 LTS. See [Benchmarking](#benchmarking) to reproduce.
-Read the conditions column: these are single-fork measurements on an unpinned developer machine, so
-they are point estimates on one box rather than certified benchmark results. Where a number carries
-wide variance it is reported as a range with its confidence interval, never as a bare point estimate.
+Measured with JMH 1.37 on JDK 21.0.8 on one Windows desktop, background load 5 to 25% of the CPU.
+Results hold for that machine; each figure is stated with its conditions, and only figures that the
+data supports are quoted.
 
 | Measurement | Result | Conditions |
-|---|---|---|
-| Order insert latency | approximately 110 ns, flat from 1 to 10,000 resting orders | engine in isolation, `AverageTime` |
-| Engine throughput | approximately 8.2M orders/sec (99.9% CI 7.7 to 8.7M) | blended rest/cross workload, book held shallow |
-| Fill-walk cost | approximately 100 ns per price level consumed, O(N) | aggressive order walking N levels |
-| Snapshot read path | 0 B/op (zero allocation) | top-of-book snapshot into a reused carrier |
-| End-to-end latency | p50 4.8 µs, p99 9.5 µs, p99.9 18.3 µs | full pipeline, closed-loop service time |
+|-------------|--------|------------|
+| Engine throughput | 42.7M ops/s (42,661,877 ± 629,889, 99.9% CI) | engine in isolation, synthetic rest and cross workload, 5 forks, JDK 21 |
+| Against the Phase 14 engine | 5.2x faster (Phase 14: 8,157,753 ± 175,225) | same machine, same session, same workload; the cause is the Phase 15 determinism changes, not isolated further |
+| Journal sustained rate | about 440k commands/s | the journal alone: the production recorder offering to a recorded Aeron IPC stream on the in-process Archive, one thread, sustained, Archive back-pressure included |
+| Unjournaled end to end | 13 µs p50 | gateway receipt to EXEC, in process, closed loop, one order in flight, untuned blocking waits |
 
-**Book depth has no measurable effect on insert cost.** Inserting an order into a book holding 1
-resting order and inserting into a book holding 10,000 resting orders cost the same within noise
-(115 ns versus 147 ns, confidence intervals overlapping). This is consistent with the O(log N)
-`TreeMap` insert being too small to resolve against per-operation noise. It is reported as "no
-measurable degradation", not as "measured O(log N)", because the data does not resolve the trend.
+**Allocation:** zero-allocation transport; the engine allocates per order (224 B per NEW).
 
-**The fill path is genuinely O(N).** Unlike a single insert, an aggressive order that walks N price
-levels costs proportionally more in both time and allocation (approximately 100 ns and approximately
-120 bytes per level consumed). This is a real, resolvable per-level cost, not a trend read into
-noise, and it is the honest counterpoint to the flat insert curve.
+The transport here is the rings, the sequencer, the journal and the SBE codecs, each measured at zero
+within error. The engine's 224 B per NEW is the `Order`, boxed map keys and a new `ArrayDeque` per new
+price level; an unknown cancel allocates 24 B (a boxed id).
 
-**End-to-end latency is transport-bound, not matching-bound.** The approximately 4.8 µs median for a
-full gateway-to-execution round trip is dominated by the Disruptor consumer wakeup, the gateway
-parse, and the inbound publish. The actual match plus trade construction plus publish is on the order
-of 100 to 250 ns of that figure. The lever for this latency is the Disruptor wait strategy (a
-busy-spin or yielding strategy would keep the consumer hot and collapse the median toward the
-engine's sub-microsecond floor, at the cost of a burned core), not the engine itself. This is
-measured as closed-loop service time with one order in flight, so it is not a saturation-latency SLA.
+**Journaled latency:** Windows, Archive backoff, about 1 to 2 ms p50; Archive busy-spin, about 37 µs
+p50; Linux not yet measured.
 
-### Allocation, stated precisely
-
-The system's zero-allocation claim is scoped honestly, because an unqualified version would be false
-and is exactly what an interviewer probes.
-
-- **Zero allocation holds for the ring transport.** Pre-allocated slots and reused mutable carriers
-  mean the inbound-to-engine-to-outbound path allocates nothing in steady state.
-- **Zero allocation also holds for the snapshot read path.** The `snapshotInto` method that fills a
-  depth snapshot allocates 0 B/op after warmup. Its only allocations are non-escaping map and deque
-  iterators, and the JIT's escape analysis scalar-replaces them. This was validated under JMH across
-  book depths from 1 to 10,000 levels, with no garbage collection triggered across the entire run.
-- **The matching engine's book structures do allocate.** A resting insert costs approximately 165
-  B/op: a 56-byte `Order` plus approximately 109 bytes of collection-node and boxing overhead. The
-  dominant cost is `Long` boxing at the `TreeMap` and `HashMap` boundary, where the `long`-units
-  discipline used everywhere else is undone. The known fix (primitive-keyed maps such as a
-  `Long2ObjectRBTreeMap`) is a deliberate non-goal at this scale, and is documented as understood
-  rather than as an outstanding task.
+Why the default journaled figure is high, and why it is a platform finding rather than a journal
+cost, is under [Known limitations](#known-limitations).
 
 ---
 
 ## Design principles
 
-These are the invariants the implementation holds to, drawn from the system requirements.
-
-1. **Zero allocation on the hot path.** Ring buffer slots are pre-allocated, event carriers are
-   mutable and reused, and prices and timestamps are primitives. This eliminates GC pauses during
-   matching. The scope of the claim is stated precisely above.
-2. **Single-writer principle.** Each ring buffer has exactly one producer (the gateway inbound, the
-   engine outbound), which removes write contention without locks.
-3. **Mechanical sympathy.** Ring buffer slots are laid out for cache-line-friendly sequential access,
-   Disruptor pads its sequence counters to prevent false sharing, and the engine reads events in
-   order to maximize L1 and L2 cache hits.
-4. **Logging off the hot path.** SLF4J logging occurs only at the boundaries (the gateway on receipt
-   and the publisher on dispatch). The matching engine's inner loop contains no logging calls.
-5. **Protocol boundary separation.** FIX parsing and JSON serialization happen only at the edges. The
-   core pipeline operates on Java primitives and pre-allocated objects, and the engine has no
-   knowledge of any wire format. `FixParser` never imports a Netty or Disruptor type: its boundary is
-   a raw `byte[]`.
-6. **Integer money, integer time.** Prices are `long` units of $0.0001 (the one-cent tick is 100
-   units) and timestamps are `long` epoch nanoseconds everywhere, backend and frontend. Floating
-   point appears only at the render edge, when a scale maps a domain value to a pixel, or when a
-   sub-penny midpoint print is formatted for display. No `BigDecimal`, no `double` arithmetic on a
-   price.
-7. **Pure core, thin edge.** On both sides of the wire, the maths lives in a pure module with no I/O
-   and no framework types, and the component or handler around it owns only the edge concern. This is
-   what makes the engine testable with no ring buffer in the loop, and the depth curve, price series
-   and session statistics testable with no DOM in the loop.
-8. **Scope discipline.** A feature is included only if it serves the core goals of low-latency
-   architecture, event-driven design, financial domain knowledge, or full-stack integration.
-   Over-engineering is actively resisted.
+1. **Journal before match.** No command is matched before it is recorded. Everything the venue did
+   can be reconstructed from the recordings.
+2. **Determinism.** The engine's output depends only on its starting snapshot and the journaled
+   commands. Replaying the same journal produces the same book and the same events.
+3. **Single writer.** Each ring and each stream has one producer: the gateway on the inbound ring, the
+   sequencer on the inbound stream, the engine on both outbound rings, the recorder on the outbound
+   stream.
+4. **Zero allocation in the transport.** Ring slots are preallocated, carriers are mutable and reused,
+   SBE codecs are flyweights over reused buffers. The engine's book structures allocate per order
+   (measured above).
+5. **Database off the critical path.** PostgreSQL is written from the recordings and read only at
+   session boundaries and by `/api`. A slow or absent database delays reporting and clearing, never
+   matching.
+6. **Logging off the hot path.** Logging happens at the boundaries and on lifecycle events, never in
+   the matching loop.
+7. **Protocol boundary separation.** FIX parsing and JSON serialization happen only at the edges.
+   `FixParser` takes a raw `byte[]` and imports no Netty, Disruptor, Aeron or Agrona type.
+8. **Integer money, integer time.** Prices are `long` units of $0.0001 and limit prices must be on the
+   tick; nothing rounds a price. Timestamps are `long` epoch nanoseconds.
+9. **Fail loudly, never skip.** A journal or data inconsistency stops the component with a message
+   that says what to do; nothing is silently dropped or reordered.
 
 ---
 
@@ -289,385 +861,166 @@ These are the invariants the implementation holds to, drawn from the system requ
 
 | Layer | Technology |
 |---|---|
-| Language | Java 21 LTS (bytecode target; developed on JDK 25) |
+| Language | Java 21 LTS bytecode (`maven.compiler.release=21`); tested on JDK 21 and JDK 25 |
 | Build | Maven |
-| Concurrency transport | LMAX Disruptor 4.0 ring buffers |
-| Networking | Netty 4.2 (WebSocket server, `netty-codec-http`) |
-| Serialization | Jackson 2.18 (JSON at the boundary) |
+| Rings | LMAX Disruptor 4.0.0 |
+| Journal | Aeron 1.53.3 (client, media driver, Archive), Agrona 2.6.1 |
+| Encoding | SBE 1.40.2 (code generated at build time) |
+| Networking | Netty 4.2.16 (WebSocket and HTTP on one port) |
+| JSON | Jackson 2.18.2 (at the boundary only) |
+| Database | PostgreSQL 17, pgjdbc 42.7.14, Flyway 13.10.3 |
 | Protocol | FIX 4.2 subset (`NewOrderSingle`, `OrderCancelRequest`), hand-rolled parser |
 | Logging | SLF4J 2.0 |
-| Backend testing | JUnit 5 |
-| Benchmarking | JMH 1.37 via `pw.krejci:jmh-maven-plugin` |
-| Frontend | React 19, TypeScript 5.9, Vite 8, React Router 7 |
-| Frontend testing | Vitest 4, Testing Library, jsdom |
-| Reference market data | Alpaca market data API (development proxy only) |
+| Testing | JUnit 5, JMH 1.37 |
+| Frontend | React 19, TypeScript, Vite 8, React Router 7; Vitest 4 and Testing Library |
 
-Explicitly not used: Spring Boot or any dependency-injection framework, QuickFIX/J, `BigDecimal`,
-`LocalDateTime`, and any blocking queue on the hot path. Each omission is a deliberate choice, not an
-oversight.
-
-A note on the JDK split: the code is developed on JDK 25 and compiled to Java 21 bytecode
-(`maven.compiler.release=21`), and all published performance numbers are measured on JDK 21 LTS.
-Percentiles on a non-LTS runtime are less defensible in a portfolio than the same numbers on the LTS
-release a trading firm would actually pin, so 21 is the measurement target.
+Deliberately not used: Spring Boot, JPA or Hibernate, Spring Data, Kafka, Chronicle Queue,
+QuickFIX/J, `BigDecimal`, `LocalDateTime`, `Optional`, any `BlockingQueue`.
 
 ---
 
 ## Project structure
 
 ```
-high-performance-stock-exchange/
-├── app/
-│   ├── backend/                                # Maven module: engine, gateway, pipeline, publishers
-│   │   ├── pom.xml                             # Dependencies, Java 21 release target, JMH plugin
-│   │   └── src/                                # main/java (below) and test/java (below)
-│   └── frontend/                               # Vite + React participant terminal (independent build)
-│       ├── package.json                        # Scripts and dependencies (npm)
-│       ├── vite.config.ts                      # Dev server, Alpaca dev proxy, Vitest config
-│       ├── index.html                          # Vite entry document
-│       ├── FrontendREADME.md                   # Terminal architecture, wire contract, caveats
-│       ├── src/                                # Application sources (below)
-│       └── test/                               # Vitest unit and render tests
-└── README.md
+app/
+├── backend/                         Maven module
+│   ├── pom.xml
+│   └── src/
+│       ├── main/java/
+│       │   ├── Main.java            assembles the venue; startup and shutdown order
+│       │   ├── model/               Order, Side, OrdType, TimeInForce, Status, Prices
+│       │   ├── engine/              MatchingEngine, MatchingEngineHandler, EngineAgent, CommandApplier, CommandGate, SessionRules
+│       │   ├── gateway/             OrderGateway, FixParser, FixFrameDecoder, FixConstants
+│       │   ├── event/               OrderEvent, ExecutionEvent, BookSnapshotEvent, the three Disruptor pipelines, exception policies
+│       │   ├── codec/               SBE adapters for commands and events (generated codecs under target/)
+│       │   ├── journal/             Journal (driver and Archive), Sequencer, OutboundRecorder, JournaledPipeline, readers
+│       │   ├── recovery/            snapshot codec, store, writer and scheduler
+│       │   ├── session/             SessionController, SessionScheduler, VenueStartup, reference sources
+│       │   ├── config/              ExchangeConfig
+│       │   ├── db/                  Database, Migrator, MigrateCommand, DatabaseReferenceSource
+│       │   ├── reporter/            Reporter, EventAttributor, ReporterStore, Candles
+│       │   ├── clearing/            Clearing, ClearingStore, Netting, BusinessCalendar
+│       │   ├── http/                /api: ApiService, ApiExecutor, ApiParams, ReportStore, Vwap
+│       │   ├── net/                 WebSocketServer, HttpRouter (/ws, /health, /api), frame handler, ResendService
+│       │   ├── publisher/           WebSocketPublisher, ExecutionFrames, TradeLogger
+│       │   ├── market/              MarketDataService
+│       │   ├── participant/         simple bot participants that connect over WebSocket
+│       │   └── util/                EpochNanoClock, FailStop, VenueStatus, BookFrameCache, status views
+│       ├── main/resources/
+│       │   ├── sbe/                 exchange-schema.xml (journal), snapshot-schema.xml
+│       │   └── db/migration/        V1 to V8
+│       └── test/java/               unit, integration, database and benchmark sources
+└── frontend/                        Vite and React participant terminal (independent build)
 ```
-
-### Backend, main sources
-
-```
-app/backend/src/main/java/
-├── Main.java                                   # Entry point: assembles the full venue and runs the server
-├── model/
-│   ├── Order.java                              # Mutable order; domain validation in the constructor
-│   ├── Side.java                               # BUY / SELL
-│   ├── Status.java                             # OPEN, PARTIALLY_FILLED, FILLED, CANCELLED, EXPIRED
-│   └── Trade.java                              # Immutable fill record (price in units of $0.0001, both order ids)
-├── engine/
-│   ├── MatchingEngine.java                     # The book: price-time priority matching, single-threaded, framework-free
-│   ├── BookView.java                           # Read-only top-of-book seam (best bid / best ask)
-│   ├── ExecutionListener.java                  # Execution callback seam: primitives only, zero allocation
-│   └── MatchingEngineHandler.java              # Disruptor adapter: OrderEvent in, ExecutionEvent + snapshots out
-├── gateway/
-│   ├── OrderGateway.java                       # Inbound ring producer: the FIX-wire / hot-path boundary
-│   ├── FixParser.java                          # Hand-rolled FIX 4.2 tag-value parser (byte[] in, no framework types)
-│   ├── FixFrameDecoder.java                    # Length-prefixed framing: emits one complete message at a time
-│   └── FixConstants.java                       # SOH delimiter and the in-scope FIX tag numbers
-├── event/
-│   ├── OrderEvent.java                         # Mutable inbound carrier (gateway → engine)
-│   ├── OrderEventFactory.java                  # Pre-allocates the inbound ring slots
-│   ├── OrderEventType.java                     # NEW_ORDER / CANCEL_ORDER discriminator
-│   ├── ExecutionEvent.java                     # Mutable outbound carrier (engine → subscribers)
-│   ├── ExecutionEventFactory.java              # Pre-allocates the outbound ring slots
-│   ├── ExecutionEventType.java                 # Accepted, filled, partially filled, cancelled, rejected, expired
-│   ├── BookSnapshotEvent.java                  # Mutable bounded depth carrier (20 levels per side)
-│   ├── BookSnapshotEventFactory.java           # Pre-allocates the snapshot ring slots
-│   ├── InboundPipeline.java                    # Inbound Disruptor wiring: ring size and wait strategy
-│   ├── OutboundPipeline.java                   # Outbound Disruptor wiring: independent consumers, own sequences
-│   └── SnapshotPipeline.java                   # Snapshot Disruptor wiring: the depth feed
-├── publisher/
-│   ├── WebSocketPublisher.java                 # Fan-out: EXEC and BOOK frames as JSON to every connected client
-│   └── TradeLogger.java                        # Server-side trade tape: logs fills, ignores everything else
-├── net/
-│   ├── WebSocketServer.java                    # Netty WebSocket server, exposes /ws
-│   ├── WebSocketFrameHandler.java              # Per-connection handler: channel registration, inbound text frames
-│   ├── JsonToFix.java                          # Manual JSON order → FIX 4.2 bytes, fed back through the real gateway
-│   └── package_info.java                       # Package docs: the networking boundary
-├── market/
-│   └── MarketDataService.java                  # Snapshot consumer: best bid/ask, midpoint, spread
-└── util/
-    ├── EpochNanoClock.java                     # One shared epoch-nanos time domain, affine over nanoTime
-    └── IDGenerator.java                        # Monotonic order / participant / trade ids
-```
-
-### Backend, tests and benchmarks
-
-```
-app/backend/src/test/java/
-├── engine/
-│   ├── MatchingEngineHandlerTest.java          # Adapter behaviour: inbound event to execution event
-│   ├── MatchingEngineHandlerSnapshotTest.java  # Snapshot publication from the adapter
-│   ├── MatchingEngineSnapshotTest.java         # snapshotInto correctness across book depths
-│   └── MatchingEngineBookReadTest.java         # Top-of-book reads on an empty and a populated book
-├── gateway/
-│   ├── FixParserTest.java                      # Valid messages, missing tags, malformed input, SOH handling
-│   ├── FixParserScanTest.java                  # Tag scanning over the raw byte buffer
-│   ├── FixParserPriceTest.java                 # Decimal price → integer units of $0.0001, no floating point
-│   ├── FixParserChecksumTest.java              # Trailer (10=) validation
-│   ├── FixFrameDecoderTest.java                # Framing: partial, split, and back-to-back messages
-│   ├── JsonToFixParseTest.java                 # JSON order → FIX bytes the parser accepts
-│   └── OrderGatewayTest.java                   # Publication onto the inbound ring
-├── event/
-│   ├── InboundPipelineTest.java                # Ring wiring, slot reuse, and field reset
-│   ├── CapturingOrderHandler.java              # Test double: records OrderEvents off the ring
-│   ├── CapturingExecutionHandler.java          # Test double: records ExecutionEvents
-│   └── CapturingSnapshotHandler.java           # Test double: records BookSnapshotEvents
-├── net/
-│   ├── WebSocketServerTest.java                # Server bring-up and handshake
-│   ├── WebSocketFrameHandlerTest.java          # Frame handling and channel-group registration
-│   └── WebSocketRoundTripTest.java             # Client frame in, published frame out
-├── publisher/
-│   ├── WebSocketPublisherTest.java             # EXEC / BOOK JSON serialization and fan-out
-│   └── TradeLoggerTest.java                    # Fills only reach the tape
-├── market/
-│   └── MarketDataServiceTest.java              # Midpoint and spread derivation
-├── util/
-│   └── EpochNanoClockTest.java                 # Epoch anchoring and exact delta preservation
-├── integration/
-│   └── EndToEndPipelineTest.java               # FIX at the gateway through to an execution at a subscriber
-└── benchmark/
-    ├── MatchingEngineDepthBenchmark.java       # Insert latency as a function of book depth
-    ├── MatchingEngineThroughputBenchmark.java  # Orders per second through the engine in isolation
-    ├── MatchingEngineFillWalkBenchmark.java    # Cost of an order walking N price levels
-    ├── MatchingEngineSnapshotBenchmark.java    # Whether the depth-snapshot read path allocates
-    ├── OrderAllocationBaselineBenchmark.java   # The Order allocation floor, for subtraction
-    └── EndToEndLatencyBenchmark.java           # Gateway-to-execution percentiles (gated closed-loop harness)
-```
-
-### Frontend
-
-```
-app/frontend/src/
-├── main.tsx                                    # React entry point, mounts BrowserRouter
-├── App.tsx                                     # Socket owner and sole frame sender; routes to the two pages
-├── format.ts                                   # Units of $0.0001 ↔ dollars and clock formatting as integer string math
-├── depth.ts                                    # Pure cumulative depth and depth-curve model
-├── priceSeries.ts                              # Pure session price series for the chart
-├── sessionStats.ts                             # Pure session high / low / count / last-print model
-├── pages/
-│   ├── TradingPage.tsx                         # Depth, tape, ticket, blotter, cancel ticket, inspector
-│   └── PriceChartPage.tsx                      # Session price chart plus the session detail panel
-├── components/
-│   ├── Navbar.tsx                              # Route tab strip, active state owned by the router
-│   ├── Header.tsx                              # Persistent top-of-book strip, derived purely from BOOK
-│   ├── DepthLadder.tsx                         # Depth ladder: asks above, bids below, BOOK only
-│   ├── DepthCurve.tsx                          # Cumulative depth step curve, click-to-prefill price
-│   ├── TradeTape.tsx                           # Newest-first fill tape, capped at 200 prints
-│   ├── PriceChart.tsx                          # Session trade-print line with reference lines
-│   ├── SessionStats.tsx                        # High, low, trade count, last print
-│   ├── OrderEntry.tsx                          # Manual order entry: transient form state, emits a typed order intent
-│   ├── OpenOrders.tsx                          # Working orders and the per-row cancel intent
-│   ├── CancelTicket.tsx                        # Cancel by typed OrigClOrdID, including untracked orders
-│   ├── FixInspector.tsx                        # Raw inbound FIX bytes and outbound EXEC frames
-│   └── ConnectionBadge.tsx                     # connecting / open / reconnecting pill
-├── protocol/
-│   ├── messages.ts                             # The wire contract: the only place raw JSON becomes typed
-│   ├── encode.ts                               # Outbound frame construction and ClOrdID generation
-│   └── fix.ts                                  # Pure FIX tag-value parsing for the inspector
-├── state/
-│   ├── reducer.ts                              # Pure state: BOOK replaces the book, EXEC never touches it
-│   ├── useOrderBook.ts                         # Socket lifecycle: capped-backoff reconnect, dispatches to the reducer
-│   └── useIgnitionPrice.ts                     # One-shot reference market-open fetch, isolated from the socket
-├── market/
-│   ├── ignition.ts                             # Pure Alpaca snapshot → integer units of $0.0001
-│   └── alpacaClient.ts                         # The one impure edge: same-origin fetch through the dev proxy
-└── styles/
-    └── terminal.css                            # Terminal theme: IBM Plex, flat charcoal, tabular figures
-```
-
-Maven runs from `app/backend/`, and npm runs from `app/frontend/`. The two build independently.
-
-The matching engine is framework-free: the `event` carriers stay free of Disruptor types, and only
-their `*Factory` classes touch `com.lmax`. This keeps the core testable in isolation with no ring
-buffer or network in the loop. The same split holds on the frontend, where `depth.ts`,
-`priceSeries.ts`, `sessionStats.ts` and `protocol/fix.ts` are pure modules tested without a DOM.
 
 ---
 
-## Building and running
+## Building, testing and benchmarking
 
-**Prerequisites:** a JDK (21 or later), Maven, and Node.js 20.19 or later for the frontend.
-
-Backend:
-
-```bash
-cd app/backend
-mvn clean install
-mvn exec:java -Dexec.mainClass=Main
-```
-
-The backend stands up the Netty WebSocket server on port 8080 (override with the first CLI argument)
-and the full pipeline. It seeds no orders by design: seeding would mean publishing from the main
-thread and breaking the single-writer discipline, so the first client order is the first thing in the
-book.
-
-Frontend:
-
-```bash
-cd app/frontend
-npm install
-npm run dev
-```
-
-The terminal connects to the backend over WebSocket at `ws://localhost:8080/ws` and renders the live
-market.
-
-**Optional reference market data.** The market-open reference line is off unless Alpaca credentials
-are present. Create `app/frontend/.env.local` with the following, then restart the dev server:
-
-```
-ALPACA_KEY_ID=your_key_id
-ALPACA_SECRET_KEY=your_secret_key
-```
-
-These are deliberately not `VITE_`-prefixed, so they are loaded into the Vite node process only and
-never reach the client bundle. The dev server proxies a same-origin `/alpaca/...` path and injects
-the headers server-side, which also means browser CORS never arises. Without the file, the reference
-line is simply absent and everything else works unchanged. See
-[Known limitations](#known-limitations) for why this is a development-only arrangement.
-
----
-
-## Benchmarking
-
-Benchmarks live under `app/backend/src/test/java/benchmark/` and run through the JMH Maven plugin.
-They never run as part of `mvn test`; invocation is explicit. Run them from `app/backend/` in a shell
-with JDK 21 active:
-
-```bash
-export JAVA_HOME="/path/to/jdk-21"
-export PATH="$JAVA_HOME/bin:$PATH"
-java -version   # confirm 21.x before proceeding
-
-mvn jmh:benchmark
-```
-
-Useful selectors (the plugin exposes the full JMH CLI as `jmh.*` properties):
-
-```bash
-# a single benchmark class
-mvn jmh:benchmark -Djmh.benchmarks=MatchingEngineDepthBenchmark
-
-# allocation profiling (reports gc.alloc.rate.norm in bytes per operation)
-mvn jmh:benchmark -Djmh.benchmarks=MatchingEngineSnapshotBenchmark -Djmh.prof=gc
-
-# more forks for tighter cross-JVM variance on the timing numbers
-mvn jmh:benchmark -Djmh.f=3
-```
-
-The benchmark suite covers the following questions, each in its own class:
-
-| Benchmark | Question |
-|---|---|
-| `MatchingEngineDepthBenchmark` | insert latency as a function of book depth |
-| `MatchingEngineThroughputBenchmark` | orders per second through the engine in isolation |
-| `OrderAllocationBaselineBenchmark` | the `Order` allocation floor, for subtraction |
-| `MatchingEngineFillWalkBenchmark` | matching cost when an order walks N price levels |
-| `MatchingEngineSnapshotBenchmark` | whether the depth-snapshot read path allocates |
-| `EndToEndLatencyBenchmark` | gateway-to-execution latency percentiles (closed-loop harness) |
-
-The end-to-end latency harness is a gated JUnit runner rather than a JMH benchmark, because the
-measured operation completes on a different thread from the one that starts it. It records the true
-publication span into a pre-allocated array and sorts for exact percentiles. Run it with
-`-De2e.latency=true`.
-
----
-
-## Testing
-
-**Backend: 257 JUnit 5 tests across 25 classes.** They cover the matching engine (placement,
-price-time priority, partial and full fills, cancel, empty book, depth snapshots, time in force with
-IOC and FOK expiry and the FOK availability check, iceberg tip and reload, and midpoint-peg pools
-with exact-mid execution), the FIX parser (valid messages, missing tags, malformed input,
-decimal-to-units conversion, the order-type and time-in-force tags 40, 44, 18, 59 and 111, checksum,
-framing across partial and back-to-back messages), the event carriers (correct field copying and
-reset across ring-buffer slot reuse), the WebSocket edge, the publishers and market data service,
-the shared epoch clock, and the full pipeline end to end from a FIX message at the gateway to an
-execution event at a subscriber.
+**Prerequisites:** JDK 21 or later, Maven, Node.js 20.19 or later, and PostgreSQL only if you want the
+database features or the database tests.
 
 ```bash
 cd app/backend
 mvn test
 ```
 
-**Frontend: 388 Vitest tests across 32 files.** Pure logic and render tests are kept in separate
-files by convention (`X.test.ts` for logic, `X.render.test.tsx` for components), Vitest globals are
-deliberately off, and render tests use an explicit `afterEach(cleanup)` rather than a global.
+867 backend tests. With `TEST_DB_URL`, `TEST_DB_USER` and `TEST_DB_PASSWORD` set and PostgreSQL
+running, all 867 run; with them unset, 123 database tests are skipped and reported as such.
 
 ```bash
 cd app/frontend
-npm test
+npx vitest run
 ```
 
-Typecheck separately with `npx tsc --noEmit`.
+402 frontend tests in 32 files; type check with `npx tsc --noEmit`. Pure logic tests and component
+tests live in separate files, and render tests use an explicit `afterEach(cleanup)`.
 
-Beyond the automated suites, each delivered phase closes with a scripted manual acceptance run
-against a live backend and dev server, with the scenarios and their results recorded in that phase's
-build guide.
+Run the terminal with `npm install` then `npm run dev` in `app/frontend`; it connects to
+`ws://localhost:8080/ws` unless `VITE_WS_URL` says otherwise.
 
----
+**Benchmarks** live in `app/backend/src/test/java/benchmark/` and never run under `mvn test`. Run them
+on JDK 21 from `app/backend`, for example:
 
-## Scope
+```bash
+mvn jmh:benchmark -Djmh.benchmarks=MatchingEngineThroughputBenchmark
+```
 
-**In scope:** limit order matching with price-time priority, time in force on every order (GTC, IOC,
-FOK), iceberg and midpoint-peg order types, order submission and cancellation, a FIX tag-value
-protocol subset, a Disruptor-based event pipeline, bounded depth snapshots and derived market data,
-a server-side trade tape, WebSocket dissemination, a routed React participant terminal with depth,
-tape, charting, order entry, a blotter and a FIX stream inspector, and JMH latency and allocation
-benchmarking.
+| Benchmark | Question |
+|-----------|----------|
+| `MatchingEngineThroughputBenchmark` | orders per second through the engine alone |
+| `MatchingEngineDepthBenchmark` | insert cost as a function of book depth |
+| `MatchingEngineFillWalkBenchmark` | cost of an order walking N price levels |
+| `MatchingEngineSnapshotBenchmark` | whether the depth-snapshot read path allocates |
+| `OrderAllocationBaselineBenchmark` | the `Order` allocation floor |
+| `EngineRejectPathBenchmark` | allocation on the reject and unknown-cancel path |
+| `CodecBenchmark` | SBE encode and decode cost, including `commandSeq` |
+| `JournalCommandBenchmark` | sequencing and journaling one command |
+| `JournalComponentBenchmark` | the journal's sustained rate and allocation |
+| `PipelineThroughputBenchmark` | commands per second through the full pipeline, journaled and not |
+| `EndToEndLatencyBenchmark` | unjournaled gateway-to-EXEC percentiles (gated JUnit harness, `-De2e.latency=true`) |
+| `JournaledEndToEndLatencyBenchmark` | journaled gateway-to-EXEC percentiles, closed or open loop (`-De2e.latency=true`) |
 
-**Out of scope, deliberately:** Spring Boot or any dependency-injection framework, AI or LLM trading
-agents, persistence and crash recovery, multi-symbol and multi-venue routing, member accounts and
-pre-trade risk, auction and halt states, clearing and settlement, and authentication. These are
-omitted to keep the project focused on the systems and domain concepts it exists to demonstrate.
-They are also the features that separate this venue from a production exchange, and are called out
-here rather than hidden.
+`BenchSupport` holds shared setup. The JMH forks that touch the journal pass the Agrona flag
+themselves. Each phase also closes with a manual acceptance run against a live stack.
 
 ---
 
 ## Known limitations
 
-Stated plainly, because each one is a thing an interviewer would find anyway.
+Stated plainly, because each is a thing a reviewer would find anyway.
 
-- **Non-displayed size leaks on the execution stream.** Depth snapshots stay honest: an iceberg
-  shows only its tip and a midpoint peg never appears. But execution reports are broadcast to every
-  connected client, not only to the session that owns the order, and `ORDER_ACCEPTED` and fill
-  events carry an order's total remaining quantity. So a client watching the execution stream can
-  reconstruct an iceberg's hidden reserve or a resting peg's size. A real venue routes execution
-  reports only to the owning session; closing this needs per-participant sessions and routing, which
-  is out of scope.
-
-- **Single instrument.** The engine holds one book. Multi-symbol support is a routing and
-  partitioning problem that would change the threading model, which is why it is a non-goal rather
-  than a missing feature.
-- **No persistence.** The book lives in memory. A restart is a clean market open.
-- **Session statistics are connect-anchored.** High, low, trade count, volume and session open
-  accumulate from the moment the browser session connected, not from the true venue session open, so
-  connecting mid-session undercounts them. They survive a reconnect blip and navigation. The clean
-  fix is the engine publishing session statistics or a connect snapshot, which is backend scope and
-  is parked.
-- **The price chart is bounded to the last 200 prints** (the tape cap), while the side panel's high,
-  low and trade count are not. On a long session the two can legitimately disagree about the
-  session's extremes. The fix is a dedicated price-history slice, not a change to the panel.
-- **The reference market-open feed is development-only.** It relies on the Vite dev server proxy to
-  hold the Alpaca credentials server-side. A static `vite build` bundle has no proxy, so a real
-  deployment needs a backend proxy endpoint holding those credentials. The value is also fetched once
-  per app open and does not roll across a trading-day boundary without a reload.
-- **The reference instrument and the synthetic book trade at different levels.** The real market open
-  sits far from where the demo book trades, so the market-open reference line is frequently outside
-  the plotted domain and correctly absent. This is expected, not a bug.
-- **Performance figures are single-fork, single-machine.** They are point estimates on an unpinned
-  developer box, not certified results. See [Performance](#performance) for the per-measurement
-  conditions.
+- **Journaled latency on Windows is set by the Archive's idle parking.** With the journal in the path
+  at the default configuration, p50 end-to-end latency rose 76x over the unjournaled pipeline. The
+  cause was isolated by a one-variable experiment: switching only the Archive's idle strategy from
+  backoff to busy-spin cut p50 27x, to within 2.8x of unjournaled. The Archive's backoff parks when
+  idle, and on this Windows machine a "1 µs" park lasts about 8 ms (median), so a quiet venue, the
+  normal case here, pays it on every command. This is a platform and configuration issue, not a cost
+  of journaling. Busy-spinning costs a full core per thread, so the fix (an Archive and driver
+  idle-strategy setting, with defaults chosen by measurement) is deferred to Phase 16 on the target
+  Linux platform, and no journaled latency figure is quoted beyond the one in
+  [Performance](#performance).
+- **`BlockingWaitStrategy` caps the pipeline.** All three rings use it, so the full pipeline runs far
+  below the engine's own rate. The wait strategy is a latency-against-CPU choice made per platform.
+- **EXEC is broadcast.** Execution reports go to every connected client, not only the order's owner,
+  and accepted and fill events carry an order's remaining quantity, so any client can read an
+  iceberg's hidden reserve or a resting peg's size. A duplicate-id reject can mislabel another
+  client's row the same way. RESEND replays the same broadcast stream. Closing this needs
+  per-participant sessions and routing.
+- **Every order is participant 1.** The new-order command carries no participant id, so every fill is
+  a house self-trade and the house nets to zero each day. External accounts exist in the schema and
+  the clearing path is tested with seeded accounts, but no external participant trades yet.
+- **The terminal does not adopt RESEND or SESSION.** It relies on the book sent on connect, drops each
+  SESSION frame with a console warning, and learns nothing about the session state on connect. RESEND
+  is for programmatic participants. Its session statistics are anchored to the moment it connected.
+- **`/health` is unreachable during recovery.** The port binds only after replay and the session
+  open, so a health check during a long replay sees a closed port. Periodic snapshots keep replays
+  short.
+- **Lot size 1 and a fixed tick.** The engine accepts only tick 100, scale 10000 and lot 1 at session
+  open and refuses anything else; honouring other values is a matching and protocol change.
+- **A COMPLETE clearing run is never recomputed.** Editing `trading_calendar` after a run makes the
+  next run stop loudly rather than overwrite a later day.
+- **Four PostgreSQL connections** are held for the venue's lifetime: the Reporter, clearing and two
+  `/api` workers. Hosted databases with small connection limits need to allow for them.
+- **Data written before the session lifecycle is refused.** A journal from before sessions existed
+  (commit `ff64995` or earlier) stops startup with exit 2: move that data directory aside; only that
+  older build can recover it.
+- **Single instrument, no intraday hours, no fees, no auctions or halts.**
+- **Trade log lines repeat on recovery**: the regenerated tail is republished to the trade logger.
+- **A fractional JSON `qty`** such as 1.5 is truncated to 1 before the FIX parser sees it.
+- **Test hygiene:** one recovery test deliberately abandons an engine thread blocked on a full ring,
+  and that thread spins a core for the rest of the Surefire run.
 
 ---
 
 ## Roadmap
 
-The venue core, pipeline, gateway, WebSocket dissemination, participant terminal and benchmark suite
-are complete. Remaining work is portfolio polish: terminal screenshots captured on a running stack,
-and the results write-up.
+Phase 16, containerization and deployment: a container image (with the Agrona flag), a Render
+service with a persistent disk at the data directory, Render Postgres with `db.MigrateCommand` as the
+pre-deploy step, the terminal as a static site, and a backend proxy for the Alpaca reference data.
+Before choosing defaults there: an Archive and media driver idle-strategy setting, then the P15-13
+benchmarks re-run on the Render instance (idle strategies, Archive threading, ring wait strategy),
+and a `/health` that answers 503 during recovery instead of a closed port.
 
-Documented future direction, understood but out of scope at this stage:
-
-- Primitive-keyed order book maps to remove the `Long` boxing measured on the insert and fill paths.
-- A busy-spin or yielding Disruptor wait strategy to trade a core for lower median end-to-end latency
-  under load.
-- Multi-fork benchmark runs on a pinned, quiet machine to tighten the timing confidence intervals.
-- Engine-published session statistics, which would retire the connect-anchoring caveat above.
-- Derived indicators in the terminal (VWAP first), which the reducer accumulator pattern already
-  accommodates.
-- Algorithmic participant bots trading against the book from outside the venue, each running a simple
-  strategy. They would connect through the gateway like any other member. They are deliberately
-  algorithmic rather than LLM-driven: a model in the loop is incompatible with the latency
-  philosophy of the system they would be trading on.
-
----
+Later: per-participant sessions and execution routing, a participant id on the order command,
+pre-trade risk and a wallet, day and GTD time in force, and terminal adoption of RESEND and SESSION.
