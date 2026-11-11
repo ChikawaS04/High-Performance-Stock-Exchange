@@ -31,6 +31,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DepthCurve } from "./DepthCurve";
+import { SETTING_KEYS, oneOf } from "../settings/persist";
+import { usePersistentSetting } from "../settings/usePersistentSetting";
 import type { BookState } from "../state/reducer";
 
 export interface DepthChartOverlayProps {
@@ -46,6 +48,7 @@ interface Pos {
 }
 
 type ChartBg = "dark" | "light";
+const isChartBg = oneOf<ChartBg>(["dark", "light"]);
 
 // Nominal window size; the actual element is clamped to the viewport in CSS
 // (max-width/height), and the initial position is centred against these.
@@ -65,7 +68,8 @@ export function DepthChartOverlay({ open, onClose, book, onPriceSelect }: DepthC
     const [pos, setPos] = useState<Pos>(initialPos);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [displayOpen, setDisplayOpen] = useState(true);
-    const [bg, setBg] = useState<ChartBg>("dark");
+    // The chart background persists across page switches and restarts (UI polish D10).
+    const [bg, setBg] = usePersistentSetting<ChartBg>(SETTING_KEYS.depthChartBackground, "dark", isChartBg);
     // Pointer offset from the window's top-left at drag start; null when not dragging.
     const grab = useRef<{ dx: number; dy: number } | null>(null);
 

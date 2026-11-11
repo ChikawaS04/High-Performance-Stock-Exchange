@@ -7,7 +7,11 @@ import type { BookState, MyOrder, TapeEntry } from "../src/state/reducer";
 
 // P5-0's no-globals stance means RTL's auto-cleanup never registers; wire it
 // explicitly so renders don't bleed across tests.
-afterEach(cleanup);
+// Persisted settings (UI polish D10) live in localStorage; clear it so tests stay isolated.
+afterEach(() => {
+    cleanup();
+    localStorage.clear();
+});
 
 const BOOK: BookState = {
     bestBid: 1500000,

@@ -59,6 +59,8 @@ import {
 } from "../format";
 import type { ClockPrecision } from "../format";
 import type { TapeEntry } from "../state/reducer";
+import { SETTING_KEYS, oneOf } from "../settings/persist";
+import { usePersistentSetting } from "../settings/usePersistentSetting";
 
 export type BlockFilter = "all" | "gt200" | "gt500";
 
@@ -129,13 +131,25 @@ const FILTERS: readonly { readonly value: BlockFilter; readonly label: string }[
     { value: "gt500", label: ">500" },
 ];
 
+const isBlockFilter = oneOf<BlockFilter>(["all", "gt200", "gt500"]);
+const isClockPrecision = oneOf<ClockPrecision>(["ms", "ns"]);
+
 interface TradeTapeProps {
     readonly tape: readonly TapeEntry[];
 }
 
 export function TradeTape({ tape }: TradeTapeProps) {
-    const [filter, setFilter] = useState<BlockFilter>("all");
-    const [precision, setPrecision] = useState<ClockPrecision>("ms");
+    // Display settings persist across page switches and restarts (UI polish D10).
+    const [filter, setFilter] = usePersistentSetting<BlockFilter>(
+        SETTING_KEYS.tapeLevels,
+        "all",
+        isBlockFilter,
+    );
+    const [precision, setPrecision] = usePersistentSetting<ClockPrecision>(
+        SETTING_KEYS.tapeTimeUnits,
+        "ms",
+        isClockPrecision,
+    );
     // Settings popup open state, and the Display category's expand state.
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [displayOpen, setDisplayOpen] = useState(true);

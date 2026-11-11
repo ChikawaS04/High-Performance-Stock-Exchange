@@ -7,7 +7,11 @@ import type { TapeEntry } from "../src/state/reducer";
 
 // P5-0's no-globals stance means RTL's auto-cleanup never registers; wire it
 // explicitly so renders don't bleed across tests (same as depthLadder.test.tsx).
-afterEach(cleanup);
+// Persisted settings (UI polish D10) live in localStorage; clear it so tests stay isolated.
+afterEach(() => {
+    cleanup();
+    localStorage.clear();
+});
 
 /** A valid fill TapeEntry; override only the fields a case cares about. */
 function entry(overrides: Partial<TapeEntry> = {}): TapeEntry {

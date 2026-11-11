@@ -8,7 +8,11 @@ import type { Level } from "../src/protocol/messages";
 
 // P5-0 chose no `globals: true`, so RTL's auto-cleanup (which looks for a global
 // afterEach) never registers. Wire it explicitly to keep renders isolated.
-afterEach(cleanup);
+// Persisted settings (UI polish D10) live in localStorage; clear it so tests stay isolated.
+afterEach(() => {
+    cleanup();
+    localStorage.clear();
+});
 
 function book(partial: Partial<BookState>): BookState {
     return { bestBid: -1, bestAsk: -1, bids: [], asks: [], timestamp: 0, ...partial };

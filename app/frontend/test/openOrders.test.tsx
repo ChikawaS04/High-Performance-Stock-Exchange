@@ -6,7 +6,11 @@ import type { MyOrder, OrderStatus } from "../src/state/reducer";
 import type { OrdType, Side, TimeInForce } from "../src/protocol/messages";
 import { EMPTY_PRICE } from "../src/format";
 
-afterEach(cleanup);
+// Persisted settings (UI polish D10) live in localStorage; clear it so tests stay isolated.
+afterEach(() => {
+    cleanup();
+    localStorage.clear();
+});
 
 function makeOrder(
     clOrdId: number,

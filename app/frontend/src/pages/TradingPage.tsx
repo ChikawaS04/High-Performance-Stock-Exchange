@@ -15,9 +15,11 @@
  * Because useOrderBook lives above the router in App, leaving and returning to this
  * route remounts the page: the socket and reducer state survive (that is the load-
  * bearing routing guarantee), but this page's own local UI state resets, which is
- * within the P10 decision. That covers the inspector open flag here and any state
- * held inside the panels (the depth selector, the tape's settings popup / filters /
- * precision, a half-typed ticket).
+ * within the P10 decision. That covers the inspector open flag here and transient
+ * state held inside the panels (open popups, a half-typed ticket). Since the UI
+ * polish pass (D10) the panels' display settings (the depth selector, the tape's
+ * levels and time units, the blotter filter, chart options) persist through the
+ * shared settings hook, so they survive the remount.
  *
  * P14-6: onSubmitOrder now carries the ticket's resolved OrderIntent (decision H).
  * The page only forwards it to OrderEntry, so the change is a pure type widening.

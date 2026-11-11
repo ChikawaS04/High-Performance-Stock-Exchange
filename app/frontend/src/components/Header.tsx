@@ -41,6 +41,8 @@ import {
     midpointLabel,
 } from "../format";
 import { ConnectionBadge } from "./ConnectionBadge";
+import { SETTING_KEYS, oneOf } from "../settings/persist";
+import { usePersistentSetting } from "../settings/usePersistentSetting";
 import { isTerminal } from "../state/reducer";
 import type { BookState, ConnectionStatus, MyOrder, TapeEntry } from "../state/reducer";
 
@@ -49,17 +51,12 @@ const SYMBOL = "ASML";
 /** One cent, in units of $0.0001: the on-tick spacing the spread is counted in. */
 const TICK_PX = 100;
 
-/** Header label appearance, chosen in the settings popup and persisted per browser. */
+/**
+ * Header label appearance, chosen in the settings popup and persisted per browser
+ * through the shared settings hook (UI polish D10, DESIGN_SYSTEM.md §13).
+ */
 type LabelMode = "white" | "faint";
-const LABEL_STORAGE_KEY = "header.labelMode";
-
-function readLabelMode(): LabelMode {
-    try {
-        return localStorage.getItem(LABEL_STORAGE_KEY) === "faint" ? "faint" : "white";
-    } catch {
-        return "white";
-    }
-}
+const isLabelMode = oneOf<LabelMode>(["white", "faint"]);
 
 export type ChangeDirection = "up" | "down" | "flat" | "none";
 
@@ -227,15 +224,11 @@ export function Header({
     // persisted header-label appearance.
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [layoutOpen, setLayoutOpen] = useState(true);
-    const [labelMode, setLabelMode] = useState<LabelMode>(readLabelMode);
-
-    useEffect(() => {
-        try {
-            localStorage.setItem(LABEL_STORAGE_KEY, labelMode);
-        } catch {
-            // Per-viewer convenience only; a storage failure is non-fatal.
-        }
-    }, [labelMode]);
+    const [labelMode, setLabelMode] = usePersistentSetting<LabelMode>(
+        SETTING_KEYS.headerLabelMode,
+        "white",
+        isLabelMode,
+    );
 
     useEffect(() => {
         if (!settingsOpen) return;

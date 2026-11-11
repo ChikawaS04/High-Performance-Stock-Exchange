@@ -31,10 +31,12 @@
  * formatting.
  */
 
-import { useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 
 import { cumulate, type CumLevel } from "../depth";
 import { FieldMenu } from "./FieldMenu";
+import { SETTING_KEYS, oneOf } from "../settings/persist";
+import { usePersistentSetting } from "../settings/usePersistentSetting";
 import type { MenuOption } from "./FieldMenu";
 import { formatPrice, EMPTY_PRICE, midpointLabel } from "../format";
 import type { BookState } from "../state/reducer";
@@ -47,6 +49,7 @@ import type { Level } from "../protocol/messages";
  *  many levels render. */
 const DEPTH_OPTIONS = [8, 10, 14] as const;
 const DEFAULT_DEPTH = 10;
+const isDepth = oneOf<number>(DEPTH_OPTIONS);
 /** The depth selector's options for the shared FieldMenu (UI polish D8). */
 const DEPTH_MENU: readonly MenuOption[] = DEPTH_OPTIONS.map((n) => ({ value: String(n), label: String(n) }));
 
@@ -164,7 +167,8 @@ interface DepthLadderProps {
 }
 
 export function DepthLadder({ book, lastPx = -1 }: DepthLadderProps) {
-    const [depth, setDepth] = useState<number>(DEFAULT_DEPTH);
+    // The depth selector persists across page switches and restarts (UI polish D10).
+    const [depth, setDepth] = usePersistentSetting<number>(SETTING_KEYS.bookReaderDepth, DEFAULT_DEPTH, isDepth);
 
     const { asks, bids } = buildLadder(book.bids, book.asks);
     // P9-2: --depth-rows is the viewport height in rows; the stylesheet multiplies

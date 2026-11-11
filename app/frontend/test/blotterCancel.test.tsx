@@ -5,7 +5,11 @@ import { OpenOrders } from "../src/components/OpenOrders";
 import type { MyOrder, OrderStatus } from "../src/state/reducer";
 
 // No vitest globals, so RTL's auto-cleanup never registers. Wire it explicitly.
-afterEach(cleanup);
+// Persisted settings (UI polish D10) live in localStorage; clear it so tests stay isolated.
+afterEach(() => {
+    cleanup();
+    localStorage.clear();
+});
 
 function order(clOrdId: number, status: OrderStatus, remainingQty = 10, originalQty = 10): MyOrder {
     return {

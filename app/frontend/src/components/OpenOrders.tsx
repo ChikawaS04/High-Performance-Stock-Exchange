@@ -61,8 +61,11 @@ import {
     STATUS_FILTER_OPTIONS,
     emptyFilterMessage,
     filterOrders,
+    isStatusFilter,
     type StatusFilter,
 } from "../blotterFilter";
+import { SETTING_KEYS } from "../settings/persist";
+import { usePersistentSetting } from "../settings/usePersistentSetting";
 
 const FILTER_MENU = STATUS_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
 
@@ -104,7 +107,12 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
     const [idInput, setIdInput] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [confirmId, setConfirmId] = useState<number | null>(null);
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>(DEFAULT_STATUS_FILTER);
+    // The status filter persists across page switches and restarts (UI polish D10).
+    const [statusFilter, setStatusFilter] = usePersistentSetting<StatusFilter>(
+        SETTING_KEYS.blotterStatusFilter,
+        DEFAULT_STATUS_FILTER,
+        isStatusFilter,
+    );
     const menuWrapRef = useRef<HTMLDivElement>(null);
 
     const shown = filterOrders(orders, statusFilter);

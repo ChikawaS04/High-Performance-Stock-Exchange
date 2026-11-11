@@ -14,6 +14,7 @@ afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    localStorage.clear();
 });
 
 const BOOK: BookState = {
