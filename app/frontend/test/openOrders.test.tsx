@@ -143,11 +143,14 @@ describe("<OpenOrders />", () => {
         expect(screen.queryByTestId("cancel-7")).toBeNull();
     });
 
-    it("calls onCancel with the row's own clOrdId (the origClOrdId to cancel)", () => {
+    it("calls onCancel with the row's own clOrdId (the origClOrdId to cancel) once confirmed", () => {
         const onCancel = vi.fn();
         render(<OpenOrders orders={[makeOrder(42, "OPEN")]} onCancel={onCancel} />);
 
+        // UI polish D5: the row button opens the confirmation; only Confirm Cancel sends.
         fireEvent.click(screen.getByTestId("cancel-42"));
+        expect(onCancel).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByTestId("cancel-confirm-submit"));
 
         expect(onCancel).toHaveBeenCalledTimes(1);
         expect(onCancel).toHaveBeenCalledWith(42);

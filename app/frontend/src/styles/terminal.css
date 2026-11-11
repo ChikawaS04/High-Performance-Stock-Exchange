@@ -3161,6 +3161,30 @@ body {
     background: var(--raise-top);
 }
 
+/* Status filter (UI polish D6, §9): the one filter single-select a header may hold,
+   right-aligned just left of the caret, which then follows it closely. */
+.open-orders__filter {
+    margin-left: auto;
+    min-width: 92px;
+}
+.open-orders__filter + .open-orders__menu-wrap {
+    margin-left: 6px;
+}
+
+/* A filter that matches no rows: one dim line in the table body, never striped or
+   hovered. */
+.open-orders .open-orders__table tbody tr.open-orders__filter-empty-row,
+.open-orders .open-orders__table tbody tr.open-orders__filter-empty-row:hover {
+    background: transparent;
+}
+.open-orders__filter-empty {
+    padding: 14px 8px;
+    color: #8f8f8f;                 /* --dim (DESIGN_SYSTEM.md §2) */
+    font-family: var(--sans);
+    font-size: 12px;
+    text-align: left;
+}
+
 /* White action menu (the one deliberately light element), opens downward. */
 .open-orders__menu {
     position: absolute;

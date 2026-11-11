@@ -37,6 +37,16 @@
  * P14-6: a TIF column renders each order's time in force. P14-8: a Type column
  * renders ICE / LMT via orderTypeLabel. P14-10: the Type and Price columns show MID
  * for a midpoint peg so the peg's -1 NA price never surfaces.
+ *
+ * UI polish pass:
+ *  - D5: the row Cancel button opens a "Cancel order" confirmation (the same §10
+ *    popup chrome as Cancel by Order ID). The cancel is sent only on Confirm
+ *    Cancel; Escape, the exit and an outside click close it, and Enter does not
+ *    confirm. The popup tracks the order by id and reads its live status, so an
+ *    order that fills, expires or is cancelled elsewhere while it is open shows
+ *    "Order is no longer active" with Confirm Cancel disabled.
+ *  - D6: a status filter single-select (the shared FieldMenu) in the header band,
+ *    left of the caret. The predicate is the pure blotterFilter module.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -45,6 +55,16 @@ import { isCancellable } from "../state/reducer";
 import type { MyOrder } from "../state/reducer";
 import { formatPrice, formatClockNanos } from "../format";
 import { validateOrigClOrdId } from "./CancelTicket";
+import { FieldMenu } from "./FieldMenu";
+import {
+    DEFAULT_STATUS_FILTER,
+    STATUS_FILTER_OPTIONS,
+    emptyFilterMessage,
+    filterOrders,
+    type StatusFilter,
+} from "../blotterFilter";
+
+const FILTER_MENU = STATUS_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
 
 /**
  * Filled quantity for a row: original minus remaining, clamped at zero. Pure and
@@ -66,6 +86,12 @@ export function orderTypeLabel(order: MyOrder): string {
     return order.displayQty > 0 ? "ICE" : "LMT";
 }
 
+/** The order type in words, for the cancel confirmation (all caps, §3). */
+function orderTypeWords(order: MyOrder): string {
+    if (order.ordType === "PEG_MID") return "MIDPOINT PEG";
+    return order.displayQty > 0 ? "LIMIT (ICEBERG)" : "LIMIT";
+}
+
 export interface OpenOrdersProps {
     readonly orders: readonly MyOrder[];
     readonly onCancel: (origClOrdId: number) => void;
@@ -77,7 +103,27 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
     const [modalOpen, setModalOpen] = useState(false);
     const [idInput, setIdInput] = useState("");
     const [error, setError] = useState<string | null>(null);
+    const [confirmId, setConfirmId] = useState<number | null>(null);
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>(DEFAULT_STATUS_FILTER);
     const menuWrapRef = useRef<HTMLDivElement>(null);
+
+    const shown = filterOrders(orders, statusFilter);
+    const filterLabel =
+        STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter;
+
+    // The order the cancel confirmation is about, looked up live so a status change
+    // while the popup is open is reflected at once.
+    const confirmOrder = confirmId === null ? undefined : orders.find((o) => o.clOrdId === confirmId);
+    const confirmActive = confirmOrder !== undefined && isCancellable(confirmOrder.status);
+    const confirmOpen = confirmId !== null;
+
+    const closeConfirm = (): void => setConfirmId(null);
+
+    const sendConfirmedCancel = (): void => {
+        if (disabled || confirmId === null || !confirmActive) return;
+        onCancel(confirmId);
+        setConfirmId(null);
+    };
 
     const openModal = (): void => {
         setMenuOpen(false);
@@ -107,7 +153,7 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
 
     // Close the menu on an outside click, and close menu + popup on Escape.
     useEffect(() => {
-        if (!menuOpen && !modalOpen) return;
+        if (!menuOpen && !modalOpen && !confirmOpen) return;
         const onDown = (e: MouseEvent): void => {
             if (
                 menuOpen &&
@@ -121,6 +167,7 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
             if (e.key === "Escape") {
                 setMenuOpen(false);
                 setModalOpen(false);
+                setConfirmId(null);
             }
         };
         document.addEventListener("mousedown", onDown);
@@ -129,12 +176,21 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
             document.removeEventListener("mousedown", onDown);
             document.removeEventListener("keydown", onKey);
         };
-    }, [menuOpen, modalOpen]);
+    }, [menuOpen, modalOpen, confirmOpen]);
 
     return (
         <div className="open-orders">
             <div className="open-orders__head">
                 <span className="open-orders__panel-title">Orders</span>
+                <FieldMenu
+                    testId="blotter-filter"
+                    ariaLabel="Status filter"
+                    className="field-menu--compact open-orders__filter"
+                    options={FILTER_MENU}
+                    value={statusFilter}
+                    triggerLabel={filterLabel}
+                    onSelect={(v) => setStatusFilter(v as StatusFilter)}
+                />
                 <div className="open-orders__menu-wrap" ref={menuWrapRef}>
                     <button
                         type="button"
@@ -187,7 +243,18 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                             </tr>
                             </thead>
                             <tbody>
-                            {orders.map((order) => (
+                            {shown.length === 0 ? (
+                                <tr className="open-orders__filter-empty-row">
+                                    <td
+                                        colSpan={9}
+                                        className="open-orders__filter-empty"
+                                        data-testid="open-orders-filter-empty"
+                                    >
+                                        {emptyFilterMessage(statusFilter)}
+                                    </td>
+                                </tr>
+                            ) : null}
+                            {shown.map((order) => (
                                 <tr
                                     key={order.clOrdId}
                                     className={`open-orders__row open-orders__row--${order.side.toLowerCase()}`}
@@ -217,7 +284,7 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                                                 type="button"
                                                 className="open-orders__cancel"
                                                 data-testid={`cancel-${order.clOrdId}`}
-                                                onClick={() => onCancel(order.clOrdId)}
+                                                onClick={() => setConfirmId(order.clOrdId)}
                                             >
                                                 Cancel
                                             </button>
@@ -230,6 +297,93 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                     </div>
                 )}
             </div>
+
+            {confirmOpen ? (
+                <div
+                    className="cxid-overlay"
+                    data-testid="cancel-confirm-overlay"
+                    onMouseDown={(e) => {
+                        if (e.target === e.currentTarget) closeConfirm();
+                    }}
+                >
+                    <div
+                        className="cxid-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="cancel-confirm-title"
+                        data-testid="cancel-confirm"
+                    >
+                        <div className="cxid-head">
+                            <span className="cxid-title" id="cancel-confirm-title">
+                                Cancel order
+                            </span>
+                            <button
+                                type="button"
+                                className="cxid-exit"
+                                aria-label="Close"
+                                data-testid="cancel-confirm-close"
+                                onClick={closeConfirm}
+                            >
+                                &times;
+                            </button>
+                        </div>
+                        <div className="cxid-body">
+                            <dl className="order-confirm__rows">
+                                <div className="order-confirm__row">
+                                    <dt>Order ID</dt>
+                                    <dd className="order-confirm__num" data-testid="cancel-confirm-id">
+                                        {confirmId}
+                                    </dd>
+                                </div>
+                                {confirmOrder !== undefined ? (
+                                    <>
+                                        <div className="order-confirm__row">
+                                            <dt>Side</dt>
+                                            <dd>{confirmOrder.side}</dd>
+                                        </div>
+                                        <div className="order-confirm__row">
+                                            <dt>Remaining</dt>
+                                            <dd className="order-confirm__num">{confirmOrder.remainingQty}</dd>
+                                        </div>
+                                        <div className="order-confirm__row">
+                                            <dt>Price</dt>
+                                            <dd className="order-confirm__num">
+                                                {confirmOrder.ordType === "PEG_MID"
+                                                    ? "MID"
+                                                    : formatPrice(confirmOrder.pricePx)}
+                                            </dd>
+                                        </div>
+                                        <div className="order-confirm__row">
+                                            <dt>Order type</dt>
+                                            <dd>{orderTypeWords(confirmOrder)}</dd>
+                                        </div>
+                                    </>
+                                ) : null}
+                            </dl>
+                            {!confirmActive ? (
+                                <div
+                                    className="cxid-error"
+                                    role="alert"
+                                    data-testid="cancel-confirm-inactive"
+                                >
+                                    Order is no longer active
+                                </div>
+                            ) : null}
+                            <div className="cxid-confirm-row">
+                                <button
+                                    type="button"
+                                    className="cxid-confirm"
+                                    data-testid="cancel-confirm-submit"
+                                    disabled={disabled || !confirmActive}
+                                    onClick={sendConfirmedCancel}
+                                >
+                                    Confirm Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             {modalOpen ? (
                 <div
