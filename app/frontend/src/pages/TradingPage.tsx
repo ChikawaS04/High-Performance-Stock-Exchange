@@ -50,6 +50,8 @@ import { OrderEntry } from "../components/OrderEntry";
 import type { OrderEntryHandle } from "../components/OrderEntry";
 import { OpenOrders } from "../components/OpenOrders";
 import { FixInspector } from "../components/FixInspector";
+import { PAGE_NAMES } from "../documentTitle";
+import { useDocumentTitle } from "../useDocumentTitle";
 
 export interface TradingPageProps {
     readonly state: AppState;
@@ -68,6 +70,7 @@ export function TradingPage({
     priceOverlayOpen,
     onClosePriceOverlay,
 }: TradingPageProps) {
+    useDocumentTitle(PAGE_NAMES.trading);
     const connected = state.connection === "open";
     const [inspectorOpen, setInspectorOpen] = useState(false);
     const [depthMaxed, setDepthMaxed] = useState(false);

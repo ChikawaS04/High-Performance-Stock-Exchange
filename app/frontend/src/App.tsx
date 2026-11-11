@@ -36,8 +36,9 @@
  * order type and time in force; App neither inspects nor defaults them, so it needs
  * no further change at P14-8 / P14-10.
  *
- * The Header strip and Navbar render above <Routes> so both persist across pages;
- * the connection badge stays inside the Header, visible on every route.
+ * The TitleBar, Header strip and Navbar render above <Routes> so all three persist
+ * across pages. The connection badge lives in the TitleBar (DESIGN_SYSTEM.md §15.3),
+ * visible on every route; the Header no longer takes the connection.
  *
  * UI polish D4: the OrderToasts stack also renders here, outside <Routes>, so an
  * order notification shows whichever page is open.
@@ -52,6 +53,7 @@ import { useIgnitionPrice } from "./state/useIgnitionPrice";
 import { cancelOrderFrame, newOrderFrame, nextClOrdId } from "./protocol/encode";
 import type { OrderIntent } from "./protocol/messages";
 
+import { TitleBar } from "./components/TitleBar";
 import { Header } from "./components/Header";
 import { Navbar } from "./components/Navbar";
 import { OrderToasts } from "./components/OrderToasts";
@@ -85,6 +87,7 @@ export default function App() {
     return (
         <div className="app">
             <header className="topbar">
+                <TitleBar connection={state.connection} />
                 <Header
                     book={state.book}
                     tape={state.tape}
@@ -92,7 +95,6 @@ export default function App() {
                     sessionVolume={state.sessionVolume}
                     sessionOpenPx={state.sessionOpenPx}
                     lastFrameNanos={state.lastFrameNanos}
-                    connection={state.connection}
                     openPx={openPx}
                 />
             </header>

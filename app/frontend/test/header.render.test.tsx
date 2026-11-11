@@ -58,7 +58,6 @@ function renderHeader(over: Partial<HeaderProps> = {}) {
         sessionVolume: 40,
         sessionOpenPx: 1500000,
         lastFrameNanos: 1_700_000_000_123_456_789,
-        connection: "open",
         ...over,
     };
     return render(<Header {...props} />);
@@ -123,11 +122,11 @@ describe("<Header /> open field", () => {
     });
 });
 
-describe("<Header /> connection badge and session meta", () => {
-    it("reuses the connection badge (pinned to the top-right corner)", () => {
-        renderHeader({ connection: "open" });
-        const badge = screen.getByTestId("connection-badge");
-        expect(badge.textContent).toContain("Live");
+describe("<Header /> right edge and session meta", () => {
+    it("no longer carries the connection badge (it moved to the title bar), but keeps the gear", () => {
+        const { container } = renderHeader();
+        expect(container.querySelector('[data-testid="connection-badge"]')).toBeNull();
+        expect(screen.getByTestId("header-settings-gear")).not.toBeNull();
     });
 
     it("renders the last-frame time as a wall-clock string", () => {

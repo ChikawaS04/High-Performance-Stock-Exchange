@@ -41,7 +41,6 @@ describe("persisted panel settings survive a page switch (D10)", () => {
                 sessionVolume={0}
                 sessionOpenPx={-1}
                 lastFrameNanos={0}
-                connection="open"
             />
         );
         const { container, unmount } = render(ui());

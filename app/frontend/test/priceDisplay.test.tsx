@@ -45,7 +45,6 @@ describe("tape and header format the same move the same way (D1)", () => {
                 sessionVolume={2}
                 sessionOpenPx={14_466_900}
                 lastFrameNanos={1}
-                connection="open"
             />,
         );
         const headerPct = screen.getByTestId("header-change-pct");
@@ -70,7 +69,6 @@ describe("header BID is the terminal bid blue (D2)", () => {
                 sessionVolume={0}
                 sessionOpenPx={-1}
                 lastFrameNanos={0}
-                connection="open"
             />,
         );
         const bid = screen.getByTestId("header-bid");

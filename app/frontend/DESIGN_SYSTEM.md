@@ -3,7 +3,8 @@
 The visual blueprint for the High Performance Stock Exchange front end. Every panel
 we build or rework from here follows this document. It was established during the
 order-entry rework and is the reference the rest of the terminal is brought in line
-with, panel by panel.
+with, panel by panel. The terminal's brand mark (directROUTE), its title bar, the
+favicon and the browser tab title are specified in §15.
 
 ---
 
@@ -49,6 +50,12 @@ and the old blue-grey `--surface` palette is retired.
 | `--faint` | `#5e5e5e` | Placeholders, muted labels |
 | label white | `#ffffff` | Field labels (TIF, TYPE, PRICE, QTY, DISPLAY) and panel title |
 
+**Token names in code.** In `terminal.css` the charcoal hairlines above are
+`--hair` (`#333`) and `--hair-strong` (`#444`); the names `--line` and
+`--line-strong` there still hold the legacy slate values until the slate palette is
+retired (§7). New charcoal work uses `--hair` / `--hair-strong`. There is no global
+`--dim` yet; rules use `var(--dim, #8f8f8f)`.
+
 ### Semantic colour
 | Token | Hex | Use |
 |---|---|---|
@@ -81,6 +88,19 @@ green and still feeds the header's "up" change colour, so a bid must never use i
 | `--quote-bid-wash` / `--quote-ask-wash` | 16% bid / ask | Side cell wash, translucent so the stripe shows through (§9) |
 | `--caret-size` | `20px` | Every dropdown caret (§11.6) |
 
+### Brand accent (§15)
+| Token | Hex | Use |
+|---|---|---|
+| `--brand-amber` | `#ffa028` | directROUTE arrow, the icon glyph and the favicon only |
+| `--brand-amber-light` | `#c87a14` | The same arrow on light grounds |
+| `--titlebar-h` | `24px` | Height of the title bar (§15.3) |
+
+Amber is never used for data, sides or UI state inside panels. Two other ambers in
+the terminal are not the brand amber and must not be pointed at `--brand-amber`: the
+`--warn` dot on a reconnecting badge, and the price chart's default line colour
+"Amber" (`#ffb01f`), which is one of the chart's user-selectable display colours
+(§13), not a brand use.
+
 ---
 
 ## 3. Typography
@@ -95,6 +115,7 @@ green and still feeds the header's "up" change colour, so a bid must never use i
 - **Quote cell labels** (BID/MID/ASK) are tiny (~7px), uppercase, `--faint`.
 - Dropdown option text that names an order type is **all caps** (`LIMIT`,
   `MIDPOINT PEG`).
+- **Brand mark** is set entirely in `IBM Plex Mono` (§15), never in Plex Sans.
 
 ---
 
@@ -168,6 +189,11 @@ This is the heart of the look. Apply it consistently.
 3. During rollout, promote `--oe-*` to terminal-wide `:root` tokens, retire the
    legacy blue-grey `--surface` palette and the slate-retheme layer panel by panel.
    The blue-vs-green bid question is settled: blue, terminal-wide (§2).
+4. **Brand chrome (§15).** Add the title bar (lockup only, no icon) above the
+   instrument strip, move the Live badge into it, add the favicon, and set the tab
+   title. Decided Nov 2026
+   (option B "Anchor title bar" on the mockup canvas
+   https://claude.ai/artifact/RMidBYS7BX8dpr1tLJxju7).
 
 ---
 
@@ -523,3 +549,146 @@ over the live terminal (no scrim). Both use one shared shell, `FloatingWindow`
   to the default: the nominal size (depth chart 1040 x 560, price chart 760 x 350),
   capped at 94% x 82% of the viewport, centred. Whether a window is open is not
   persisted.
+
+---
+
+## 15. Brand mark, title bar, favicon and tab title (LOCKED)
+
+The DMA terminal's official name is **directROUTE** (*direct* in italic, ROUTE in
+caps). Wordmark direction: **Concept 02 "Order Path"** (Nov 2026), from the six
+concepts on https://claude.ai/artifact/25NnCKGjFgag6iHosQduBu. Placement in the
+terminal: **option B, the anchor title bar** (Nov 2026), from
+https://claude.ai/artifact/RMidBYS7BX8dpr1tLJxju7. The terminal connects to the
+exchange, **CREDO**, which carries its own separate brand. The Project doc
+`BRAND_directROUTE.md` mirrors this section.
+
+### 15.1 Wordmark (large uses: README, splash screen, LinkedIn)
+
+- **Font:** `IBM Plex Mono` throughout.
+- **`direct`:** italic, weight 400, `--text` `#d8d8d8`.
+- **`ROUTE`:** upright, weight 600, `#ffffff`. No space between the two words.
+- **Order-path arrow:** a 2px `--brand-amber` line under the full width of the word,
+  ending in a solid triangular arrowhead at the right. Gap from the text ~0.08em;
+  arrowhead height ~0.16em of the type size.
+- **Ground:** `--body` `#1b1b1b` or `--well` `#0d0d0d`.
+
+### 15.2 Lockup (small uses, ~12 to 13px)
+
+- The underline arrow is dropped at this size (a 2px line blurs into a hairline).
+- An amber `→` follows ROUTE after one space instead: `direct` `ROUTE` `→`.
+- Same colours and weights as the wordmark.
+- In the terminal the lockup lives **only in the title bar** (§15.3), at 12px. It is
+  not repeated in the instrument strip, the nav band or any panel.
+
+### 15.3 Title bar: the terminal's top line
+
+Modelled on the TWS Mosaic anchor bar: a thin app-frame band that sits above the
+trading data and carries the product identity and the connection, never market data.
+
+- **Position.** The first row of the app, above the instrument strip (`Header`) and
+  the nav band, inside `.topbar`, outside `<Routes>`, so it shows on every page.
+- **Metrics.** Height `--titlebar-h` (`24px`). Ground `--well` (`#0d0d0d`), the
+  darkest surface, so it reads as the frame rather than a panel header. 1px `--line`
+  bottom hairline. Padding `0 10px`. No radius, no glint, no gradient.
+- **Left:** the §15.2 lockup at 12px, and nothing else. The icon is **not** shown in
+  the title bar (decided Nov 2026); it lives in the browser tab as the favicon
+  (§15.5), which sits directly above the title bar, so showing it twice would repeat
+  the mark.
+- **Right, pinned (`margin-left: auto`), `12px` gap between items:**
+  - **Venue:** the label `VENUE` in IBM Plex Sans 10px, uppercase, letter-spacing
+    0.08em, `--dim`, then the venue name `CREDO` in IBM Plex Mono 10px, `#ffffff`.
+  - A 1px `--line-strong` divider, 16px tall.
+  - **Connection badge:** the existing `ConnectionBadge` (dot + white sans label,
+    no pill), **moved here from the instrument strip**. Connection is app state, not
+    instrument data.
+- **Nothing else.** No menus, account, clock or decoration until a real feature
+  needs the space (the project's no-invented-chrome rule). If one is added later it
+  goes right, left of the venue.
+- **The instrument strip** keeps its gear at the right edge; only the badge leaves.
+  Its header comment ("No product name") is updated to point here.
+- **Layout.** `--chrome-h` grows by `--titlebar-h` (170px to 194px), written as
+  `calc(170px + var(--titlebar-h))`. No rule reads `--chrome-h` today: the >=901px
+  fixed-viewport block fills the workspace with flex, so the title bar's 24px comes
+  out of the workspace and the panels still fill to the bottom of the screen.
+- **Semantics.** A plain `<div>` band with the lockup as text; the badge keeps
+  `role="status"`. The title bar is not a landmark and takes no focus.
+- **As built.** `src/components/TitleBar.tsx`, rendered first inside `.topbar` in
+  `App.tsx`; test ids `titlebar`, `titlebar-lockup`, `titlebar-venue`. In
+  `terminal.css` the §2 charcoal `--line` / `--line-strong` are named `--hair` /
+  `--hair-strong` (the bare `--line` names are still the legacy slate), so the
+  hairline is `--hair` and the divider `--hair-strong`. The badge styling is the
+  `.titlebar .badge` rule. "direct" needs the Plex Mono 400 italic face, imported in
+  `main.tsx`.
+
+### 15.4 Icon
+
+- **Tile:** a rounded square on `--well`, 1px `--line-strong` border, radius about
+  21% of the side (`12px` at 56px, `4px` at 16px). At 32px and larger it carries the
+  top glint `inset 0 1px 0 rgba(255,255,255,.18)`; below that the glint is dropped.
+- **Glyph:** a `--text` dot (the order's origin) on the left, an amber line running
+  right into a solid amber arrowhead (the venue). No letters.
+- **Sizes in use:** 56px (README, splash, LinkedIn), 32px (the favicon source,
+  §15.5), 16px (the favicon as the browser draws it in a tab). It is not used inside
+  the terminal UI.
+
+### 15.5 Favicon
+
+- One SVG file, `public/favicon.svg`, linked from `index.html` with
+  `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />`. A PNG fallback
+  (`public/favicon-32.png`, rendered from the same SVG) is linked after it for
+  browsers without SVG favicons. As built, the PNG was rasterized with headless
+  Chrome (32x32 RGBA, transparent corners).
+- It is the §15.4 icon drawn on a 32px grid, with no glint, and the dot and stroke
+  thickened slightly so the glyph holds at 16px in a tab:
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7" fill="#0d0d0d" stroke="#444444"/>
+  <circle cx="8" cy="16" r="3.5" fill="#d8d8d8"/>
+  <line x1="12" y1="16" x2="21" y2="16" stroke="#ffa028" stroke-width="3"/>
+  <polygon points="20,9.5 27.5,16 20,22.5" fill="#ffa028"/>
+</svg>
+```
+
+- The 56px icon (README, splash) is the same drawing with the glint added, so every
+  size matches.
+
+### 15.6 Browser tab title
+
+- **Format:** `<SYMBOL> · <Page> | directROUTE`, most specific first so a narrow tab
+  still shows what it is. The separator inside is a middle dot (`·`, U+00B7) with a
+  space either side; the brand follows a pipe.
+  - Trading page: `ASML · Trading | directROUTE`
+  - Price chart page: `ASML · Price Chart | directROUTE`
+  - The page name is the nav tab label, so the two never disagree.
+- **Static fallback.** `index.html` carries `<title>directROUTE</title>`, which is
+  what shows before the app mounts. The legacy `OMS — ASML Order Book` title is
+  retired (the project is not an OMS).
+- **No live prices in the title.** The last price is not written to the tab, so the
+  title does not churn on every print and never shows a stale price in a background
+  tab.
+- **Implementation.** One small hook (for example `useDocumentTitle(page)`) called by
+  each page, built from the same `SYMBOL` constant the header uses. It sets
+  `document.title` on mount and route change; it is a pure string builder plus one
+  effect, tested without a DOM for the string and with one render test per page.
+- **As built.** The builder and the page names are `documentTitle()` and
+  `PAGE_NAMES` in `src/documentTitle.ts` (the Navbar renders `PAGE_NAMES` as its
+  labels); the hook is `src/useDocumentTitle.ts`; `SYMBOL` is the one exported from
+  `src/protocol/messages.ts`, which `Header` also imports.
+
+### 15.7 On light grounds
+
+- `direct` `#3a3a3a`, `ROUTE` `#1b1b1b`, arrow `--brand-amber-light` (`#c87a14`) so it
+  holds contrast on `#f2f2f2`. The icon tile stays dark on any ground.
+
+### 15.8 Rules
+
+- Amber is the brand accent only (§2). It is never used for data, sides, or UI state
+  inside panels; blue and red stay semantic. The price chart's selectable "Amber"
+  line colour (`#ffb01f`) is display config, not a brand use, and stays separate.
+- Do not recolour the arrow blue or red, do not set the mark in Plex Sans, and do not
+  add a space or separator between `direct` and `ROUTE`.
+- The mark appears once on screen: in the title bar. Panels, the instrument strip,
+  popups and toasts never carry it.
+- In running text write "directROUTE". `directRoute` is accepted informally; the mark
+  itself always uses caps ROUTE.

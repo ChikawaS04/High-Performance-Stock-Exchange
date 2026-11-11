@@ -51,6 +51,8 @@ import type { OrderIntent } from "../protocol/messages";
 import { PriceChart } from "../components/PriceChart";
 import { SessionStats } from "../components/SessionStats";
 import { OrderEntry } from "../components/OrderEntry";
+import { PAGE_NAMES } from "../documentTitle";
+import { useDocumentTitle } from "../useDocumentTitle";
 
 export interface PriceChartPageProps {
     readonly state: AppState;
@@ -66,6 +68,7 @@ export function PriceChartPage({
                                    onSubmitOrder,
                                    onViewInTrading,
                                }: PriceChartPageProps) {
+    useDocumentTitle(PAGE_NAMES.priceChart);
     const connected = state.connection === "open";
 
     return (

@@ -75,9 +75,17 @@
     --sans: "IBM Plex Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
-    /* Height consumed above the workspace panels (header strip + nav band +
-       workspace top padding); panels fill from here to the bottom of the screen. */
-    --chrome-h: 170px;
+    /* Height consumed above the workspace panels (title bar + header strip + nav
+       band + workspace top padding). Reference only: no rule reads it today, since
+       the >=901px fixed-viewport block fills the workspace with flex, so a taller
+       chrome takes its height from the workspace automatically. */
+    --chrome-h: calc(170px + var(--titlebar-h));
+
+    /* directROUTE brand accent and title bar (DESIGN_SYSTEM.md §2, §15). Amber is
+       the brand mark only, never data, sides or UI state inside panels. */
+    --brand-amber: #ffa028;
+    --brand-amber-light: #c87a14;
+    --titlebar-h: 24px;
 
     --gap: 8px;
     --radius: 0;
@@ -407,7 +415,7 @@ body {
 }
 
 /* ---- header (charcoal rework: one thin instrument strip at the panel-header
-   band, gear menu + Live badge pinned right) --------------------------------
+   band, gear menu pinned right; the Live badge lives in the title bar) -------
    Reworked off the slate look onto the TWS charcoal design system: a 30px --head
    band, white data at the blotter row weight (IBM Plex Mono, normal), IBM Plex
    Sans labels. The green/red switchers (Chg, Bid, Ask) keep their colours. The
@@ -509,7 +517,7 @@ body {
     color: #ffffff;
 }
 
-/* Right cluster: gear then Live badge, kept tight together and pinned right. */
+/* Right cluster: the settings gear, pinned right. */
 .header__right {
     margin-left: auto;
     flex: 0 0 auto;
@@ -690,8 +698,71 @@ body {
     background: transparent;
 }
 
-/* ---- connection badge in the header: bare dot + white label, no pill ------ */
-.header .badge {
+/* ---- title bar: the terminal's top line (DESIGN_SYSTEM.md §15.3) ----------
+   A thin app-frame band on the darkest surface, above the instrument strip. The
+   §2 charcoal --line / --line-strong are --hair / --hair-strong in this file
+   (the bare --line names are still the legacy slate). No radius, glint or
+   gradient. */
+.titlebar {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    height: var(--titlebar-h);
+    padding: 0 10px;
+    background: var(--well);
+    border-bottom: 1px solid var(--hair);
+}
+/* §15.2 lockup at 12px: direct italic 400, ROUTE 600, one space, amber arrow. */
+.titlebar__lockup {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+}
+.titlebar__direct {
+    font-style: italic;
+    font-weight: 400;
+    color: #d8d8d8;
+}
+.titlebar__route {
+    font-weight: 600;
+    color: #ffffff;
+}
+.titlebar__arrow {
+    color: var(--brand-amber);
+}
+.titlebar__right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.titlebar__venue {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+.titlebar__venue-label {
+    font-family: var(--sans);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim, #8f8f8f);
+}
+.titlebar__venue-name {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: #ffffff;
+}
+.titlebar__divider {
+    width: 1px;
+    height: 16px;
+    background: var(--hair-strong);
+}
+
+/* ---- connection badge in the title bar: bare dot + white label, no pill ---- */
+.titlebar .badge {
     margin-left: 0;
     padding: 0 0 0 2px;
     border: 0;
@@ -701,7 +772,7 @@ body {
     font-size: 11px;
     color: #ffffff;
 }
-.header .badge__label {
+.titlebar .badge__label {
     font-family: var(--sans);
     font-weight: 400;
     color: #ffffff;

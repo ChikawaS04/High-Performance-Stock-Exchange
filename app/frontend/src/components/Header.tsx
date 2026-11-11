@@ -1,22 +1,23 @@
 /**
  * Header (SRS §3.7, rebuilt in P7-3; header polish in P9-Extras; charcoal rework
  * + settings gear in P-UI). One instrument row now, the way a real terminal
- * carries the top line. No product name, no tagline: the phase strips marketing
- * chrome and shows only what the server sent or a documented client-side
- * derivation.
+ * carries the top line. No product name, no tagline here: the product name lives
+ * in the title bar above this strip (DESIGN_SYSTEM.md §15.3), and this strip shows
+ * only what the server sent or a documented client-side derivation.
  *
  * Instrument row, all derived from BOOK plus the session aggregates and your own
  * orders (never from EXEC arrival order): symbol, last, session change, bid, ask,
  * mid, spread in ticks and basis points, session volume, and the P9-Extras Filled
  * and Rem counters. The last-frame clock rides at the end of the same row as
- * session meta, and the reused ConnectionBadge is pinned to the top-right corner,
- * now preceded by a settings gear.
+ * session meta, and a settings gear is pinned to the top-right corner. The
+ * connection badge that used to sit beside it moved to the title bar (§15.3):
+ * connection is app state, not instrument data.
  *
  * Charcoal rework (P-UI): the strip is a thin (30px) panel-header band. ASML stays
  * bold but white; every value is white at the blotter row-data weight (IBM Plex
  * Mono, normal); labels are IBM Plex Sans, white by default. The green/red
- * switchers (Chg, Bid, Ask) keep their colours. A gear sits just left of the Live
- * badge in the dropdown-caret colour; it opens a settings popup (DESIGN_SYSTEM.md
+ * switchers (Chg, Bid, Ask) keep their colours. A gear sits at the right edge in
+ * the dropdown-caret colour; it opens a settings popup (DESIGN_SYSTEM.md
  * §10) whose Layout section lets you set the header labels to white or faint grey.
  * The choice persists per browser in localStorage.
  *
@@ -40,13 +41,11 @@ import {
     formatSignedPercent,
     midpointLabel,
 } from "../format";
-import { ConnectionBadge } from "./ConnectionBadge";
 import { SETTING_KEYS, oneOf } from "../settings/persist";
 import { usePersistentSetting } from "../settings/usePersistentSetting";
 import { isTerminal } from "../state/reducer";
-import type { BookState, ConnectionStatus, MyOrder, TapeEntry } from "../state/reducer";
-
-const SYMBOL = "ASML";
+import type { BookState, MyOrder, TapeEntry } from "../state/reducer";
+import { SYMBOL } from "../protocol/messages";
 
 /** One cent, in units of $0.0001: the on-tick spacing the spread is counted in. */
 const TICK_PX = 100;
@@ -196,7 +195,6 @@ export interface HeaderProps {
     readonly sessionVolume: number;
     readonly sessionOpenPx: number;
     readonly lastFrameNanos: number;
-    readonly connection: ConnectionStatus;
     /**
      * Session-open price in units for the Open field (P10-5 seam). Distinct from
      * sessionOpenPx above, which is the first-TRADE price that anchors Chg: this
@@ -215,7 +213,6 @@ export function Header({
                            sessionVolume,
                            sessionOpenPx,
                            lastFrameNanos,
-                           connection,
                            openPx,
                        }: HeaderProps) {
     const m = deriveHeader({ book, tape, orders, sessionVolume, sessionOpenPx, lastFrameNanos });
@@ -333,8 +330,6 @@ export function Header({
                             />
                         </svg>
                     </button>
-
-                    <ConnectionBadge status={connection} />
                 </div>
             </div>
 
