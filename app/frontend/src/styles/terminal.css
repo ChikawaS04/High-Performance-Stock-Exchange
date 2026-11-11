@@ -89,7 +89,13 @@
     --body: #1b1b1b;
     --head: #2c2c2c;
     --well: #0d0d0d;
-    --zebra: #181818;
+    /* Table zebra stripe and row hover (DESIGN_SYSTEM.md §9, UI polish D9): the
+       stripe reads clearly on the --well, and hover stays lighter than the stripe. */
+    --zebra: #262626;
+    --row-hover: #303030;
+    /* Standard dropdown caret (DESIGN_SYSTEM.md §11.6, UI polish D7): the blotter
+       header caret is the reference size. */
+    --caret-size: 20px;
     --raise-top: #343434;
     --raise-bot: #262626;
     --hair: #333333;
@@ -144,6 +150,7 @@ body {
 .depth-ladder,
 .trade-tape,
 .order-entry__input,
+.field-menu__input,
 .open-orders__table {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
@@ -801,50 +808,10 @@ body {
     color: #ffffff;
 }
 
-/* Depth selector — identical to the order-entry TIF / TYPE dropdown
-   (.order-entry__select), with white text on hover (the one deliberate difference
-   from the ticket dropdowns: the hover ground is darkened so the white text reads). */
-/* Depth selector — metallic silver button: gradient from a much darker silver at the
-   bottom to a light silver at the top, a dark edge (no light frame), a slight drop
-   shadow underneath, sharp corners, and no focus ring. Right-aligned in the band (the
-   "Depth" label was removed); the caret is layered over the gradient. */
+/* Depth selector: the shared FieldMenu (compact), right-aligned in the band. */
 .depth-ladder__depth {
-    appearance: none;
-    -webkit-appearance: none;
     margin-left: auto;
-    min-width: 44px;
-    padding: 4px 20px 4px 9px;
-    border: 1px solid #3a3a3a;
-    border-radius: 0;
-    color: #000;
-    font-family: var(--sans);
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    background-color: #8c8c8c;
-    /* Two layers, each with its OWN size and position. The gradient must fill the
-       whole button (100% 100% at 0 0); sharing the caret's "right 7px" position
-       shifted it left and left an uncovered strip down the right edge. */
-    background-image:
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='6' viewBox='0 0 9 6'><path d='M0 0l4.5 6L9 0z' fill='%23222222'/></svg>"),
-        linear-gradient(#c8c8c8, #505050);
-    background-repeat: no-repeat, no-repeat;
-    background-size: 9px 6px, 100% 100%;
-    background-position: right 7px center, 0 0;
-    background-origin: padding-box, border-box;
-    background-clip: border-box;
-    /* slight drop shadow underneath */
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
-}
-.depth-ladder__depth:hover {
-    filter: brightness(1.06);
-}
-.depth-ladder__depth:focus {
-    outline: none;
-}
-.depth-ladder__depth option {
-    background: #fff;
-    color: #000;
+    min-width: 52px;
 }
 
 /* Column captions for Price / Size / Total; same three-track grid as a row. */
@@ -1258,7 +1225,7 @@ body {
     font-size: 13px;
 }
 
-/* Zebra striping (allowed here, §9): alternate rows take --zebra, kept dark.
+/* Zebra striping (allowed here, §9): alternate rows take --zebra.
    The stripe sits on the row so the Side cell wash composites over it. The header is
    the first div child, so `odd` keeps the original parity (2nd data row striped). */
 .trade-tape__row:nth-of-type(odd) {
@@ -1611,7 +1578,8 @@ body {
 .order-entry__select option { background: #fff; color: #000; }
 
 /* Sunken input wells (price / qty / display). */
-.order-entry__input {
+.order-entry__input,
+.field-menu__input {
     width: 100%;
     padding: 5px 7px;
     border: 1px solid var(--oe-line);
@@ -1624,8 +1592,10 @@ body {
     text-align: right;
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }
-.order-entry__input::placeholder { color: var(--oe-faint); }
-.order-entry__input:focus {
+.order-entry__input::placeholder,
+.field-menu__input::placeholder { color: var(--oe-faint, #5e5e5e); }
+.order-entry__input:focus,
+.field-menu__input:focus {
     outline: none;
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
 }
@@ -1680,26 +1650,34 @@ body {
 .order-entry__step:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Quantity column: well, presets, optional Display beneath. */
-.order-entry__control--tif { width: 56px; }
-.order-entry__control--ordtype { width: 104px; }
-.order-entry__control--qty { width: 84px; }
+.order-entry__control--tif { width: 64px; }
+.order-entry__control--ordtype { width: 112px; }
+.order-entry__control--qty { width: 90px; }
 
-/* ---- standard dropdown / combobox (TIF, TYPE, QTY, DISPLAY) ---------------
-   One white scroll pick-list, grey hover, no visible scrollbar. Single-selects
-   (TIF, TYPE) use a white button trigger; editable fields (QTY, DISPLAY) use the
-   sunken input. This is the terminal's standard dropdown — see DESIGN_SYSTEM.md. */
-.order-entry__combo { position: relative; }
-.order-entry__combo .order-entry__input { padding-right: 18px; }
+/* ---- standard dropdown / combobox (DESIGN_SYSTEM.md §11.5) ------------------
+   The shared FieldMenu (src/components/FieldMenu.tsx): one white scroll pick-list,
+   grey hover, no visible scrollbar. Single-selects use a white button trigger;
+   editable fields (QTY, DISPLAY) use the sunken input. Neutral field-menu__* classes
+   so the book reader and blotter do not depend on the order-entry scope; the --oe-*
+   references carry fallbacks for use outside the ticket. */
+.field-menu { position: relative; }
+.field-menu .field-menu__input {
+    padding-right: 26px;
+    border: 1px solid var(--oe-line, #333333);
+    border-radius: var(--oe-rad, 3px);
+    background: var(--oe-well, #0d0d0d);
+    color: var(--oe-text, #d8d8d8);
+}
 
 /* White button trigger for single-select dropdowns (value left, caret right). */
-.order-entry__trigger {
+.field-menu__trigger {
     appearance: none;
     display: flex;
     align-items: center;
     width: 100%;
-    padding: 5px 20px 5px 8px;
+    padding: 5px 28px 5px 8px;
     border: 1px solid #555555;
-    border-radius: var(--oe-rad);
+    border-radius: var(--oe-rad, 3px);
     background: #ffffff;
     color: #000000;
     font-family: var(--sans);
@@ -1708,26 +1686,31 @@ body {
     text-align: left;
     cursor: pointer;
 }
-.order-entry__trigger:hover:not(:disabled) { background: #cccccc; }
-.order-entry__trigger:focus { outline: none; }   /* no blue focus ring */
-.order-entry__trigger:disabled { opacity: 0.5; cursor: not-allowed; }
-.order-entry__trigger-val {
+.field-menu__trigger:hover:not(:disabled) { background: #cccccc; }
+.field-menu__trigger:focus { outline: none; }   /* no blue focus ring */
+.field-menu__trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+.field-menu__trigger-val {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.order-entry__caret {
+/* Standard dropdown caret (§11.6): one size everywhere, from --caret-size. */
+.term-caret {
+    font-size: var(--caret-size);
+    line-height: 1;
+}
+
+.field-menu__caret {
     position: absolute;
-    right: 6px;
+    right: 5px;
     top: 50%;
     transform: translateY(-50%);
-    font-size: 8px;
-    color: var(--oe-dim);
+    color: var(--oe-dim, #8f8f8f);
     pointer-events: none;
 }
 
-.order-entry__menu {
+.field-menu__menu {
     position: absolute;
     top: calc(100% + 2px);
     left: 0;
@@ -1740,27 +1723,44 @@ body {
     overflow-y: auto;
     background: #ffffff;
     border: 1px solid #555555;
-    border-radius: var(--oe-rad);
+    border-radius: var(--oe-rad, 3px);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
     scrollbar-width: none;            /* Firefox: hide scrollbar */
 }
-.order-entry__menu::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.field-menu__menu::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
-.order-entry__opt {
+.field-menu__opt {
     padding: 4px 8px;
     font-family: var(--sans);
     font-size: 12px;
     color: #000000;
     cursor: pointer;
     border-radius: 2px;
+    white-space: nowrap;
 }
-.order-entry__opt--num {
+.field-menu__opt--num {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
     text-align: right;
 }
-.order-entry__opt:hover,
-.order-entry__opt[aria-selected="true"] { background: #cccccc; }
+.field-menu__opt:hover,
+.field-menu__opt[aria-selected="true"] { background: #cccccc; }
+
+/* Compact variant for panel header bands (book reader depth, blotter filter): a
+   slimmer trigger so it sits inside the band; the menu may outgrow the trigger and
+   aligns to its right edge. */
+.field-menu--compact .field-menu__trigger {
+    padding: 2px 26px 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.field-menu--compact .field-menu__menu {
+    left: auto;
+    right: 0;
+    min-width: 100%;
+}
+.field-menu--compact .field-menu__opt { font-size: 11px; }
+
 .order-entry__presets {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1816,6 +1816,7 @@ body {
 
 .order-entry__side-btn:disabled,
 .order-entry__input:disabled,
+.field-menu__input:disabled,
 .order-entry__submit:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -2627,7 +2628,7 @@ body {
 /* Trade-tape row hover for the live-grid feel: charcoal, sitting on the row so
    the Side-cell wash composites over it (blotter model). No blue highlight. */
 .trade-tape__row:hover {
-    background: #202020;
+    background: var(--row-hover);
 }
 
 
@@ -3140,7 +3141,7 @@ body {
     border-radius: 2px;
     background: var(--head);
     color: var(--text);
-    font-size: 20px;
+    font-size: var(--caret-size);
     line-height: 1;
     cursor: pointer;
 }
@@ -3284,12 +3285,12 @@ body {
 }
 
 /* Zebra + hover sit on the ROW, not the cell, so the Side cell's translucent wash
-   composites over the stripe (the stripe shows through the tinted cell); kept dark. */
+   composites over the stripe (the stripe shows through the tinted cell). */
 .open-orders .open-orders__table tbody tr:nth-of-type(even) {
     background: var(--zebra);
 }
 .open-orders .open-orders__table tbody tr:hover {
-    background: #202020;
+    background: var(--row-hover);
 }
 
 /* Per-row Cancel: a small raised charcoal control. */
@@ -3889,7 +3890,6 @@ body {
     padding: 3px 4px;
     cursor: pointer;
     color: var(--text);
-    font-size: 11px;
     line-height: 0;
     display: inline-flex;
     align-items: center;

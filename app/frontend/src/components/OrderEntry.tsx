@@ -54,6 +54,8 @@ import { forwardRef, useImperativeHandle, useState } from "react";
 
 import { formatPrice, parsePrice, EMPTY_PRICE } from "../format";
 import { NA } from "../protocol/messages";
+import { FieldMenu } from "./FieldMenu";
+import type { MenuOption } from "./FieldMenu";
 import type { OrderIntent, OrdType, Side, TimeInForce } from "../protocol/messages";
 
 export type ValidationResult =
@@ -209,114 +211,9 @@ export interface OrderEntryProps {
     readonly bestAskPx?: number;
 }
 
-type MenuOption = { readonly value: string; readonly label: string };
-
 const TIF_MENU: readonly MenuOption[] = TIF_OPTIONS.map((o) => ({ value: o, label: o }));
 const ORD_TYPE_MENU: readonly MenuOption[] = ORD_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
 const QTY_MENU: readonly MenuOption[] = QTY_OPTIONS.map((n) => ({ value: String(n), label: String(n) }));
-
-interface FieldMenuProps {
-    readonly testId: string;
-    readonly ariaLabel: string;
-    readonly options: readonly MenuOption[];
-    readonly value: string;
-    readonly editable?: boolean;
-    readonly numeric?: boolean;
-    readonly placeholder?: string;
-    readonly inputMode?: "numeric" | "decimal";
-    readonly disabled?: boolean;
-    readonly triggerLabel?: string;
-    readonly onSelect: (value: string) => void;
-    readonly onInput?: (text: string) => void;
-}
-
-/**
- * Standard dropdown / combobox for every order-entry picker (TIF, Type, Qty,
- * Display). One white scroll pick-list (no visible scrollbar) opens from either a
- * white button trigger (single-select: TIF, Type) or a sunken editable input
- * (combobox with manual entry: Qty, Display). Selecting is onMouseDown +
- * preventDefault so the trigger/input keeps focus; blur closes. See DESIGN_SYSTEM.md.
- */
-function FieldMenu({
-    testId,
-    ariaLabel,
-    options,
-    value,
-    editable = false,
-    numeric = false,
-    placeholder,
-    inputMode,
-    disabled = false,
-    triggerLabel,
-    onSelect,
-    onInput,
-}: FieldMenuProps) {
-    const [open, setOpen] = useState(false);
-    const close = (): void => setOpen(false);
-    const optClass = `order-entry__opt${numeric ? " order-entry__opt--num" : ""}`;
-    return (
-        <div className="order-entry__combo">
-            {editable ? (
-                <input
-                    className="order-entry__input"
-                    type="text"
-                    inputMode={inputMode}
-                    placeholder={placeholder}
-                    value={value}
-                    data-testid={`${testId}-input`}
-                    aria-label={ariaLabel}
-                    autoComplete="off"
-                    disabled={disabled}
-                    onChange={(e) => onInput?.(e.target.value)}
-                    onFocus={() => setOpen(true)}
-                    onClick={() => setOpen(true)}
-                    onBlur={close}
-                    onKeyDown={(e) => {
-                        if (e.key === "Escape") close();
-                    }}
-                />
-            ) : (
-                <button
-                    type="button"
-                    className="order-entry__trigger"
-                    data-testid={`${testId}-trigger`}
-                    aria-haspopup="listbox"
-                    aria-expanded={open}
-                    aria-label={ariaLabel}
-                    disabled={disabled}
-                    onClick={() => setOpen((o) => !o)}
-                    onBlur={close}
-                    onKeyDown={(e) => {
-                        if (e.key === "Escape") close();
-                    }}
-                >
-                    <span className="order-entry__trigger-val">{triggerLabel ?? value}</span>
-                </button>
-            )}
-            <span className="order-entry__caret" aria-hidden="true">▾</span>
-            {open && !disabled ? (
-                <ul className="order-entry__menu" role="listbox" aria-label={`${ariaLabel} options`}>
-                    {options.map((o) => (
-                        <li
-                            key={o.value}
-                            role="option"
-                            aria-selected={value === o.value}
-                            className={optClass}
-                            data-testid={`${testId}-opt-${o.value}`}
-                            onMouseDown={(e) => {
-                                e.preventDefault();
-                                onSelect(o.value);
-                                close();
-                            }}
-                        >
-                            {o.label}
-                        </li>
-                    ))}
-                </ul>
-            ) : null}
-        </div>
-    );
-}
 
 /**
  * Order confirmation popup (DESIGN_SYSTEM.md section 10). Opens on Submit, before any

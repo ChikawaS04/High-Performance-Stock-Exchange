@@ -343,7 +343,8 @@ describe("DepthLadder (cumulative column, divider, depth viewport)", () => {
         expect(screen.getAllByTestId("bid-row")).toHaveLength(12);
         expect(bidsPane().style.getPropertyValue("--depth-rows")).toBe("10"); // default depth
 
-        fireEvent.change(screen.getByTestId("depth-select"), { target: { value: "8" } });
+        fireEvent.click(screen.getByTestId("depth-select-trigger"));
+        fireEvent.mouseDown(screen.getByTestId("depth-select-opt-8"));
         expect(screen.getAllByTestId("bid-row")).toHaveLength(12); // same rows, deeper than the viewport
         expect(bidsPane().style.getPropertyValue("--depth-rows")).toBe("8"); // viewport shrank
     });
@@ -409,7 +410,8 @@ describe("DepthLadder (P8-4 two-pane scroll layout)", () => {
         expect(bidsPane.style.getPropertyValue("--depth-rows")).toBe("10");
 
         // the sizing hook tracks the selector, symmetrically across both panes
-        fireEvent.change(screen.getByTestId("depth-select"), { target: { value: "14" } });
+        fireEvent.click(screen.getByTestId("depth-select-trigger"));
+        fireEvent.mouseDown(screen.getByTestId("depth-select-opt-14"));
         expect(
             (container.querySelector(".depth-ladder__asks") as HTMLElement).style.getPropertyValue(
                 "--depth-rows",
@@ -420,5 +422,28 @@ describe("DepthLadder (P8-4 two-pane scroll layout)", () => {
                 "--depth-rows",
             ),
         ).toBe("14");
+    });
+});
+
+describe("DepthLadder (UI polish: shared dropdown)", () => {
+    it("uses the shared FieldMenu listbox, never a native select, and a pick drives the panes", () => {
+        const { container } = render(
+            <DepthLadder book={book({ bestBid: 1500000, bestAsk: 1502500, bids: BIDS, asks: ASKS })} />,
+        );
+        expect(container.querySelector("select")).toBeNull();
+
+        const trigger = screen.getByTestId("depth-select-trigger");
+        expect(trigger.closest(".field-menu")).not.toBeNull();
+        expect(trigger.textContent).toBe("10");
+
+        fireEvent.click(trigger);
+        const list = screen.getByRole("listbox", { name: "Depth levels options" });
+        expect(list.className).toBe("field-menu__menu");
+        expect(screen.getByTestId("depth-select-opt-10").getAttribute("aria-selected")).toBe("true");
+
+        fireEvent.mouseDown(screen.getByTestId("depth-select-opt-14"));
+        expect(screen.getByTestId("depth-select-trigger").textContent).toBe("14");
+        const asks = container.querySelector(".depth-ladder__asks") as HTMLElement;
+        expect(asks.style.getPropertyValue("--depth-rows")).toBe("14");
     });
 });

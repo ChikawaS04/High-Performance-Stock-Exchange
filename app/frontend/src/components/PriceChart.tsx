@@ -285,7 +285,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
                             setSettingsOpen(false);
                         }}
                     >
-                        <span aria-hidden="true">{"▾"}</span>
+                        <span className="term-caret" aria-hidden="true">{"▾"}</span>
                     </button>
 
                     {viewOpen && (

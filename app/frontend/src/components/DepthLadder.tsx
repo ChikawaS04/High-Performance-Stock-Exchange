@@ -34,6 +34,8 @@
 import { useState, type CSSProperties } from "react";
 
 import { cumulate, type CumLevel } from "../depth";
+import { FieldMenu } from "./FieldMenu";
+import type { MenuOption } from "./FieldMenu";
 import { formatPrice, EMPTY_PRICE, midpointLabel } from "../format";
 import type { BookState } from "../state/reducer";
 import type { Level } from "../protocol/messages";
@@ -45,6 +47,8 @@ import type { Level } from "../protocol/messages";
  *  many levels render. */
 const DEPTH_OPTIONS = [8, 10, 14] as const;
 const DEFAULT_DEPTH = 10;
+/** The depth selector's options for the shared FieldMenu (UI polish D8). */
+const DEPTH_MENU: readonly MenuOption[] = DEPTH_OPTIONS.map((n) => ({ value: String(n), label: String(n) }));
 
 /** One rendered ladder row: real price, its quantity, cumulative depth, shading. */
 export interface LadderRow {
@@ -177,20 +181,14 @@ export function DepthLadder({ book, lastPx = -1 }: DepthLadderProps) {
         <div className="depth-ladder">
             <div className="depth-ladder__controls">
                 <span className="depth-ladder__panel-title">Book Reader</span>
-                <select
-                    id="depth-select"
-                    className="depth-ladder__depth"
-                    data-testid="depth-select"
-                    aria-label="Depth levels"
-                    value={depth}
-                    onChange={(e) => setDepth(Number(e.target.value))}
-                >
-                    {DEPTH_OPTIONS.map((n) => (
-                        <option key={n} value={n}>
-                            {n}
-                        </option>
-                    ))}
-                </select>
+                <FieldMenu
+                    testId="depth-select"
+                    ariaLabel="Depth levels"
+                    className="field-menu--compact depth-ladder__depth"
+                    options={DEPTH_MENU}
+                    value={String(depth)}
+                    onSelect={(v) => setDepth(Number(v))}
+                />
             </div>
 
             <div className="depth-ladder__head" aria-hidden="true">
