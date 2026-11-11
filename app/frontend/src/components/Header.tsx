@@ -30,7 +30,16 @@
  */
 
 import { useEffect, useState } from "react";
-import { formatPrice, EMPTY_PRICE, formatClockNanos, formatQty, midpointLabel } from "../format";
+import {
+    changeSign,
+    formatPrice,
+    EMPTY_PRICE,
+    formatClockNanos,
+    formatQty,
+    formatSignedDollar,
+    formatSignedPercent,
+    midpointLabel,
+} from "../format";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { isTerminal } from "../state/reducer";
 import type { BookState, ConnectionStatus, MyOrder, TapeEntry } from "../state/reducer";
@@ -113,22 +122,22 @@ interface ChangeParts {
 
 /**
  * Session change against the session's first trade price. Signed dollar delta
- * (from integer units) plus a signed percent (fractional, display edge only).
- * Blank until both a last price and a session-open price exist. There is no
- * previous close, so this is a session change, never a daily change. dir drives
- * the up/down colour.
+ * (from integer units) plus a signed percent from the shared formatSignedPercent
+ * (UI polish D1), so the header and the trade tape format the same move the same
+ * way. Blank until both a last price and a session-open price exist. There is no
+ * previous close, so this is a session change, never a daily change. dir comes from
+ * the dollar delta (changeSign) and drives the up/down colour.
  */
 function changeLabel(lastPx: number, sessionOpenPx: number): ChangeParts {
     if (lastPx <= 0 || sessionOpenPx <= 0) {
         return { abs: EMPTY_PRICE, pct: EMPTY_PRICE, dir: "none" };
     }
     const deltaPx = lastPx - sessionOpenPx;
-    const dir: ChangeDirection = deltaPx > 0 ? "up" : deltaPx < 0 ? "down" : "flat";
-    const sign = deltaPx > 0 ? "+" : deltaPx < 0 ? "-" : "";
-    const abs = `${sign}${formatPrice(Math.abs(deltaPx))}`;
-    const pctValue = (deltaPx / sessionOpenPx) * 100;
-    const pct = `${deltaPx > 0 ? "+" : ""}${pctValue.toFixed(2)}%`;
-    return { abs, pct, dir };
+    return {
+        abs: formatSignedDollar(deltaPx),
+        pct: formatSignedPercent(deltaPx, sessionOpenPx),
+        dir: changeSign(deltaPx),
+    };
 }
 
 /**
@@ -260,7 +269,7 @@ export function Header({
                     <span className="header__label">Chg</span>
                     <span className={`header__value${changeClass}`} data-testid="header-change">
             {m.changeAbs}
-                        <span className="header__value-sub" data-testid="header-change-pct">{m.changePct}</span>
+                        <span className="header__value-sub header__value-sub--pct" data-testid="header-change-pct">{m.changePct}</span>
           </span>
                 </div>
 

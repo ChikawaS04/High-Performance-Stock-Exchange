@@ -483,16 +483,23 @@ body {
     gap: 4px;
 }
 
-/* Green/red switchers are left untouched. */
+/* Green/red change switchers are left untouched. The BID value is the terminal-wide
+   bid blue (UI polish D2, DESIGN_SYSTEM.md §2): --quote-bid, never the legacy green. */
 .header__value--up { color: var(--bid); }
 .header__value--down { color: var(--ask); }
-.header__metric--bid .header__value { color: var(--bid); }
+.header__metric--bid .header__value { color: var(--quote-bid); }
 .header__metric--ask .header__value { color: var(--ask); }
 
 .header__value-sub {
     font-size: 9px;
     font-weight: 400;
     color: #8f8f8f;
+}
+/* The CHG percent reserves the widest form ("-<0.0001%", nine characters of tabular
+   mono) so a step between two and four decimals never shifts the header (D1). */
+.header__value-sub--pct {
+    display: inline-block;
+    min-width: 9ch;
 }
 
 /* Last-frame clock now reads like the rest of the strip: white, thin, mono. */
@@ -1266,6 +1273,11 @@ body {
 .trade-tape__change {
     padding: 0 8px;
     font-size: 12px;
+}
+/* CHANGE % reserves the widest form ("-<0.0001%") so the column does not resize as
+   prints step between two and four decimals (UI polish D1). */
+.trade-tape__change--pct {
+    min-width: calc(9ch + 16px);
 }
 
 /* Direction arrow (▲ / ▼), coloured with the value; small so it doesn't crowd it.

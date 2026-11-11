@@ -227,11 +227,11 @@ describe('formatSignedPercent', () => {
         expect(formatSignedPercent(-2000, 1_000_000)).toBe('-0.20%')
     })
 
-    it('rounds a sub-0.005% move to "0.00%" with no misleading sign', () => {
-        // $0.05 on a ~$1782 base is ~0.0028% -> rounds to zero.
-        expect(formatSignedPercent(500, 17_823_500)).toBe('0.00%')
-        // A down move that still rounds to zero must not read "-0.00%".
-        expect(formatSignedPercent(-700, 16_168_000)).toBe('0.00%')
+    it('steps a sub-0.005% move down to four decimals, signed from the delta (UI polish D1)', () => {
+        // $0.05 on a ~$1782 base is ~0.0028%.
+        expect(formatSignedPercent(500, 17_823_500)).toBe('+0.0028%')
+        // $0.07 down on $1616.80 is ~-0.0043%: the sign survives the small magnitude.
+        expect(formatSignedPercent(-700, 16_168_000)).toBe('-0.0043%')
     })
 
     it('renders an exact-zero delta as "0.00%"', () => {

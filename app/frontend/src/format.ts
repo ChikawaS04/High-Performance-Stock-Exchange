@@ -73,37 +73,75 @@ export function formatSignedDollar(deltaUnits: number): string {
     return sign + formatPrice(Math.abs(deltaUnits))
 }
 
+/** Direction of a price change, taken from the dollar delta (never a rounded percent). */
+export type ChangeSign = 'up' | 'down' | 'flat'
+
 /**
- * Signed percentage change for the trade tape CHANGE % column, to two decimals.
+ * Direction of a price DELTA in units: 'up' above zero, 'down' below, 'flat' at
+ * zero. The single source of a change's sign and colour (UI polish D1), so the
+ * percent can never disagree with the dollar change it sits beside.
+ */
+export function changeSign(deltaUnits: number): ChangeSign {
+    if (deltaUnits > 0) return 'up'
+    if (deltaUnits < 0) return 'down'
+    return 'flat'
+}
+
+/** Round a non-negative ratio to the nearest integer, halves away from zero. */
+function roundMagnitude(x: number): number {
+    return Math.floor(x + 0.5)
+}
+
+/**
+ * Signed percentage change, the one formatter the trade tape CHANGE % column and
+ * the header CHG percent share (UI polish D1).
  *
- * Takes the same price DELTA in units and the PREVIOUS print's price in units, and
- * renders (delta / prev) * 100 as a signed "X.XX%" string. This is the one derived
- * display metric that needs a division, so it is taken as a single rounded division
- * into hundredths-of-a-percent rather than carried as a raw float; it is a display
- * figure only, never a price or an order value. The sign follows the ROUNDED
- * magnitude, so a sub-0.005% move reads "0.00%" without a misleading "-0.00%".
- * EMPTY_PRICE when there is no valid previous price to divide by.
+ * Takes a price DELTA in units and the REFERENCE price in units (the same two
+ * prices the dollar change is formed from) and renders delta / ref * 100. The
+ * numerator is scaled in exact integer units before the single division, so no
+ * float price arithmetic happens first; the result is a display figure only.
+ *
+ * Precision steps down so a small move never reads as no move:
+ *   - zero delta: "0.00%", no sign;
+ *   - two decimals ("-0.42%") when that is non-zero;
+ *   - otherwise four decimals ("-0.0007%", a one-tick move on a four-digit price);
+ *   - otherwise "-<0.0001%" / "+<0.0001%" (a sub-penny midpoint print).
+ * The sign comes from the DELTA, never from the rounded value, and positive values
+ * carry "+" exactly as formatSignedDollar does. Magnitudes round half away from
+ * zero, so a move and its mirror always render symmetrically. EMPTY_PRICE when
+ * there is no valid reference to divide by, or a non-integer input.
  *
  *   500,   1000000  -> "+0.05%"
  *   -2000, 1000000  -> "-0.20%"
  *   0,     1000000  -> "0.00%"
- *   500,   17823500 -> "0.00%"   (a sub-0.005% move rounds to zero)
+ *   -100,  14466900 -> "-0.0007%"
+ *   -1,    14466900 -> "-<0.0001%"
  */
-export function formatSignedPercent(deltaUnits: number, prevUnits: number): string {
-    if (!Number.isInteger(deltaUnits) || !Number.isInteger(prevUnits) || prevUnits <= 0) {
+export function formatSignedPercent(deltaUnits: number, refUnits: number): string {
+    if (!Number.isInteger(deltaUnits) || !Number.isInteger(refUnits) || refUnits <= 0) {
         return EMPTY_PRICE
     }
-    // Hundredths of a percent = delta / prev * 10000, rounded to an integer so the
-    // output is exactly two decimal places.
-    const hundredths = Math.round((deltaUnits * 10000) / prevUnits)
-    if (hundredths === 0) {
+    if (deltaUnits === 0) {
         return '0.00%'
     }
-    const sign = hundredths > 0 ? '+' : '-'
-    const mag = Math.abs(hundredths)
-    const whole = Math.trunc(mag / 100)
-    const frac = String(mag % 100).padStart(2, '0')
-    return `${sign}${whole}.${frac}%`
+    const sign = deltaUnits > 0 ? '+' : '-'
+    const mag = Math.abs(deltaUnits)
+
+    // Hundredths of a percent: mag / ref * 100 * 100.
+    const hundredths = roundMagnitude((mag * 10_000) / refUnits)
+    if (hundredths > 0) {
+        const whole = Math.trunc(hundredths / 100)
+        const frac = String(hundredths % 100).padStart(2, '0')
+        return `${sign}${whole}.${frac}%`
+    }
+
+    // Ten-thousandths of a percent: mag / ref * 100 * 10000. Below 0.005% here, so
+    // the whole part is always zero.
+    const tenThousandths = roundMagnitude((mag * 1_000_000) / refUnits)
+    if (tenThousandths > 0) {
+        return `${sign}0.${String(tenThousandths).padStart(4, '0')}%`
+    }
+    return `${sign}<0.0001%`
 }
 
 /**

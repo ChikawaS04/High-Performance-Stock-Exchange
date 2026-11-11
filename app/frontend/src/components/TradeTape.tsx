@@ -310,7 +310,7 @@ export function TradeTape({ tape }: TradeTapeProps) {
                   {changes[i].dollar}
                 </span>
                                 <span
-                                    className={`trade-tape__change trade-tape__change--${dir}`}
+                                    className={`trade-tape__change trade-tape__change--pct trade-tape__change--${dir}`}
                                     data-testid="tape-change-percent"
                                 >
                   {changes[i].percent}
