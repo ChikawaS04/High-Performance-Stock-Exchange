@@ -38,6 +38,9 @@
  *
  * The Header strip and Navbar render above <Routes> so both persist across pages;
  * the connection badge stays inside the Header, visible on every route.
+ *
+ * UI polish D4: the OrderToasts stack also renders here, outside <Routes>, so an
+ * order notification shows whichever page is open.
  */
 
 import { useState } from "react";
@@ -51,6 +54,7 @@ import type { OrderIntent } from "./protocol/messages";
 
 import { Header } from "./components/Header";
 import { Navbar } from "./components/Navbar";
+import { OrderToasts } from "./components/OrderToasts";
 import { TradingPage } from "./pages/TradingPage";
 import { PriceChartPage } from "./pages/PriceChartPage";
 
@@ -122,6 +126,9 @@ export default function App() {
                     }
                 />
             </Routes>
+
+            {/* UI polish D4: order notifications, above the routes so they show on every page. */}
+            <OrderToasts notices={state.orderNotices} />
 
             <footer className="terminal-footer" aria-label="Terminal status bar">
                 <span className="terminal-footer__item terminal-footer__settings">

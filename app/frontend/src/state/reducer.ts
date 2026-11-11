@@ -47,9 +47,20 @@
  * three order-attribute fields captured at send time (ordType, tif, displayQty).
  * ORDER_EXPIRED is not a fill, so it moves none of the tape or session
  * accumulators; it only transitions the named row to its terminal state.
+ *
+ * UI polish D4 adds order notifications. applyExec hands the rows before and after
+ * each EXEC to the pure noticesForExec (notices.ts), which sees the frame's true
+ * pre-state (ownership, side, price) even when React batches several frames into
+ * one render. Each notice gets a client-assigned increasing id (noticeSeq) and is
+ * kept in a short capped list, orderNotices, which OrderToasts reads. A frame whose
+ * venue seq was already seen raises no second notice; the recent seqs are a
+ * bounded list rather than a high-water mark, so a venue restart that resets its
+ * counter does not silence notices.
  */
 
 import { isFill } from "../protocol/messages";
+import { noticesForExec } from "../notices";
+import type { OrderNotice } from "../notices";
 import type {
     ClientFrame,
     ExecFrame,
@@ -69,6 +80,12 @@ export const TAPE_CAP = 200;
  * two streams (every FIX echo and every EXEC frame, not fills only).
  */
 export const INSPECTOR_CAP = 500;
+
+/** Most recent order notices kept in state (oldest first); the toast stack shows fewer. */
+export const NOTICE_CAP = 32;
+
+/** How many recent EXEC seqs are remembered to show each report's notice once. */
+export const SEQ_MEMORY = 256;
 
 /**
  * Sentinel for "no traded price yet this session": no trade has printed, so there
@@ -225,6 +242,15 @@ export interface AppState {
      * logged; the inspector's filter set is FIX NEW, FIX CANCEL, and EXEC only.
      */
     readonly inspectorLog: readonly InspectorEntry[];
+    /**
+     * Order notifications for this terminal's own orders (UI polish D4), oldest
+     * first, capped at NOTICE_CAP. Raised only by live EXEC frames.
+     */
+    readonly orderNotices: readonly OrderNotice[];
+    /** Id of the last notice raised; 0 before the first. */
+    readonly noticeSeq: number;
+    /** Recently seen EXEC venue seqs (at most SEQ_MEMORY), for notice dedupe. */
+    readonly recentExecSeqs: readonly number[];
 }
 
 export const EMPTY_BOOK: BookState = {
@@ -248,6 +274,9 @@ export const initialState: AppState = {
     msgSeqNum: 0,
     lastFrameNanos: 0,
     inspectorLog: [],
+    orderNotices: [],
+    noticeSeq: 0,
+    recentExecSeqs: [],
 };
 
 export type Action =
@@ -429,6 +458,25 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     // fills only. Newest first, capped.
     const inspectorLog = [frame, ...state.inspectorLog].slice(0, INSPECTOR_CAP);
 
+    // Order notifications (UI polish D4), at most once per venue seq.
+    let orderNotices = state.orderNotices;
+    let noticeSeq = state.noticeSeq;
+    let recentExecSeqs = state.recentExecSeqs;
+    const seenBefore = frame.seq !== undefined && state.recentExecSeqs.includes(frame.seq);
+    if (!seenBefore) {
+        const drafts = noticesForExec(state.myOrders, myOrders, frame);
+        if (drafts.length > 0) {
+            const raised = drafts.map((d) => {
+                noticeSeq += 1;
+                return { ...d, id: noticeSeq };
+            });
+            orderNotices = [...state.orderNotices, ...raised].slice(-NOTICE_CAP);
+        }
+        if (frame.seq !== undefined) {
+            recentExecSeqs = [...state.recentExecSeqs, frame.seq].slice(-SEQ_MEMORY);
+        }
+    }
+
     // Every EXEC is a frame received from the server, so it advances the liveness
     // marker even when it changes nothing else (a rejection for an unknown id, a
     // fill against no owned order). tape and myOrders keep their existing references
@@ -445,6 +493,9 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         sessionTradeCount,
         lastFrameNanos: frame.timestamp,
         inspectorLog,
+        orderNotices,
+        noticeSeq,
+        recentExecSeqs,
     };
 }
 

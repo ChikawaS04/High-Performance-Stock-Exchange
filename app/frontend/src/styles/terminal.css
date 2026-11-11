@@ -4073,3 +4073,75 @@ body {
     justify-content: center;
 }
 .price-chart__close:hover { color: #d40000; }
+
+/* ==========================================================================
+   Order notifications (UI polish D4, DESIGN_SYSTEM.md §12)
+   A fixed stack at the bottom right, above the footer status bar and above the
+   floating chart windows. The §10 popup family: --pop-body ground, 1px #808080
+   outline, square corners, white normal-weight text, the exit in --exit-x. The
+   stack itself never intercepts clicks; only the toasts do.
+   ========================================================================== */
+.order-toasts {
+    position: fixed;
+    right: 12px;
+    bottom: 28px;                    /* clears the 18px footer bar */
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 260px;
+    pointer-events: none;
+}
+.order-toast {
+    pointer-events: auto;
+    background: var(--pop-body);
+    border: 1px solid #808080;
+    border-radius: 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    font-weight: 400;
+}
+.order-toast__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 4px 3px 9px;
+    background: var(--pop-head);
+    border-bottom: 1px solid #000000;
+}
+.order-toast__title {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    color: #ffffff;
+}
+.order-toast__x {
+    appearance: none;
+    width: 20px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--pop-head);
+    color: var(--exit-x);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+.order-toast__x:hover { color: #d40000; }
+.order-toast__body {
+    padding: 7px 9px 8px;
+    font-family: var(--sans);
+    font-size: 12px;
+    color: #ffffff;
+}
+.order-toast__side {
+    font-family: var(--sans);
+    font-weight: 600;
+}
+.order-toast__side--buy { color: var(--quote-bid); }
+.order-toast__side--sell { color: var(--quote-ask); }
+.order-toast__detail {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+}

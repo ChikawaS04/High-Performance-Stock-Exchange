@@ -84,6 +84,13 @@ export interface ExecFrame {
     readonly aggressorOrderId: number;
     readonly passiveOrderId: number;
     readonly timestamp: number;
+    /**
+     * The venue's outbound sequence number for this report. The server has sent it
+     * on every EXEC since Phase 15; the terminal reads it only to show each report's
+     * notification at most once (UI polish D4). Optional so a frame without it still
+     * parses exactly as before.
+     */
+    readonly seq?: number;
 }
 
 /**
@@ -239,6 +246,8 @@ export function parseServerFrame(raw: string): ServerFrame | null {
             const aggressorOrderId = int(parsed.aggressorOrderId);
             const passiveOrderId = int(parsed.passiveOrderId);
             const timestamp = int(parsed.timestamp);
+            // Optional: absent or malformed simply means "no sequence to dedupe on".
+            const seq = int(parsed.seq);
             if (
                 orderId === null ||
                 tradeId === null ||
@@ -262,6 +271,7 @@ export function parseServerFrame(raw: string): ServerFrame | null {
                 aggressorOrderId,
                 passiveOrderId,
                 timestamp,
+                ...(seq !== null ? { seq } : {}),
             };
         }
         case "FIX": {
