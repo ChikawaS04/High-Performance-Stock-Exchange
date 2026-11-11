@@ -62,10 +62,24 @@ and the old blue-grey `--surface` palette is retired.
 `#0000ff` / `#ff0000`; quote text uses the lighter, legible variants so prices stay
 readable on the charcoal.
 
-> Rollout note: the order-entry ticket uses blue for the bid. The rest of the
-> terminal (depth ladder, tape) still uses the legacy green bid. During rollout we
-> decide once whether the whole terminal moves to blue-bid or the ticket reverts to
-> green, and apply it everywhere at once.
+**Bid is blue terminal-wide.** Every bid value, bid curve and BUY cell uses the bid
+blue (`--quote-bid`, `#5a96ff`, the `--bid` value above); the header BID moved in
+the UI polish pass, and the blue-or-green question is closed. Green and red remain
+only as direction colours (a tape tick up or down, a positive or negative change),
+never for a bid or an ask. The legacy slate `--bid` token in `terminal.css` is still
+green and still feeds the header's "up" change colour, so a bid must never use it.
+
+### Table, popup and control tokens
+| Token | Value | Use |
+|---|---|---|
+| `--zebra` | `#262626` | Alternate table row on the `--well` (§9) |
+| `--row-hover` | `#303030` | Table row hover, always lighter than the stripe (§9) |
+| `--pop-head` | `#333333` | Popup header band (§10) |
+| `--pop-body` | `#434343` | Popup body and toast ground (§10, §12) |
+| `--exit-x` | `#af0000` | The popup exit mark (§10) |
+| `--silver-top` / `--silver-bot` / `--silver-edge` | `#d6d6d6` / `#9e9e9e` / `#7d7d7d` | Silver primary action (§10) |
+| `--quote-bid-wash` / `--quote-ask-wash` | 16% bid / ask | Side cell wash, translucent so the stripe shows through (§9) |
+| `--caret-size` | `20px` | Every dropdown caret (§11.6) |
 
 ---
 
@@ -111,7 +125,8 @@ This is the heart of the look. Apply it consistently.
   its header; it is not a loose heading above the content.
 - **Dropdowns are white.** White background, black text, 1px `#555` border, grey
   (`#ccc`) hover. They are the one deliberately light element, so they read as
-  editable pickers against the dark.
+  editable pickers against the dark. Every dropdown is the shared `FieldMenu`
+  (§11.5).
 - **Text inputs** are sunken wells, right-aligned, mono tabular figures.
 - **Segmented buttons** (BUY/SELL) are adjoined (shared border, no gap between), the
   active segment filled with its semantic colour.
@@ -151,8 +166,8 @@ This is the heart of the look. Apply it consistently.
 2. **Next panels** (depth ladder, trade tape, open-orders blotter, session stats,
    header) are brought in one at a time.
 3. During rollout, promote `--oe-*` to terminal-wide `:root` tokens, retire the
-   legacy blue-grey `--surface` palette and the slate-retheme layer panel by panel,
-   and settle the blue-vs-green bid question once for the whole terminal.
+   legacy blue-grey `--surface` palette and the slate-retheme layer panel by panel.
+   The blue-vs-green bid question is settled: blue, terminal-wide (§2).
 
 ---
 
@@ -166,3 +181,173 @@ This is the heart of the look. Apply it consistently.
   re-skin elements after the base rules. Remove a panel's rules from it as you rework
   that panel.
 - Preserve behaviour and test ids when restyling; the rework is visual only.
+
+---
+
+## 9. Table panels
+
+The blotter is the reference; the trade tape follows it.
+
+- **Card.** A `--head` header band (bright-white uppercase title, 10px, weight 600,
+  letter-spacing 0.14em, bottom hairline) over a column-header row and a sunken
+  `--well` body that fills the panel.
+- **Column headers** are sans, ~9px, uppercase, sticky at the top of the scroll.
+  Numeric columns (time, price, quantity) are right-aligned.
+- **Row data** is bright white, normal weight, IBM Plex Mono tabular for numbers.
+- **Zebra and hover.** Alternate rows take `--zebra` (`#262626`), and a hovered row
+  takes `--row-hover` (`#303030`), so hover always reads lighter than the stripe. Both
+  sit on the row, never the cell, so a cell wash composites over them. No table uses
+  a literal stripe or hover colour.
+- **Side cell.** BUY / SELL in the legible quote colour on a translucent wash of the
+  same hue (`--quote-bid-wash`, `--quote-ask-wash`), so the stripe shows through.
+- **Header band contents.** The title, an optional menu caret (§11.6) at the right
+  edge, and at most **one filter single-select** (§11.5, compact) just left of the
+  caret. No counters and no badges.
+- **Empty states** are one dim line in the body: "No orders yet" with no rows at
+  all, and a filter-specific line (for example "No filled orders") when a filter
+  matches nothing.
+
+---
+
+## 10. Popups
+
+One popup family for confirmations, settings and dialogs.
+
+- **Chrome.** A `--pop-head` header band over a `--pop-body` body, divided by a thin
+  black rule; a 1px `#808080` outline; radius 0; white, normal-weight text. Modal
+  popups sit on the `--scrim`.
+- **Exit.** A large `×` in `--exit-x` at the top right, on a header-coloured ground
+  so only the mark shows, brightening on hover.
+- **Primary action.** One silver button (`--silver-top` to `--silver-bot`,
+  `--silver-edge` border, black bold text) at the bottom right.
+- **Closing.** Escape, the exit and a click outside the popup close it without
+  acting.
+- **Confirm pattern.** An action that cannot be undone is confirmed in a popup that
+  states exactly what it will do, and acts only on a click of its primary action.
+  - **Cancel order** (the blotter row Cancel) shows the order ID, side, remaining
+    quantity, price and type, with **Confirm Cancel** as the primary action.
+    **Enter does not confirm**, so a keystroke can never cancel an order. If the
+    order leaves the active set while the popup is open, the popup says "Order is
+    no longer active" and Confirm Cancel is disabled.
+  - **Cancel by Order ID** takes a typed id and confirms with the same Confirm
+    Cancel. It predates the Enter rule and still submits on Enter in its input.
+  - **Order Confirmation** (the ticket) shows the resolved order before it is sent.
+  - A bulk cancel, if one is added, states how many orders it will cancel.
+
+---
+
+## 11. Shared controls
+
+One canonical look per control, used by every panel. A panel copies these classes,
+never a private variant.
+
+### 11.1 Settings gear
+A bare glyph in the header band: transparent, no border, `--text` icon, 14px svg
+(`.term-gear`). It opens the panel's settings popup (§11.4).
+
+### 11.2 Radio set
+A single choice among a few labelled options, with sunken-well dots that turn blue
+when selected (`.settings-radio`).
+
+### 11.3 Toggle
+A two-state switch of adjoined options, the selected one raised (`.settings-toggle`).
+Labels that are words (White / Black) read in sans; units (ms / ns) in mono.
+
+### 11.4 Settings popup
+The §10 chrome anchored below its gear, with collapsible categories (a `▸`
+disclosure caret per category, for example Display or Layout) holding rows of
+§11.2 and §11.3 controls (`.settings-pop`). Every control in it persists (§13).
+
+### 11.5 Dropdown (`FieldMenu`)
+The terminal's one dropdown, the shared component at
+`src/components/FieldMenu.tsx` (neutral `field-menu__*` classes). One white scroll
+pick-list with no visible scrollbar and grey hover, opening from either:
+
+- a **white button trigger** (single-select: TIF, Type, the book reader depth, the
+  blotter status filter), or
+- a **sunken editable input** (combobox with manual entry: Qty, Display).
+
+Selecting is on mouse down so the trigger keeps focus; Escape and blur close; the
+current option is `aria-selected`. Option text that names an order type or a status
+is all caps. `field-menu--compact` is the slimmer trigger for a header band, its
+list aligned to the trigger's right edge. Order entry, the book reader and the
+blotter filter all use it; **no native `<select>` is used anywhere in the
+terminal.** Test ids: `<id>-trigger`, `<id>-input`, `<id>-opt-<value>`.
+
+### 11.6 Dropdown caret
+Every dropdown and header-menu caret is the `▾` glyph at `--caret-size` (`20px`),
+through the `.term-caret` class. The blotter header caret is the reference size;
+the TIF, Type, Qty and Display carets, the book reader and blotter filter carets,
+and the price chart's view caret all match it. Fields reserve right padding for it
+(28px on a trigger, 26px on an editable input) so a value never runs under the
+caret, and the order-entry row still fits on one line (§6). The `▸` category
+caret in a settings popup is a disclosure control, not a dropdown caret, and keeps
+its own size.
+
+---
+
+## 12. Notifications
+
+Order notifications are toasts in a fixed stack at the bottom right, above the
+footer bar and above floating windows, shown on every page.
+
+| Event (own orders only) | Title | Body |
+|---|---|---|
+| `ORDER_ACCEPTED` | Order submitted | side, quantity, type, price (or MIDPOINT PEG) |
+| `ORDER_PARTIALLY_FILLED` | Partially filled | filled qty @ price, remaining |
+| `ORDER_FILLED` | Order filled | filled qty @ price |
+| `ORDER_CANCELLED` | Order cancelled | side, remaining qty @ price |
+| `ORDER_REJECTED` | Order rejected | side, quantity @ price |
+| `ORDER_EXPIRED` | Order expired | side, unfilled qty |
+
+- **Own orders only.** EXEC frames are broadcast, so a toast fires only for an order
+  this terminal sent. A passive fill of an own resting order (named by
+  `passiveOrderId`) toasts too.
+- **Live frames only.** "Submitted" fires on the venue's accept, never on send, so a
+  rejected order never shows "submitted" first, and the trailing accept after a
+  partial fill raises nothing. State that exists when the stack mounts raises no
+  toast, and a report is toasted at most once (deduped by the EXEC `seq`).
+- **Behaviour.** Newest at the bottom, at most 4 visible (the oldest is dropped),
+  auto-dismiss after 5 s, hovering pauses a toast's timer, the `×` closes it. The
+  stack is `role="status"` with `aria-live="polite"` and never takes focus.
+- **Look.** The §10 family: `--pop-body` body, `--pop-head` title band, 1px
+  `#808080` outline, radius 0, white normal-weight text, the `×` in `--exit-x`. The
+  title is sans ~11px; the BUY / SELL word uses the bid and ask text colours; the
+  numbers are Plex Mono tabular. Fixed width, 260px.
+- **Code.** The pure `src/notices.ts` derives notices and owns the queue (add, cap,
+  dismiss, expire); `OrderToasts` owns only the timers.
+
+---
+
+## 13. Persisted settings
+
+Every settings control persists across page switches and app restarts, through one
+storage module (`src/settings/persist.ts`) and one hook
+(`usePersistentSetting(key, defaultValue, validate)`).
+
+- **Keys** are namespaced and versioned: `hpse.v1.<panel>.<setting>`. Values are
+  JSON.
+- **What persists:**
+
+  | Panel | Settings |
+  |---|---|
+  | Header | label colour (`header.labelMode`) |
+  | Trade tape | levels, time units |
+  | Price chart | background, line colour, gradient, fill (shared by the page and the floating window) |
+  | Depth chart | background |
+  | Book reader | depth |
+  | Blotter | status filter |
+
+- **What never persists:** order-ticket values (side, price, quantity, TIF, type),
+  open popups, expanded categories, window positions, scroll positions, and the FIX
+  inspector's filter and selection. A stale ticket value restored on start could
+  send an order the user did not intend.
+- **Validation.** Every read is checked against the setting's allowed values;
+  anything invalid or unparsable falls back to the default and the bad key is
+  removed. At start-up, `hpse.` keys from any other version are removed and the
+  pre-pass `header.labelMode` key is moved into the namespace.
+- **Failure.** Every `localStorage` access is wrapped in try/catch; unavailable or
+  full storage means "use the default", never a crash.
+- **Timing.** Writes happen on change, not on unmount, so closing the app at any
+  moment keeps the last value. Live instances of one key stay in step.
+- Settings are per browser, per user profile. Nothing goes to the backend.
