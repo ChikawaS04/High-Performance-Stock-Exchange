@@ -188,7 +188,9 @@ export function DepthLadder({ book, lastPx = -1 }: DepthLadderProps) {
                 <FieldMenu
                     testId="depth-select"
                     ariaLabel="Depth levels"
-                    className="field-menu--compact depth-ladder__depth"
+                    compact
+                    numeric
+                    className="depth-ladder__depth"
                     options={DEPTH_MENU}
                     value={String(depth)}
                     onSelect={(v) => setDepth(Number(v))}

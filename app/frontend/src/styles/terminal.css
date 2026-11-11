@@ -676,6 +676,7 @@ body {
     letter-spacing: 0.06em;
     padding: 4px 14px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+    text-transform: uppercase;        /* §10: primary-action labels are uppercase */
 }
 .header-settings__done:active {
     background: linear-gradient(var(--silver-bot), var(--silver-top));
@@ -1722,12 +1723,10 @@ body {
     pointer-events: none;
 }
 
+/* The white list (visuals only). FieldMenu renders it in a portal, fixed to the
+   trigger (--portal), so no card can clip it; the panel caret menus anchor it under
+   their caret (--anchored). */
 .field-menu__menu {
-    position: absolute;
-    top: calc(100% + 2px);
-    left: 0;
-    right: 0;
-    z-index: 60;
     margin: 0;
     padding: 2px;
     list-style: none;
@@ -1740,6 +1739,17 @@ body {
     scrollbar-width: none;            /* Firefox: hide scrollbar */
 }
 .field-menu__menu::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.field-menu__menu--portal {
+    position: fixed;                  /* top / left / right / min-width are inline */
+    z-index: 400;                     /* above popups, floating windows and toasts */
+}
+.field-menu__menu--anchored {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    z-index: 40;
+    min-width: 120px;
+}
 
 .field-menu__opt {
     padding: 4px 8px;
@@ -1757,21 +1767,31 @@ body {
 }
 .field-menu__opt:hover,
 .field-menu__opt[aria-selected="true"] { background: #cccccc; }
+/* A list item that is a button (the panel caret menus): the same row, reset. */
+.field-menu__opt--action {
+    appearance: none;
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    line-height: normal;
+}
+/* An option that names an action reads all caps (§9: CANCEL BY ID). */
+.field-menu__opt--caps {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
 
 /* Compact variant for panel header bands (book reader depth, blotter filter): a
-   slimmer trigger so it sits inside the band; the menu may outgrow the trigger and
-   aligns to its right edge. */
+   slimmer trigger so it sits inside the band; the list may outgrow the trigger and
+   aligns to its right edge (placed by FieldMenu). */
 .field-menu--compact .field-menu__trigger {
     padding: 2px 26px 2px 8px;
     font-size: 11px;
     font-weight: 600;
 }
-.field-menu--compact .field-menu__menu {
-    left: auto;
-    right: 0;
-    min-width: 100%;
-}
-.field-menu--compact .field-menu__opt { font-size: 11px; }
+.field-menu__menu--compact .field-menu__opt { font-size: 11px; }
 
 .order-entry__presets {
     display: grid;
@@ -3184,40 +3204,7 @@ body {
     text-align: left;
 }
 
-/* White action menu (the one deliberately light element), opens downward. */
-.open-orders__menu {
-    position: absolute;
-    top: calc(100% + 5px);
-    right: 0;
-    min-width: 72px;
-    z-index: 30;
-    padding: 2px;
-    background: #ffffff;
-    border: 1px solid #555555;
-    border-radius: 3px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
-}
-
-/* "Cancel by ID" verbatim (no uppercasing), about half the former footprint. */
-.open-orders__menu-item {
-    display: block;
-    width: 100%;
-    padding: 4px 7px;
-    border: none;
-    border-radius: 2px;
-    background: #ffffff;
-    color: #000000;
-    font-family: var(--sans);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    text-align: left;
-    white-space: nowrap;
-    cursor: pointer;
-}
-.open-orders__menu-item:hover {
-    background: #cccccc;
-}
+/* The cancel menu is the shared white list (.field-menu__menu--anchored, §9). */
 
 /* Body: the sunken well that fills the card. */
 .open-orders__body {
@@ -3482,6 +3469,7 @@ body {
     letter-spacing: 0.02em;
     cursor: pointer;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+    text-transform: uppercase;        /* §10: primary-action labels are uppercase */
 }
 .cxid-confirm:active {
     background: linear-gradient(var(--silver-bot), var(--silver-top));
@@ -3627,6 +3615,7 @@ body {
     letter-spacing: 0.02em;
     cursor: pointer;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+    text-transform: uppercase;        /* §10: primary-action labels are uppercase */
 }
 .order-confirm__send:active { background: linear-gradient(var(--silver-bot), var(--silver-top)); }
 
@@ -3847,6 +3836,7 @@ body {
     letter-spacing: 0.06em;
     padding: 4px 14px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+    text-transform: uppercase;        /* §10: primary-action labels are uppercase */
 }
 .settings-pop__done:active { background: linear-gradient(var(--silver-bot), var(--silver-top)); }
 
@@ -3932,34 +3922,7 @@ body {
 }
 .price-chart__viewcaret:hover { color: #f0f0f0; }
 .price-chart__view-backdrop { position: fixed; inset: 0; z-index: 35; background: transparent; }
-.price-chart__viewmenu {
-    position: absolute;
-    top: calc(100% + 2px);
-    right: 0;
-    z-index: 40;
-    min-width: 150px;
-    background: #ffffff;
-    border: 1px solid #555555;
-    border-radius: 3px;
-    padding: 2px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
-}
-.price-chart__viewopt {
-    appearance: none;
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: transparent;
-    border: 0;
-    border-radius: 2px;
-    color: #000000;
-    font-family: var(--sans);
-    font-size: 12px;
-    padding: 5px 10px;
-    cursor: pointer;
-    white-space: nowrap;
-}
-.price-chart__viewopt:hover { background: #cccccc; }
+/* The view menu is the shared white list (.field-menu__menu--anchored, §9). */
 
 /* Plot body: the svg fills it; clip to the card's rounded bottom. */
 .price-chart__plot {

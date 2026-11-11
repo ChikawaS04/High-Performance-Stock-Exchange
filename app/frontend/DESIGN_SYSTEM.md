@@ -378,6 +378,11 @@ it, and **no native `<select>` is used anywhere in the terminal.**
   (§11.6) right. An **editable combobox** (Qty, Display) uses the **sunken input
   well** (§4) with the same caret, opens the list on focus/click, and still accepts
   manual typing.
+- **How it escapes.** `FieldMenu` renders the open list in a portal on the document
+  body, fixed to its trigger and kept in place on scroll and resize (opening upward
+  when there is no room below), so no host panel's height or overflow can clip it and
+  the panel keeps its own scrolling. The panel caret menus (§9) use the same white
+  list classes (`.field-menu__menu`, `.field-menu__opt`), anchored under their caret.
 - **Compact variant.** `field-menu--compact` is a slimmer trigger for a panel header
   band (the book reader depth, the blotter filter). Its list may be wider than the
   trigger and aligns to the trigger's right edge.

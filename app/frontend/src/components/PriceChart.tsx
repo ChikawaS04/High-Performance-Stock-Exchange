@@ -367,7 +367,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
                                 onClick={() => setViewOpen(false)}
                             />
                             <div
-                                className="price-chart__viewmenu"
+                                className="field-menu__menu field-menu__menu--anchored"
                                 role="menu"
                                 aria-label="Chart views"
                                 data-testid="pc-view-menu"
@@ -376,7 +376,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
                                 <button
                                     type="button"
                                     role="menuitem"
-                                    className="price-chart__viewopt"
+                                    className="field-menu__opt field-menu__opt--action"
                                     data-testid="pc-view-trading"
                                     onClick={() => {
                                         setViewOpen(false);
@@ -555,6 +555,17 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
                                         </div>
                                     </div>
                                 )}
+                            </div>
+
+                            <div className="settings-pop__foot">
+                                <button
+                                    type="button"
+                                    className="settings-pop__done"
+                                    onClick={() => setSettingsOpen(false)}
+                                    data-testid="pc-settings-done"
+                                >
+                                    Done
+                                </button>
                             </div>
                         </div>
                     </>

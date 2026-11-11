@@ -442,7 +442,7 @@ describe("DepthLadder (UI polish: shared dropdown)", () => {
 
         fireEvent.click(trigger);
         const list = screen.getByRole("listbox", { name: "Depth levels options" });
-        expect(list.className).toBe("field-menu__menu");
+        expect(list.classList.contains("field-menu__menu")).toBe(true);
         expect(screen.getByTestId("depth-select-opt-10").getAttribute("aria-selected")).toBe("true");
 
         fireEvent.mouseDown(screen.getByTestId("depth-select-opt-14"));

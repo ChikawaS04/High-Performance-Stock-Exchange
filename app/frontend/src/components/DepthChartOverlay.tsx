@@ -191,6 +191,17 @@ export function DepthChartOverlay({ open, onClose, book, onPriceSelect }: DepthC
                                     </div>
                                 )}
                             </div>
+
+                            <div className="settings-pop__foot">
+                                <button
+                                    type="button"
+                                    className="settings-pop__done"
+                                    onClick={() => setSettingsOpen(false)}
+                                    data-testid="depth-overlay-settings-done"
+                                >
+                                    Done
+                                </button>
+                            </div>
                         </div>
                     </>
                 )}

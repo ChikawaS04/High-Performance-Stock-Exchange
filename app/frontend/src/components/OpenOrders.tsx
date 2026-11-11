@@ -195,7 +195,8 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                 <FieldMenu
                     testId="blotter-filter"
                     ariaLabel="Status filter"
-                    className="field-menu--compact open-orders__filter"
+                    compact
+                    className="open-orders__filter"
                     options={FILTER_MENU}
                     value={statusFilter}
                     triggerLabel={filterLabel}
@@ -214,10 +215,10 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                         &#9662;
                     </button>
                     {menuOpen ? (
-                        <div className="open-orders__menu" role="menu">
+                        <div className="field-menu__menu field-menu__menu--anchored" role="menu">
                             <button
                                 type="button"
-                                className="open-orders__menu-item"
+                                className="field-menu__opt field-menu__opt--action field-menu__opt--caps"
                                 role="menuitem"
                                 data-testid="cancel-by-id-open"
                                 onClick={openModal}

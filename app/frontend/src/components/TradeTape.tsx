@@ -276,6 +276,17 @@ export function TradeTape({ tape }: TradeTapeProps) {
                                     </div>
                                 )}
                             </div>
+
+                            <div className="settings-pop__foot">
+                                <button
+                                    type="button"
+                                    className="settings-pop__done"
+                                    onClick={() => setSettingsOpen(false)}
+                                    data-testid="tape-settings-done"
+                                >
+                                    Done
+                                </button>
+                            </div>
                         </div>
                     </>
                 )}
