@@ -60,8 +60,8 @@ export function midLabelLayout(scale: number, chars: number): MidLabelLayout {
  * Horizontal centre for the tag so the whole box stays inside the viewBox even when
  * the mid sits near an edge. The dashed mid line itself stays on the true mid.
  */
-export function clampTagX(midX: number, boxW: number): number {
+export function clampTagX(midX: number, boxW: number, viewW: number = VIEW_W): number {
     const half = boxW / 2;
-    if (boxW >= VIEW_W) return VIEW_W / 2;
-    return Math.min(Math.max(midX, half), VIEW_W - half);
+    if (boxW >= viewW) return viewW / 2;
+    return Math.min(Math.max(midX, half), viewW - half);
 }

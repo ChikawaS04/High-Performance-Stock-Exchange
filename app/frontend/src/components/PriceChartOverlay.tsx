@@ -9,21 +9,24 @@
  * It hosts the SAME <PriceChart> component, so the floated chart keeps its own gear
  * (background / line colour / fill), crosshair and last-price tag. The chart's own
  * --head band doubles as the window title bar and the drag grip, so there is no
- * second header: the window is dragged by that band (pointer capture, clamped to the
- * viewport), except from its interactive controls (gear, close, popups). The × on
- * the band closes it (the §10 exit button), and Escape also closes. Position is held
- * in state and persists across open/close within a page mount.
+ * second header: the window is dragged by that band, except from its interactive
+ * controls (gear, close, popups). It is a FloatingWindow (DESIGN_SYSTEM.md §14):
+ * resized from any edge or corner, its size and position persisted
+ * (hpse.v1.priceWindow.geometry) and clamped to the viewport, and the chart lays out
+ * at the window's size (PriceChart `fit`). The × on the band closes it (the §10 exit
+ * button), and Escape also closes.
  *
  * Presentational: it forwards the reducer slices straight to PriceChart and owns only
- * the open/close affordances and the drag position. The chart's "View in trading"
+ * the open/close affordances; FloatingWindow owns the geometry. The chart's "View in trading"
  * dropdown is not passed here (onViewInTrading omitted), so the floated chart shows a
  * close button instead of the now-redundant jump control.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useEffect } from "react";
 
 import { PriceChart } from "./PriceChart";
+import { FloatingWindow } from "./FloatingWindow";
+import { SETTING_KEYS } from "../settings/persist";
 import type { TapeEntry } from "../state/reducer";
 
 export interface PriceChartOverlayProps {
@@ -34,24 +37,9 @@ export interface PriceChartOverlayProps {
     readonly openPx?: number;
 }
 
-interface Pos {
-    readonly x: number;
-    readonly y: number;
-}
-
-// Nominal window size; the element is clamped to the viewport in CSS (max-width),
-// and the initial position is centred against these.
-const WIN_W = 760;
-const WIN_H = 380;
-
-function initialPos(): Pos {
-    if (typeof window === "undefined") {
-        return { x: 96, y: 96 };
-    }
-    const x = Math.max(16, Math.round((window.innerWidth - WIN_W) / 2));
-    const y = Math.max(16, Math.round((window.innerHeight - WIN_H) / 2));
-    return { x, y };
-}
+// Nominal window size before any resize (the pre-resize 760px width and its 12/5
+// chart plus the band), capped to the viewport and centred.
+const NOMINAL = { w: 760, h: 350 } as const;
 
 export function PriceChartOverlay({
     open,
@@ -60,10 +48,6 @@ export function PriceChartOverlay({
     sessionOpenPx,
     openPx,
 }: PriceChartOverlayProps) {
-    const [pos, setPos] = useState<Pos>(initialPos);
-    // Pointer offset from the window's top-left at drag start; null when not dragging.
-    const grab = useRef<{ dx: number; dy: number } | null>(null);
-
     // Escape closes, matching the depth overlay and the FIX inspector.
     useEffect(() => {
         if (!open) {
@@ -78,70 +62,20 @@ export function PriceChartOverlay({
         return () => document.removeEventListener("keydown", onKeyDown);
     }, [open, onClose]);
 
-    const onPointerDown = useCallback(
-        (e: ReactPointerEvent<HTMLDivElement>): void => {
-            const target = e.target as HTMLElement;
-            // Only the chart's --head band drags the window, and never from an
-            // interactive control or an open popup inside it.
-            if (target.closest(".price-chart__band") === null) {
-                return;
-            }
-            if (
-                target.closest(
-                    "button, .settings-pop, .settings-pop__backdrop",
-                ) !== null
-            ) {
-                return;
-            }
-            grab.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
-            e.currentTarget.setPointerCapture(e.pointerId);
-        },
-        [pos.x, pos.y],
-    );
-
-    const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>): void => {
-        const g = grab.current;
-        if (g === null) {
-            return;
-        }
-        const maxX = Math.max(0, window.innerWidth - 80);
-        const maxY = Math.max(0, window.innerHeight - 40);
-        const x = Math.min(Math.max(0, e.clientX - g.dx), maxX);
-        const y = Math.min(Math.max(0, e.clientY - g.dy), maxY);
-        setPos({ x, y });
-    }, []);
-
-    const endDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>): void => {
-        if (grab.current !== null) {
-            grab.current = null;
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-        }
-    }, []);
-
     if (!open) {
         return null;
     }
 
     return (
-        <div
+        <FloatingWindow
             className="price-overlay"
-            role="dialog"
-            aria-label="Price chart (floating)"
-            data-testid="price-overlay"
-            style={{ left: pos.x, top: pos.y }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
+            testId="price-overlay"
+            ariaLabel="Price chart (floating)"
+            dragSelector=".price-chart__band"
+            storageKey={SETTING_KEYS.priceWindowGeometry}
+            nominal={NOMINAL}
         >
-            <PriceChart
-                tape={tape}
-                sessionOpenPx={sessionOpenPx}
-                openPx={openPx}
-                onClose={onClose}
-            />
-        </div>
+            <PriceChart tape={tape} sessionOpenPx={sessionOpenPx} openPx={openPx} onClose={onClose} fit />
+        </FloatingWindow>
     );
 }

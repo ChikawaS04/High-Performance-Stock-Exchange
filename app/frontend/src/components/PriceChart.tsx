@@ -45,24 +45,58 @@
 import { useMemo, useRef, useState } from "react";
 import { SETTING_KEYS, isBoolean, oneOf } from "../settings/persist";
 import { usePersistentSetting } from "../settings/usePersistentSetting";
+import { useBoxSize } from "../useBoxSize";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { buildPriceSeries, priceAxis, timeAxis } from "../priceSeries";
 import { formatPrice, formatElapsed } from "../format";
 import type { TapeEntry } from "../state/reducer";
 
-const VIEW_W = 720;
-const VIEW_H = 300;
+/** The page chart's fixed drawing size; fit mode lays out at the measured box instead. */
+const NOMINAL_W = 720;
+const NOMINAL_H = 300;
 const PAD_L = 10;
 const PAD_R = 64; // room for the right-hand price axis labels and the last tag
 const PAD_T = 14;
 const PAD_B = 26; // room for the x time labels
-const PLOT_W = VIEW_W - PAD_L - PAD_R;
-const PLOT_H = VIEW_H - PAD_T - PAD_B;
-const PLOT_LEFT = PAD_L;
-const PLOT_RIGHT = PAD_L + PLOT_W;
-const PLOT_TOP = PAD_T;
-const PLOT_BOTTOM = PAD_T + PLOT_H;
+
+export interface PriceChartLayout {
+    readonly VIEW_W: number;
+    readonly VIEW_H: number;
+    readonly PLOT_W: number;
+    readonly PLOT_H: number;
+    readonly PLOT_LEFT: number;
+    readonly PLOT_RIGHT: number;
+    readonly PLOT_TOP: number;
+    readonly PLOT_BOTTOM: number;
+    /** Gridline targets for the price and time axes, scaled to the plot. */
+    readonly yTarget: number;
+    readonly xTarget: number;
+}
+
+/**
+ * The plot rectangle and axis densities for a drawing of `w` x `h` units. At the
+ * nominal 720 x 300 this is exactly the pre-resize layout (6 price levels, 5 time
+ * ticks); a larger floating window gets more gridlines, a smaller one fewer.
+ */
+export function priceChartLayout(w: number, h: number): PriceChartLayout {
+    const VIEW_W = Math.max(w, PAD_L + PAD_R + 40);
+    const VIEW_H = Math.max(h, PAD_T + PAD_B + 40);
+    const PLOT_W = VIEW_W - PAD_L - PAD_R;
+    const PLOT_H = VIEW_H - PAD_T - PAD_B;
+    return {
+        VIEW_W,
+        VIEW_H,
+        PLOT_W,
+        PLOT_H,
+        PLOT_LEFT: PAD_L,
+        PLOT_RIGHT: PAD_L + PLOT_W,
+        PLOT_TOP: PAD_T,
+        PLOT_BOTTOM: PAD_T + PLOT_H,
+        yTarget: Math.min(12, Math.max(3, Math.round(PLOT_H / 43))),
+        xTarget: Math.min(12, Math.max(2, Math.round(PLOT_W / 130))),
+    };
+}
 
 type ChartBg = "black" | "white";
 /** "line" matches the price line; any other value is a literal fill hex. */
@@ -185,9 +219,15 @@ export interface PriceChartProps {
     readonly onViewInTrading?: () => void;
     /** When set (floating overlay), the band shows a close button that calls this. */
     readonly onClose?: () => void;
+    /**
+     * Fit mode (the resizable floating window): the chart lays out at its measured
+     * box in CSS pixels, so axes, gridlines and the last-price tag reflow to the
+     * window rather than a fixed drawing being scaled.
+     */
+    readonly fit?: boolean;
 }
 
-export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClose }: PriceChartProps) {
+export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClose, fit = false }: PriceChartProps) {
     // Display settings persist across page switches and restarts, shared by the
     // chart page and the floating overlay (UI polish D10).
     const [bg, setBg] = usePersistentSetting<ChartBg>(SETTING_KEYS.priceChartBackground, "black", isChartBg);
@@ -207,6 +247,21 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
     const [viewOpen, setViewOpen] = useState(false);
     const [hover, setHover] = useState<number | null>(null);
     const svgRef = useRef<SVGSVGElement>(null);
+    const [plotEl, setPlotEl] = useState<HTMLDivElement | null>(null);
+    const box = useBoxSize(plotEl, fit);
+    const measured = fit && box.w > 0 && box.h > 0;
+    const {
+        VIEW_W,
+        VIEW_H,
+        PLOT_W,
+        PLOT_H,
+        PLOT_LEFT,
+        PLOT_RIGHT,
+        PLOT_TOP,
+        PLOT_BOTTOM,
+        yTarget,
+        xTarget,
+    } = priceChartLayout(measured ? box.w : NOMINAL_W, measured ? box.h : NOMINAL_H);
 
     const ink = inkFor(bg);
     const fillColor = fill === "line" ? lineColor : fill;
@@ -225,8 +280,8 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
             return null;
         }
         const { points, tMin, tMax, cMin, cMax } = series;
-        const yax = priceAxis(cMin, cMax);
-        const tax = timeAxis(tMin, tMax);
+        const yax = priceAxis(cMin, cMax, yTarget);
+        const tax = timeAxis(tMin, tMax, xTarget);
         const { dMin, dMax } = yax;
 
         const xOf = (t: number): number =>
@@ -262,7 +317,7 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
             xOf,
             yOf,
         };
-    }, [tape]);
+    }, [tape, PLOT_LEFT, PLOT_W, PLOT_BOTTOM, PLOT_H, yTarget, xTarget]);
 
     const onMove = (e: ReactPointerEvent<SVGSVGElement>): void => {
         const svg = svgRef.current;
@@ -523,9 +578,9 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
     // Empty: a quiet frame, nothing to plot, no NaN.
     if (geom === null) {
         return (
-            <div className={`price-chart price-chart--${bg}`}>
+            <div className={`price-chart price-chart--${bg}${fit ? " price-chart--fit" : ""}`}>
                 {band}
-                <div className="price-chart__plot">
+                <div className="price-chart__plot" ref={setPlotEl}>
                     <svg
                         className="price-chart__svg"
                         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -589,9 +644,9 @@ export function PriceChart({ tape, sessionOpenPx, openPx, onViewInTrading, onClo
     }
 
     return (
-        <div className={`price-chart price-chart--${bg}`}>
+        <div className={`price-chart price-chart--${bg}${fit ? " price-chart--fit" : ""}`}>
             {band}
-            <div className="price-chart__plot">
+            <div className="price-chart__plot" ref={setPlotEl}>
                 <svg
                     ref={svgRef}
                     className="price-chart__svg"

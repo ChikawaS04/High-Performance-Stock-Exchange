@@ -2816,8 +2816,7 @@ body {
     z-index: 200;
     display: flex;
     flex-direction: column;
-    width: min(1040px, 94vw);
-    height: min(560px, 82vh);
+    /* Size and position are inline, from FloatingWindow (§14). */
     background: var(--body);
     border: 1px solid #808080;
     border-radius: 4px;
@@ -4028,7 +4027,9 @@ body {
 .price-overlay {
     position: fixed;
     z-index: 200;
-    width: min(760px, 94vw);
+    /* Size and position are inline, from FloatingWindow (§14); the chart fills it. */
+    display: flex;
+    flex-direction: column;
     background: var(--body);
     border: 1px solid #808080;
     border-radius: 4px;
@@ -4144,4 +4145,68 @@ body {
 .order-toast__detail {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Floating windows (DESIGN_SYSTEM.md §14)
+   The shared FloatingWindow shell of the depth chart and price chart windows.
+   The header band drags; eight thin invisible strips on the border resize, each
+   with its own resize cursor; a subtle grip mark sits in the bottom-right corner.
+   ========================================================================== */
+.floating-window {
+    position: fixed;
+    min-width: 0;
+    min-height: 0;
+}
+.floating-window__handle {
+    position: absolute;
+    z-index: 5;
+    touch-action: none;
+}
+.floating-window__handle--n { top: 0; left: 10px; right: 10px; height: 6px; }
+.floating-window__handle--s { bottom: 0; left: 10px; right: 10px; height: 6px; }
+.floating-window__handle--e { right: 0; top: 10px; bottom: 10px; width: 6px; }
+.floating-window__handle--w { left: 0; top: 10px; bottom: 10px; width: 6px; }
+.floating-window__handle--ne { top: 0; right: 0; width: 10px; height: 10px; }
+.floating-window__handle--nw { top: 0; left: 0; width: 10px; height: 10px; }
+.floating-window__handle--se { bottom: 0; right: 0; width: 14px; height: 14px; }
+.floating-window__handle--sw { bottom: 0; left: 0; width: 10px; height: 10px; }
+
+/* Grip mark: two short diagonal hairlines in the charcoal --line-strong (#444), no
+   colour. Decorative; the se strip under it takes the pointer. */
+.floating-window__grip {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    z-index: 4;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+}
+.floating-window__grip path {
+    fill: none;
+    stroke: var(--hair-strong);
+    stroke-width: 1.2;
+    stroke-linecap: square;
+}
+
+/* While a window is moved or resized, nothing on the page selects. */
+.floating-window--busy,
+.floating-window--busy * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+/* Fit mode: the chart fills the window and lays out at its size (no fixed aspect). */
+.price-chart--fit {
+    height: 100%;
+}
+.price-chart--fit .price-chart__plot {
+    flex: 1;
+    min-height: 0;
+}
+.price-chart--fit .price-chart__svg {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
 }

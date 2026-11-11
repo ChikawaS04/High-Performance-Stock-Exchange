@@ -405,7 +405,7 @@ and keeps its own size.
 On the PRICE CHART page the chart's header band carries a view caret (§11.6) just
 left of its settings gear. It opens a small white menu with one item, **View in
 trading**. Choosing it navigates to the trading page and opens the same price chart
-there as a floating window over the live terminal: no scrim, so the panels
+there as a floating window (§14) over the live terminal: no scrim, so the panels
 stay usable underneath. The floating chart has its own settings gear and a close
 `×` in place of the view caret, and shares the chart's persisted display settings
 (§13). Whether the window is open is held above the routes for the navigation and
@@ -464,10 +464,11 @@ storage module (`src/settings/persist.ts`) and one hook
   | Depth chart | background |
   | Book reader | depth |
   | Blotter | status filter |
+  | Floating windows | size and position of the depth chart and price chart windows (§14) |
 
 - **What never persists:** order-ticket values (side, price, quantity, TIF, type),
-  open popups, expanded categories, window positions, scroll positions, and the FIX
-  inspector's filter and selection. A stale ticket value restored on start could
+  open popups, whether a floating window is open, expanded categories, scroll
+  positions, and the FIX inspector's filter and selection. A stale ticket value restored on start could
   send an order the user did not intend.
 - **Validation.** Every read is checked against the setting's allowed values;
   anything invalid or unparsable falls back to the default and the bad key is
@@ -478,3 +479,42 @@ storage module (`src/settings/persist.ts`) and one hook
 - **Timing.** Writes happen on change, not on unmount, so closing the app at any
   moment keeps the last value. Live instances of one key stay in step.
 - Settings are per browser, per user profile. Nothing goes to the backend.
+
+---
+
+## 14. Floating windows
+
+The maximized depth chart and the floating price chart are free-floating windows
+over the live terminal (no scrim). Both use one shared shell, `FloatingWindow`
+(`src/components/FloatingWindow.tsx`), with its geometry rules in the pure
+`src/floatingWindow.ts`.
+
+- **The header drags.** Dragging the window's header band moves it. Controls in the
+  header (the gear, the `×`, an open settings popup) never start a drag.
+- **Edges and corners resize.** All four edges and all four corners resize, each
+  with its matching resize cursor (`ns`, `ew`, `nesw`, `nwse`). The handles are thin
+  invisible strips (6px on the edges, 10px corner squares) on the window border.
+  Resizing from one edge keeps the opposite edge where it was. One gesture is either
+  a move or a resize, never both.
+- **Grip mark.** A small, subtle grip in the bottom-right corner: two short diagonal
+  hairlines in the charcoal `--line-strong` (`#444`), no colour. It is decorative;
+  the corner strip under it takes the pointer.
+- **Pointer handling.** Pointer events with pointer capture, so a fast drag that
+  leaves the window keeps going; nothing on the page selects while a window is moved
+  or resized.
+- **Minimum size** is 360 x 240px, so the axes and labels stay readable (smaller
+  only if the browser window itself is smaller).
+- **Viewport clamping.** A window never moves or resizes past the viewport, so its
+  header is always on screen and it can always be dragged back. When the browser
+  window shrinks, every open window clamps back inside.
+- **The chart redraws at the new size.** The chart measures its box (ResizeObserver,
+  debounced to one frame) and lays out at it, never stretching or scaling a
+  fixed-size drawing: the price chart's axes, gridline counts and last-price tag
+  reflow to the window, and the depth chart reflows its plot while text keeps one
+  size (the mid label stays at its 13px floor, UI polish D3).
+- **Geometry persists** per window (`hpse.v1.priceWindow.geometry`,
+  `hpse.v1.depthWindow.geometry`, §13), saved when a gesture ends, validated and
+  clamped to the current viewport on restore. A missing or invalid value falls back
+  to the default: the nominal size (depth chart 1040 x 560, price chart 760 x 350),
+  capped at 94% x 82% of the viewport, centred. Whether a window is open is not
+  persisted.

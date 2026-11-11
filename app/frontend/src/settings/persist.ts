@@ -36,6 +36,8 @@ export const SETTING_KEYS = {
     depthChartBackground: settingKey("depthChart", "background"),
     bookReaderDepth: settingKey("bookReader", "depth"),
     blotterStatusFilter: settingKey("blotter", "statusFilter"),
+    priceWindowGeometry: settingKey("priceWindow", "geometry"),
+    depthWindowGeometry: settingKey("depthWindow", "geometry"),
 } as const;
 
 /** The pre-pass header key (Header.tsx stored the label mode here, un-namespaced). */

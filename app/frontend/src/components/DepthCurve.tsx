@@ -36,12 +36,13 @@
  * is only called out where a side has at least two levels.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { buildDepthCurve, cumulate, type CurvePoint, type CumLevel } from "../depth";
 import { midpointPx, midpointLabel, formatPrice } from "../format";
 import type { BookState } from "../state/reducer";
 import { VIEW_W, VIEW_H, svgScale, midLabelLayout, clampTagX } from "../depthChartLayout";
+import { useBoxSize } from "../useBoxSize";
 
 export type DepthCurveVariant = "compact" | "full";
 
@@ -67,6 +68,13 @@ export interface DepthCurveProps {
     readonly depth?: number;
     /** Visual density; see the file header. Defaults to the full walls chart. */
     readonly variant?: DepthCurveVariant;
+    /**
+     * Fit mode (the resizable floating window): when set, the chart lays out at its
+     * measured box, `unitPx` viewport pixels per chart unit, instead of scaling the
+     * fixed VIEW_W x VIEW_H drawing. Text keeps one size at every window size and
+     * the plot reflows to the window's shape.
+     */
+    readonly unitPx?: number;
 }
 
 /**
@@ -125,30 +133,17 @@ function wallOf(levels: readonly CumLevel[]): CumLevel | null {
     return levels.reduce((best, lvl) => (lvl.qty > best.qty ? lvl : best), levels[0]);
 }
 
-/**
- * Rendered pixels per viewBox unit for the given svg element, kept current with a
- * ResizeObserver. 1 until measured, and wherever ResizeObserver does not exist.
- */
-function useSvgScale(el: SVGSVGElement | null): number {
-    const [scale, setScale] = useState(1);
-    useEffect(() => {
-        if (el === null || typeof ResizeObserver === "undefined") return;
-        const measure = (): void => {
-            const r = el.getBoundingClientRect();
-            setScale(svgScale(r.width, r.height));
-        };
-        measure();
-        const ro = new ResizeObserver(measure);
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, [el]);
-    return scale;
-}
-
-export function DepthCurve({ book, onPriceSelect, depth, variant = "full" }: DepthCurveProps) {
+export function DepthCurve({ book, onPriceSelect, depth, variant = "full", unitPx }: DepthCurveProps) {
     const full = variant === "full";
     const [svgEl, setSvgEl] = useState<SVGSVGElement | null>(null);
-    const scale = useSvgScale(svgEl);
+    // Rendered box of the svg (ResizeObserver, one-frame debounce). In fit mode it
+    // sets the viewBox; otherwise it gives the render scale of the fixed drawing.
+    const box = useBoxSize(svgEl);
+    const fit = unitPx !== undefined && unitPx > 0;
+    const measured = box.w > 0 && box.h > 0;
+    const viewW = fit && measured ? box.w / unitPx : VIEW_W;
+    const viewH = fit && measured ? box.h / unitPx : VIEW_H;
+    const scale = fit ? unitPx : svgScale(box.w, box.h);
 
     // Mid label (UI polish D3): sized in CSS pixels through the one MID_LABEL_PX
     // constant, so the regular panel and the expanded window render it alike. The
@@ -161,9 +156,9 @@ export function DepthCurve({ book, onPriceSelect, depth, variant = "full" }: Dep
     // the size axis and a top band for the chips + mid pill; the compact chart uses
     // almost the whole box, with only a thin top band for its mid pill.
     const PLOT_LEFT = full ? 34 : 8;
-    const PLOT_RIGHT = full ? 712 : VIEW_W - 8;
+    const PLOT_RIGHT = viewW - 8;
     const PLOT_TOP = full ? Math.max(52, sprY + 15) : Math.max(28, Math.ceil(tag.bottom + 6));
-    const PLOT_BOTTOM = full ? 300 : VIEW_H - 10;
+    const PLOT_BOTTOM = full ? viewH - 20 : viewH - 10;
     const PLOT_W = PLOT_RIGHT - PLOT_LEFT;
     const PLOT_H = PLOT_BOTTOM - PLOT_TOP;
     const PRICE_AXIS_Y = PLOT_BOTTOM + 13; // full only: price labels on the well floor
@@ -185,7 +180,7 @@ export function DepthCurve({ book, onPriceSelect, depth, variant = "full" }: Dep
                 <svg
                     ref={setSvgEl}
                     className="depth-curve__svg"
-                    viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+                    viewBox={`0 0 ${viewW} ${viewH}`}
                     width="100%"
                     preserveAspectRatio="xMidYMid meet"
                     role="img"
@@ -194,8 +189,8 @@ export function DepthCurve({ book, onPriceSelect, depth, variant = "full" }: Dep
                 >
                     <text
                         className="depth-curve__empty"
-                        x={VIEW_W / 2}
-                        y={VIEW_H / 2}
+                        x={viewW / 2}
+                        y={viewH / 2}
                         textAnchor="middle"
                         fill="var(--faint)"
                         fontSize="12"
@@ -357,14 +352,14 @@ export function DepthCurve({ book, onPriceSelect, depth, variant = "full" }: Dep
     };
 
     const midTop = full ? tag.bottom + 2 : PLOT_TOP - 4;
-    const tagX = midX !== null ? clampTagX(midX, tag.boxW) : 0;
+    const tagX = midX !== null ? clampTagX(midX, tag.boxW, viewW) : 0;
 
     return (
         <div className="depth-curve">
             <svg
                 ref={setSvgEl}
                 className="depth-curve__svg"
-                viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+                viewBox={`0 0 ${viewW} ${viewH}`}
                 width="100%"
                 preserveAspectRatio="xMidYMid meet"
                 role="img"

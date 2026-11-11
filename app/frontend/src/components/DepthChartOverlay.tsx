@@ -7,12 +7,12 @@
  * read. It is a free-floating window, not a modal: there is no backdrop scrim, so
  * the rest of the terminal stays live underneath while the big chart is open.
  *
- * Draggable by its thin header (pointer capture on the grip, clamped to the
- * viewport); the × on the right closes it, styled exactly as the §10 popup exit
- * button (header-colour fill so the control blends, the lone mark a large × in
- * --exit-x). Escape also closes. Position is held in component state and persists
- * across open/close within a page mount (the component stays mounted and renders
- * null while closed), so re-opening returns the window where the user left it.
+ * A FloatingWindow (DESIGN_SYSTEM.md §14): dragged by its thin header, resized from
+ * any edge or corner, its size and position persisted (hpse.v1.depthWindow.geometry)
+ * and clamped to the viewport. The chart lays out at the window's size rather than
+ * scaling a fixed drawing. The × on the right closes it, styled exactly as the §10
+ * popup exit button (header-colour fill so the control blends, the lone mark a large
+ * × in --exit-x). Escape also closes.
  *
  * Settings gear (THIS window only, not the inline panel): the standard §11.1 gear
  * opens the standard §11.4 settings popup with a Display category holding a
@@ -24,13 +24,14 @@
  *
  * Presentational: it forwards book + onPriceSelect straight to DepthCurve, so a
  * click on a level in the big chart populates the ticket exactly as the inline one
- * does. It owns only the open/close affordances, the drag position, and the
- * chart-background choice.
+ * does. It owns only the open/close affordances and the chart-background choice;
+ * FloatingWindow owns the geometry.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DepthCurve } from "./DepthCurve";
+import { FloatingWindow } from "./FloatingWindow";
 import { SETTING_KEYS, oneOf } from "../settings/persist";
 import { usePersistentSetting } from "../settings/usePersistentSetting";
 import type { BookState } from "../state/reducer";
@@ -42,36 +43,20 @@ export interface DepthChartOverlayProps {
     readonly onPriceSelect?: (pricePx: number) => void;
 }
 
-interface Pos {
-    readonly x: number;
-    readonly y: number;
-}
-
 type ChartBg = "dark" | "light";
 const isChartBg = oneOf<ChartBg>(["dark", "light"]);
 
-// Nominal window size; the actual element is clamped to the viewport in CSS
-// (max-width/height), and the initial position is centred against these.
-const WIN_W = 1040;
-const WIN_H = 560;
+// Nominal window size before any resize, capped to the viewport and centred.
+const NOMINAL = { w: 1040, h: 560 } as const;
 
-function initialPos(): Pos {
-    if (typeof window === "undefined") {
-        return { x: 80, y: 80 };
-    }
-    const x = Math.max(16, Math.round((window.innerWidth - WIN_W) / 2));
-    const y = Math.max(16, Math.round((window.innerHeight - WIN_H) / 2));
-    return { x, y };
-}
+/** Viewport pixels per chart unit in the window: the pre-resize default look. */
+const DEPTH_WINDOW_UNIT_PX = 1.4;
 
 export function DepthChartOverlay({ open, onClose, book, onPriceSelect }: DepthChartOverlayProps) {
-    const [pos, setPos] = useState<Pos>(initialPos);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [displayOpen, setDisplayOpen] = useState(true);
     // The chart background persists across page switches and restarts (UI polish D10).
     const [bg, setBg] = usePersistentSetting<ChartBg>(SETTING_KEYS.depthChartBackground, "dark", isChartBg);
-    // Pointer offset from the window's top-left at drag start; null when not dragging.
-    const grab = useRef<{ dx: number; dy: number } | null>(null);
 
     // Escape closes, matching the FIX inspector.
     useEffect(() => {
@@ -87,64 +72,20 @@ export function DepthChartOverlay({ open, onClose, book, onPriceSelect }: DepthC
         return () => document.removeEventListener("keydown", onKeyDown);
     }, [open, onClose]);
 
-    const onPointerDown = useCallback(
-        (e: React.PointerEvent<HTMLDivElement>): void => {
-            // Don't start a drag from an interactive control (gear, close) or the
-            // settings popup; only a bare grip of the header bar drags the window.
-            if (
-                (e.target as HTMLElement).closest(
-                    "button, .settings-pop, .settings-pop__backdrop",
-                ) !== null
-            ) {
-                return;
-            }
-            grab.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
-            e.currentTarget.setPointerCapture(e.pointerId);
-        },
-        [pos.x, pos.y],
-    );
-
-    const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
-        const g = grab.current;
-        if (g === null) {
-            return;
-        }
-        const maxX = Math.max(0, window.innerWidth - 80);
-        const maxY = Math.max(0, window.innerHeight - 40);
-        const x = Math.min(Math.max(0, e.clientX - g.dx), maxX);
-        const y = Math.min(Math.max(0, e.clientY - g.dy), maxY);
-        setPos({ x, y });
-    }, []);
-
-    const endDrag = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
-        if (grab.current !== null) {
-            grab.current = null;
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-        }
-    }, []);
-
     if (!open) {
         return null;
     }
 
     return (
-        <div
+        <FloatingWindow
             className="depth-overlay"
-            role="dialog"
-            aria-label="Depth chart (maximized)"
-            data-testid="depth-overlay"
-            style={{ left: pos.x, top: pos.y }}
+            testId="depth-overlay"
+            ariaLabel="Depth chart (maximized)"
+            dragSelector=".depth-overlay__head"
+            storageKey={SETTING_KEYS.depthWindowGeometry}
+            nominal={NOMINAL}
         >
-            <div
-                className="depth-overlay__head"
-                data-testid="depth-overlay-grip"
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-            >
+            <div className="depth-overlay__head" data-testid="depth-overlay-grip">
                 <span className="depth-overlay__title">Depth Chart</span>
 
                 <button
@@ -258,8 +199,13 @@ export function DepthChartOverlay({ open, onClose, book, onPriceSelect }: DepthC
             <div
                 className={`depth-overlay__body${bg === "light" ? " depth-overlay__body--light" : ""}`}
             >
-                <DepthCurve book={book} onPriceSelect={onPriceSelect} variant="full" />
+                <DepthCurve
+                    book={book}
+                    onPriceSelect={onPriceSelect}
+                    variant="full"
+                    unitPx={DEPTH_WINDOW_UNIT_PX}
+                />
             </div>
-        </div>
+        </FloatingWindow>
     );
 }
