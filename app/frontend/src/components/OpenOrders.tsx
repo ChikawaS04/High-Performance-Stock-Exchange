@@ -45,6 +45,8 @@
  *    confirm. The popup tracks the order by id and reads its live status, so an
  *    order that fills, expires or is cancelled elsewhere while it is open shows
  *    "Order is no longer active" with Confirm Cancel disabled.
+ *    Cancel by Order ID follows the same rule (UI polish follow-up): Enter in its
+ *    Order ID field does nothing; only a click on Confirm Cancel sends.
  *  - D6: a status filter single-select (the shared FieldMenu) in the header band,
  *    left of the caret. The predicate is the pure blotterFilter module.
  */
@@ -437,9 +439,6 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                                 aria-label="Order ID to cancel"
                                 disabled={disabled}
                                 onChange={(e) => setIdInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") confirmCancel();
-                                }}
                             />
                             {error !== null ? (
                                 <div

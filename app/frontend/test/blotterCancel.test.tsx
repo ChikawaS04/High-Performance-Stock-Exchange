@@ -97,15 +97,68 @@ describe("blotter cancel confirmation (D5)", () => {
         fireEvent.click(submit);
         expect(onCancel).not.toHaveBeenCalled();
     });
+});
 
-    it("leaves Cancel by Order ID as it was", () => {
-        const onCancel = vi.fn();
-        render(<OpenOrders orders={[]} onCancel={onCancel} />);
+describe("Cancel by Order ID (follow-up: Enter never confirms)", () => {
+    function openById(): void {
         fireEvent.click(screen.getByTestId("blotter-menu-btn"));
         fireEvent.click(screen.getByTestId("cancel-by-id-open"));
+    }
+
+    it("does nothing on Enter in the Order ID field: no cancel, popup stays open", () => {
+        const onCancel = vi.fn();
+        render(<OpenOrders orders={[]} onCancel={onCancel} />);
+        openById();
+        const input = screen.getByTestId("cancel-by-id-input");
+        fireEvent.change(input, { target: { value: "77" } });
+        fireEvent.keyDown(input, { key: "Enter" });
+        fireEvent.keyDown(document, { key: "Enter" });
+
+        expect(onCancel).not.toHaveBeenCalled();
+        expect(screen.getByTestId("cancel-by-id-overlay")).not.toBeNull();
+        expect((screen.getByTestId("cancel-by-id-input") as HTMLInputElement).value).toBe("77");
+    });
+
+    it("sends exactly one cancel for the entered id on a click of Confirm Cancel", () => {
+        const onCancel = vi.fn();
+        render(<OpenOrders orders={[]} onCancel={onCancel} />);
+        openById();
         fireEvent.change(screen.getByTestId("cancel-by-id-input"), { target: { value: "77" } });
         fireEvent.click(screen.getByTestId("cancel-by-id-submit"));
+
+        expect(onCancel).toHaveBeenCalledTimes(1);
         expect(onCancel).toHaveBeenCalledWith(77);
+        expect(screen.queryByTestId("cancel-by-id-overlay")).toBeNull();
+    });
+
+    it("closes without sending on Escape, the exit, and an outside click", () => {
+        const onCancel = vi.fn();
+        render(<OpenOrders orders={[]} onCancel={onCancel} />);
+
+        openById();
+        fireEvent.change(screen.getByTestId("cancel-by-id-input"), { target: { value: "77" } });
+        fireEvent.keyDown(document, { key: "Escape" });
+        expect(screen.queryByTestId("cancel-by-id-overlay")).toBeNull();
+
+        openById();
+        fireEvent.click(screen.getByTestId("cancel-by-id-close"));
+        expect(screen.queryByTestId("cancel-by-id-overlay")).toBeNull();
+
+        openById();
+        fireEvent.mouseDown(screen.getByTestId("cancel-by-id-overlay"));
+        expect(screen.queryByTestId("cancel-by-id-overlay")).toBeNull();
+
+        expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid id with a reason and sends nothing", () => {
+        const onCancel = vi.fn();
+        render(<OpenOrders orders={[]} onCancel={onCancel} />);
+        openById();
+        fireEvent.change(screen.getByTestId("cancel-by-id-input"), { target: { value: "abc" } });
+        fireEvent.click(screen.getByTestId("cancel-by-id-submit"));
+        expect(onCancel).not.toHaveBeenCalled();
+        expect(screen.getByTestId("cancel-by-id-error").textContent).toMatch(/Order ID/);
     });
 });
 

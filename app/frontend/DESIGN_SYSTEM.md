@@ -230,7 +230,7 @@ One popup family for confirmations, settings and dialogs.
     order leaves the active set while the popup is open, the popup says "Order is
     no longer active" and Confirm Cancel is disabled.
   - **Cancel by Order ID** takes a typed id and confirms with the same Confirm
-    Cancel. It predates the Enter rule and still submits on Enter in its input.
+    Cancel. Enter in its Order ID field does nothing; only the click sends.
   - **Order Confirmation** (the ticket) shows the resolved order before it is sent.
   - A bulk cancel, if one is added, states how many orders it will cancel.
 
