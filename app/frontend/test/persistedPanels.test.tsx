@@ -10,6 +10,8 @@ import { OpenOrders } from "../src/components/OpenOrders";
 import { OrderEntry } from "../src/components/OrderEntry";
 import { EMPTY_BOOK } from "../src/state/reducer";
 import type { BookState, MyOrder, TapeEntry } from "../src/state/reducer";
+import { emptyBars } from "../src/bars";
+import { SETTING_KEYS } from "../src/settings/persist";
 
 // Each test changes a setting, unmounts the panel (a page switch) and mounts it
 // again: the setting must survive. localStorage is cleared between tests.
@@ -69,7 +71,9 @@ describe("persisted panel settings survive a page switch (D10)", () => {
     });
 
     it("price chart display settings, shared by the page and the overlay", () => {
-        const ui = () => <PriceChart tape={TAPE} sessionOpenPx={1_500_000} />;
+        // Line colour, area fill and fill colour apply in line mode (disabled in candles, P17 D7).
+        localStorage.setItem(SETTING_KEYS.priceChartChartType, JSON.stringify("line"));
+        const ui = () => <PriceChart bars={emptyBars()} tape={TAPE} sessionOpenPx={1_500_000} />;
         const { unmount } = render(ui());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
         fireEvent.click(screen.getByTestId("pc-bg-white"));

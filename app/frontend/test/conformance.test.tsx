@@ -9,6 +9,7 @@ import { TradeTape } from "../src/components/TradeTape";
 import { PriceChart } from "../src/components/PriceChart";
 import { DepthChartOverlay } from "../src/components/DepthChartOverlay";
 import type { BookState, MyOrder, TapeEntry } from "../src/state/reducer";
+import { emptyBars } from "../src/bars";
 
 // UI polish conformance: the code matches the locked design text (§9, §10, §11).
 afterEach(() => {
@@ -136,7 +137,7 @@ describe("§11.4 every settings popup has the silver Done footer", () => {
     });
 
     it("price chart", () => {
-        render(<PriceChart tape={TAPE} sessionOpenPx={1_500_000} />);
+        render(<PriceChart bars={emptyBars()} tape={TAPE} sessionOpenPx={1_500_000} />);
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
         fireEvent.click(screen.getByTestId("pc-settings-done"));
         expect(screen.queryByTestId("pc-settings")).toBeNull();
@@ -167,7 +168,7 @@ describe("§9 panel caret menus use the shared white list", () => {
 
     it("price chart view menu: shared classes, behaviour unchanged", () => {
         const onView = vi.fn();
-        render(<PriceChart tape={TAPE} sessionOpenPx={1_500_000} onViewInTrading={onView} />);
+        render(<PriceChart bars={emptyBars()} tape={TAPE} sessionOpenPx={1_500_000} onViewInTrading={onView} />);
         fireEvent.click(screen.getByTestId("pc-view-caret"));
         const menu = screen.getByTestId("pc-view-menu");
         expect(menu.classList.contains("field-menu__menu")).toBe(true);

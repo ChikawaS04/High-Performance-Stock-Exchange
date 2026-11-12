@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { buildPriceSeries } from "../src/priceSeries";
+import { buildPriceSeries, timeAxis } from "../src/priceSeries";
 import type { TapeEntry } from "../src/state/reducer";
 
 /**
@@ -113,5 +113,29 @@ describe("buildPriceSeries (pure)", () => {
             }),
         ];
         expect(buildPriceSeries(decorated)).toEqual(buildPriceSeries(plain));
+    });
+});
+
+describe("timeAxis clock alignment (P17-6, D3 amended)", () => {
+    const S = 1_000_000_000;
+    // A 15s-aligned base plus 7s, so the span starts off the round clock time.
+    const BASE = Math.floor(1.75e18 / (60 * S)) * (60 * S);
+
+    it("places ticks on clock multiples of the step inside the window, not offsets from tMin", () => {
+        const tMin = BASE + 7 * S;
+        const tMax = BASE + 67 * S;
+        const { stepNanos, ticks } = timeAxis(tMin, tMax, 5);
+        expect(stepNanos).toBe(15 * S);
+        expect(ticks.length).toBeGreaterThan(0);
+        for (const t of ticks) {
+            expect(t).toBeGreaterThanOrEqual(tMin);
+            expect(t).toBeLessThanOrEqual(tMax);
+            expect(Math.round(t / stepNanos) * stepNanos).toBe(t);
+        }
+        expect(ticks[0]).toBe(BASE + 15 * S);
+    });
+
+    it("keeps the single-timestamp guard", () => {
+        expect(timeAxis(BASE, BASE, 5)).toEqual({ stepNanos: 0, ticks: [BASE] });
     });
 });

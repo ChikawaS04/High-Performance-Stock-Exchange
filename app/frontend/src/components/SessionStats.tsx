@@ -1,11 +1,11 @@
 /**
  * Session statistics block for the Price Chart side panel (P13-3).
  *
- * Presentational and total: it takes the four reducer slices, calls the pure
+ * Presentational and total: it takes the reducer slices, calls the pure
  * buildSessionStats, and renders the result. There is not one conditional in this
  * file. Every degenerate case (unset high/low sentinel, empty tape, zero trade
  * count) is already decided inside the helper, which returns a finished string for
- * every field, so the four rows mount unconditionally and the panel holds a stable
+ * every field, so the rows mount unconditionally and the panel holds a stable
  * shape from first paint (P13 D10). Nothing here reflows when the first trade
  * prints; the dash is simply replaced by a number.
  *
@@ -29,8 +29,12 @@
  * timestamp on the last trade either, which is what keeps spreadBpsLabel and the
  * clock formatter out of this file (P13 D6).
  *
+ * P17-8 reopens the P13 D2 four-row lock for exactly one row: VWAP, between Low
+ * and Trades. It is not a header duplicate (the strip shows no VWAP), so the D2
+ * rule that the panel shows only what the strip does not still holds.
+ *
  * Styling is the TWS charcoal card (DESIGN_SYSTEM.md §5): the component now owns the
- * card chrome (a --head SESSION band over a sunken --well body) alongside the four
+ * card chrome (a --head SESSION band over a sunken --well body) alongside the five
  * label/value rows, so the panel reads identically wherever it mounts. Values render
  * in mono tabular like the rest of the charcoal terminal; this component only names
  * the classes, the metrics live in the session-stats__* block.
@@ -51,8 +55,10 @@ export function SessionStats({
                                  sessionHighPx,
                                  sessionLowPx,
                                  sessionTradeCount,
+                                 sessionNotional,
+                                 sessionVolume,
                              }: SessionStatsProps) {
-    const m = buildSessionStats({ tape, sessionHighPx, sessionLowPx, sessionTradeCount });
+    const m = buildSessionStats({ tape, sessionHighPx, sessionLowPx, sessionTradeCount, sessionNotional, sessionVolume });
 
     return (
         <div className="session-stats">
@@ -67,6 +73,11 @@ export function SessionStats({
                 <div className="session-stats__row">
                     <span className="session-stats__label">Low</span>
                     <span className="session-stats__value" data-testid="session-low">{m.low}</span>
+                </div>
+
+                <div className="session-stats__row">
+                    <span className="session-stats__label">VWAP</span>
+                    <span className="session-stats__value" data-testid="session-vwap">{m.vwap}</span>
                 </div>
 
                 <div className="session-stats__row">

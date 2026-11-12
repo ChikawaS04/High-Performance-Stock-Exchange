@@ -30,8 +30,8 @@ function entry(partial: Partial<TapeEntry> = {}): TapeEntry {
     };
 }
 
-/** The four labels, in render order. The locked P13 D2 field set. */
-const LABELS = ["High", "Low", "Trades", "Last trade"];
+/** The five labels, in render order: the P13 D2 set plus VWAP between Low and Trades (P17-8). */
+const LABELS = ["High", "Low", "VWAP", "Trades", "Last trade"];
 
 /** A traded session: newest first, so 150.25 x 4 is the last print. */
 const POPULATED: SessionStatsProps = {
@@ -43,6 +43,9 @@ const POPULATED: SessionStatsProps = {
     sessionHighPx: 1507500,
     sessionLowPx: 1492500,
     sessionTradeCount: 12,
+    // 20 shares at a 150.25 average.
+    sessionNotional: 30_050_000n,
+    sessionVolume: 20,
 };
 
 /** A fresh session: nothing has traded. Matches initialState's three slices. */
@@ -51,6 +54,8 @@ const UNSET: SessionStatsProps = {
     sessionHighPx: SESSION_OPEN_UNSET,
     sessionLowPx: SESSION_OPEN_UNSET,
     sessionTradeCount: 0,
+    sessionNotional: 0n,
+    sessionVolume: 0,
 };
 
 function renderStats(over: Partial<SessionStatsProps> = {}) {
@@ -58,7 +63,7 @@ function renderStats(over: Partial<SessionStatsProps> = {}) {
 }
 
 describe("<SessionStats /> populated session", () => {
-    it("renders the four labels in order", () => {
+    it("renders the five labels in order", () => {
         renderStats();
         for (const label of LABELS) {
             expect(screen.getByText(label)).not.toBeNull();
@@ -70,6 +75,14 @@ describe("<SessionStats /> populated session", () => {
         expect(screen.getByTestId("session-high").textContent).toBe("150.75");
         expect(screen.getByTestId("session-low").textContent).toBe("149.25");
         expect(screen.getByTestId("session-trades").textContent).toBe("12");
+    });
+
+    it("renders the session VWAP row between Low and Trades (P17-8)", () => {
+        renderStats();
+        expect(screen.getByTestId("session-vwap").textContent).toBe("150.25");
+        const labels = Array.from(document.querySelectorAll(".session-stats__label")).map((el) => el.textContent);
+        expect(labels.indexOf("VWAP")).toBe(labels.indexOf("Low") + 1);
+        expect(labels.indexOf("Trades")).toBe(labels.indexOf("VWAP") + 1);
     });
 
     it("renders the last trade's price and size from the newest tape row", () => {
@@ -105,6 +118,7 @@ describe("<SessionStats /> fresh session", () => {
         render(<SessionStats {...UNSET} />);
         expect(screen.getByTestId("session-high").textContent).toBe(EMPTY_PRICE);
         expect(screen.getByTestId("session-low").textContent).toBe(EMPTY_PRICE);
+        expect(screen.getByTestId("session-vwap").textContent).toBe(EMPTY_PRICE);
         expect(screen.getByTestId("session-last-price").textContent).toContain(EMPTY_PRICE);
         expect(screen.getByTestId("session-last-size").textContent).toBe(EMPTY_PRICE);
     });
@@ -133,10 +147,11 @@ describe("<SessionStats /> row stability", () => {
         expect(populatedLabels).toEqual(LABELS);
     });
 
-    it("mounts all five value nodes in both states, never conditionally", () => {
+    it("mounts all six value nodes in both states, never conditionally", () => {
         const ids = [
             "session-high",
             "session-low",
+            "session-vwap",
             "session-trades",
             "session-last-price",
             "session-last-size",

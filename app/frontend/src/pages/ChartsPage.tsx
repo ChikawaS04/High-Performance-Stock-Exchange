@@ -36,6 +36,9 @@
  * the bound handler and the display-only preview. The only protocol import this
  * page gains is the OrderIntent type in the handler signature (P14-6).
  *
+ * P17: the chart reads the bars slice on the page surface's own chart settings,
+ * and the side panel gains the session VWAP row (sessionNotional / sessionVolume).
+ *
  * An order submitted here goes through App's one handleSubmit, so it is the same
  * wire path as the Trading page: it appears in the blotter and open orders when
  * navigating back, and its fill prints on the tape, the chart and these stats.
@@ -77,6 +80,8 @@ export function ChartsPage({
             <section tabIndex={-1} className="chart-page__region chart-page__region--chart" aria-label="Chart">
                 <PriceChart
                     tape={state.tape}
+                    bars={state.bars}
+                    surface="page"
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
                     onViewInTrading={onViewInTrading}
@@ -89,6 +94,8 @@ export function ChartsPage({
                     sessionHighPx={state.sessionHighPx}
                     sessionLowPx={state.sessionLowPx}
                     sessionTradeCount={state.sessionTradeCount}
+                    sessionNotional={state.sessionNotional}
+                    sessionVolume={state.sessionVolume}
                 />
 
                 <OrderEntry

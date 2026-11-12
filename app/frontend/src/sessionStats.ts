@@ -5,11 +5,11 @@
  * directly unit tested. Where those two emit integer domain units for a component
  * to scale, this one emits finished DISPLAY STRINGS, because its consumer renders
  * text rather than geometry. Keeping the formatting here is what lets SessionStats
- * stay a dumb four-row table with no conditionals in it: every degenerate case
+ * stay a dumb row table with no conditionals in it: every degenerate case
  * (unset sentinel, empty tape, zero count) is decided and pinned in one place.
  *
  * Input shape follows deriveHeader's composite rather than taking the whole
- * AppState: the function reads four slices, so it declares four slices, and a test
+ * AppState: the function declares exactly the slices it reads, and a test
  * can construct an input without building a reducer state.
  *
  * Two different kinds of number live here, and they take different formatters:
@@ -30,10 +30,11 @@
  */
 
 import { formatPrice, EMPTY_PRICE, formatQty } from "./format";
+import { vwapUnits } from "./bars";
 import type { TapeEntry } from "./state/reducer";
 
 /**
- * The four reducer slices the panel reads. Prices are integer units of $0.0001,
+ * The reducer slices the panel reads. Prices are integer units of $0.0001,
  * with SESSION_OPEN_UNSET for "no trade has printed this session".
  */
 export interface SessionStatsInput {
@@ -41,6 +42,9 @@ export interface SessionStatsInput {
     readonly sessionHighPx: number;
     readonly sessionLowPx: number;
     readonly sessionTradeCount: number;
+    /** Session notional and volume (P17-8): the session VWAP is their ratio. */
+    readonly sessionNotional: bigint;
+    readonly sessionVolume: number;
 }
 
 /**
@@ -51,23 +55,27 @@ export interface SessionStatsInput {
 export interface SessionStatsModel {
     readonly high: string;
     readonly low: string;
+    /** Session VWAP (P17-8), rounded half up; the dash before the first fill. */
+    readonly vwap: string;
     readonly trades: string;
     readonly lastPrice: string;
     readonly lastSize: string;
 }
 
 /**
- * Build the four display rows from session state. Pure and total: no input value
+ * Build the display rows from session state (four from P13, VWAP added at
+ * P17-8). Pure and total: no input value
  * can throw, and no input value yields NaN or "undefined" in the output.
  *
- *   { tape: [print at 1502500 x 4], high: 1507500, low: 1492500, trades: 12 }
- *     -> { high: "150.75", low: "149.25", trades: "12", lastPrice: "150.25", lastSize: "4" }
+ *   { tape: [print at 1502500 x 4], high: 1507500, low: 1492500, trades: 12,
+ *     notional: 30050000n, volume: 20 }
+ *     -> { high: "150.75", low: "149.25", vwap: "150.25", trades: "12", lastPrice: "150.25", lastSize: "4" }
  *
- *   { tape: [], high: -1, low: -1, trades: 0 }
- *     -> { high: "—", low: "—", trades: "0", lastPrice: "—", lastSize: "—" }
+ *   { tape: [], high: -1, low: -1, trades: 0, notional: 0n, volume: 0 }
+ *     -> every price field the dash, trades "0"
  */
 export function buildSessionStats(input: SessionStatsInput): SessionStatsModel {
-    const { tape, sessionHighPx, sessionLowPx, sessionTradeCount } = input;
+    const { tape, sessionHighPx, sessionLowPx, sessionTradeCount, sessionNotional, sessionVolume } = input;
 
     // Newest-first, so the latest print is index 0. undefined only when no trade has
     // printed, which is the sole empty case either last-trade field has to handle.
@@ -77,6 +85,8 @@ export function buildSessionStats(input: SessionStatsInput): SessionStatsModel {
         // No sentinel branch: formatPrice maps every negative value to the dash.
         high: formatPrice(sessionHighPx),
         low: formatPrice(sessionLowPx),
+        // vwapUnits returns -1 at zero volume, which formatPrice renders as the dash.
+        vwap: formatPrice(vwapUnits(sessionNotional, sessionVolume)),
         // A count, not a price: zero is real and renders "0".
         trades: formatQty(sessionTradeCount),
         lastPrice: last !== undefined ? formatPrice(last.pricePx) : EMPTY_PRICE,

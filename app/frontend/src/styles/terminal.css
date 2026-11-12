@@ -131,6 +131,16 @@
     --tick-down: #ff0000;
     --tick-up-wash: rgba(0, 255, 0, 0.13);
     --tick-down-wash: rgba(255, 0, 0, 0.16);
+
+    /* Candle direction colours (P17 D7, DESIGN_SYSTEM.md §2, §16): the tape's tick
+       family on the black chart ground, so direction is one colour family across the
+       terminal. Candles are never blue (blue is bid and side). The white chart ground
+       overrides them with readable values (.price-chart--white below). */
+    --candle-up: #00ff00;
+    --candle-down: #ff0000;
+    /* Session VWAP line and tag (P17 D9): a neutral grey-violet, distinct from the
+       amber price line, the candle colours, blue and red. */
+    --vwap: #b4a7d6;
 }
 
 * {
@@ -4042,11 +4052,72 @@ body {
     box-shadow: 0 0 0 2px var(--pop-body), 0 0 0 3px var(--quote-bid);
 }
 
-/* Crosshair readout label: mono tabular like every other number on the chart. */
+/* Readout strip (P17 D11): top left of the price area, mono tabular ~10px. The
+   key letters take the chart's dim ink and the values its text ink (set inline from
+   the ground-aware ink model, since the chart has a black and a white ground). */
 .price-chart__readout {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
-    font-size: 11px;
+    font-size: 10px;
+}
+
+/* ---- Candles, volume and VWAP (P17, DESIGN_SYSTEM.md §16) ----------------------
+   All colour comes from the --candle-up / --candle-down / --vwap tokens. */
+.price-chart--white {
+    --candle-up: #1f9d3a;
+    --candle-down: #d40000;
+    --vwap: #6a5a9a;
+}
+.price-chart__candle { shape-rendering: crispEdges; }
+.price-chart__candle--up { fill: var(--candle-up); stroke: var(--candle-up); }
+.price-chart__candle--down { fill: var(--candle-down); stroke: var(--candle-down); }
+.price-chart__wick { stroke-width: 1; fill: none; }
+.price-chart__body { stroke: none; }
+
+.price-chart__vol { opacity: 0.6; shape-rendering: crispEdges; }
+.price-chart__vol--up { fill: var(--candle-up); }
+.price-chart__vol--down { fill: var(--candle-down); }
+
+/* Dashed last-price level in candle mode: the open bar's direction colour. */
+.price-chart__level--up,
+.price-chart__level--down {
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+    stroke-opacity: 0.6;
+}
+.price-chart__level--up { stroke: var(--candle-up); }
+.price-chart__level--down { stroke: var(--candle-down); }
+
+/* Axis tags. Each fill sets its legible ink once, by luminance: dark on the bright
+   black-ground green and the light violet, white on the reds and on every
+   white-ground value. */
+.price-chart__tagbg--up { fill: var(--candle-up); }
+.price-chart__tagbg--down { fill: var(--candle-down); }
+.price-chart__tagbg--vwap { fill: var(--vwap); }
+.price-chart__tag--up { fill: #0b0b0b; }
+.price-chart__tag--down { fill: #ffffff; }
+.price-chart__tag--vwap { fill: #0b0b0b; }
+.price-chart--white .price-chart__tag--up,
+.price-chart--white .price-chart__tag--vwap { fill: #ffffff; }
+
+.price-chart__vwap {
+    fill: none;
+    stroke: var(--vwap);
+    stroke-width: 1;
+    stroke-linejoin: round;
+}
+
+/* Settings popup notes (P17-9): the dim "Candles only" beside a name, and the
+   one-line "Pane limit reached (N)" under the Indicators rows. */
+.settings-pop__note {
+    margin-left: 6px;
+    font-family: var(--sans);
+    font-size: 10px;
+    color: var(--dim, #8f8f8f);
+}
+.settings-pop__note--line {
+    display: block;
+    margin: 4px 0 0;
 }
 
 
