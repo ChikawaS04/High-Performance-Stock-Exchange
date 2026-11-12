@@ -20,8 +20,8 @@
  * separate hook from useOrderBook and never touches the reducer or the hot path. Chg
  * is not affected: it stays anchored to the session's first trade (P11 D6).
  *
- * P13-4: the /chart route receives the same order-entry prop /trading already had,
- * onSubmitOrder, because the Price Chart side panel mounts a ticket. Both routes
+ * P13-4: the chart route (/charts since P17-1) receives the same order-entry prop /trading already had,
+ * onSubmitOrder, because the Charts side panel mounts a ticket. Both routes
  * therefore share one handleSubmit and one nextClOrdId call site, which is the
  * point: the second ticket adds a second CONSUMER of the encoder seam, never a
  * second owner of it.
@@ -39,6 +39,9 @@
  * The TitleBar, Header strip and Navbar render above <Routes> so all three persist
  * across pages. The connection badge lives in the TitleBar (DESIGN_SYSTEM.md §15.3),
  * visible on every route; the Header no longer takes the connection.
+ *
+ * P17-1: the Price Chart page is renamed Charts (route /charts, page ChartsPage).
+ * /chart stays as a replace redirect so a bookmark or persisted link still lands.
  *
  * UI polish D4: the OrderToasts stack also renders here, outside <Routes>, so an
  * order notification shows whichever page is open.
@@ -58,7 +61,7 @@ import { Header } from "./components/Header";
 import { Navbar } from "./components/Navbar";
 import { OrderToasts } from "./components/OrderToasts";
 import { TradingPage } from "./pages/TradingPage";
-import { PriceChartPage } from "./pages/PriceChartPage";
+import { ChartsPage } from "./pages/ChartsPage";
 
 import "./styles/terminal.css";
 
@@ -117,9 +120,9 @@ export default function App() {
                     }
                 />
                 <Route
-                    path="/chart"
+                    path="/charts"
                     element={
-                        <PriceChartPage
+                        <ChartsPage
                             state={state}
                             openPx={openPx}
                             onSubmitOrder={handleSubmit}
@@ -127,6 +130,8 @@ export default function App() {
                         />
                     }
                 />
+                {/* P17-1: the pre-rename route, kept so an old bookmark still lands on Charts. */}
+                <Route path="/chart" element={<Navigate to="/charts" replace />} />
             </Routes>
 
             {/* UI polish D4: order notifications, above the routes so they show on every page. */}

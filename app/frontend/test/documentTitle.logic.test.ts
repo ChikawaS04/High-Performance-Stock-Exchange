@@ -8,8 +8,8 @@ describe("documentTitle (DESIGN_SYSTEM.md §15.6)", () => {
         expect(documentTitle(SYMBOL, PAGE_NAMES.trading)).toBe("ASML · Trading | directROUTE");
     });
 
-    it("builds the Price Chart tab title", () => {
-        expect(documentTitle(SYMBOL, PAGE_NAMES.priceChart)).toBe("ASML · Price Chart | directROUTE");
+    it("builds the Charts tab title", () => {
+        expect(documentTitle(SYMBOL, PAGE_NAMES.charts)).toBe("ASML · Charts | directROUTE");
     });
 
     it("separates symbol and page with a spaced middle dot (U+00B7)", () => {

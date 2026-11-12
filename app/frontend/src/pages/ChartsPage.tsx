@@ -1,5 +1,6 @@
 /**
- * Price chart page (P10-4 scaffold, P12-3 chart fill, P13-4 panel fill).
+ * Charts page (P10-4 scaffold, P12-3 chart fill, P13-4 panel fill, renamed from
+ * the Price Chart page at P17-1; the chart panel keeps the title "Price chart").
  *
  * A two-region layout, the chart region (left) and the side-panel region (right).
  * P12-3 filled the chart region with <PriceChart>, fed from the shared reducer
@@ -54,7 +55,7 @@ import { OrderEntry } from "../components/OrderEntry";
 import { PAGE_NAMES } from "../documentTitle";
 import { useDocumentTitle } from "../useDocumentTitle";
 
-export interface PriceChartPageProps {
+export interface ChartsPageProps {
     readonly state: AppState;
     readonly openPx?: number;
     readonly onSubmitOrder: (intent: OrderIntent) => void;
@@ -62,13 +63,13 @@ export interface PriceChartPageProps {
     readonly onViewInTrading?: () => void;
 }
 
-export function PriceChartPage({
+export function ChartsPage({
                                    state,
                                    openPx,
                                    onSubmitOrder,
                                    onViewInTrading,
-                               }: PriceChartPageProps) {
-    useDocumentTitle(PAGE_NAMES.priceChart);
+                               }: ChartsPageProps) {
+    useDocumentTitle(PAGE_NAMES.charts);
     const connected = state.connection === "open";
 
     return (
