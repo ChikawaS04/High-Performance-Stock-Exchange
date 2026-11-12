@@ -39,9 +39,8 @@
  * sessionVolume and sessionOpenPx in the same isFill guard, and they exist here
  * for the same reason those two do: the tape is capped at TAPE_CAP, so a high or a
  * low folded from it would silently mean "high of the last TAPE_CAP prints" and
- * would drift as old prints age out. No notional accumulator and no VWAP this
- * phase (P13 D1): VWAP's only input would be dead state until an indicator phase
- * consumes it, and adding it then is one more line in this same block.
+ * would drift as old prints age out. P13 D1 deferred the notional accumulator and
+ * VWAP to the indicator phase; P17-3 adds them (below).
  *
  * P14-6 adds the EXPIRED terminal status (the IOC/FOK outcome, SRS §3.4) and the
  * three order-attribute fields captured at send time (ordType, tif, displayQty).
@@ -56,10 +55,19 @@
  * venue seq was already seen raises no second notice; the recent seqs are a
  * bounded list rather than a high-water mark, so a venue restart that resets its
  * counter does not silence notices.
+ *
+ * P17-3 adds the candle data and the session VWAP, in the same isFill guard:
+ * sessionNotional (sum of price * qty, a bigint because a long session passes
+ * Number.MAX_SAFE_INTEGER, P17 D4) and bars, four clock-aligned OHLCV series (5s,
+ * 15s, 1m, 5m) folded by the pure bars module. Both exist for the same reason the
+ * other accumulators do: the tape is capped. A frame that is not a fill keeps the
+ * bars reference. Nothing serializes AppState (P17-0 F4), so a bigint here is safe.
  */
 
 import { isFill } from "../protocol/messages";
 import { noticesForExec } from "../notices";
+import { emptyBars, foldBars, vwapUnits } from "../bars";
+import type { BarSet } from "../bars";
 import type { OrderNotice } from "../notices";
 import type {
     ClientFrame,
@@ -222,6 +230,18 @@ export interface AppState {
      */
     readonly sessionTradeCount: number;
     /**
+     * Sum of price * quantity over every fill this session, in units times shares
+     * (P17-3). A bigint: at $0.0001 units one 10,000-share print of a $1,446 stock
+     * adds about 1.4e11, so a long bot session passes Number.MAX_SAFE_INTEGER.
+     * Session VWAP is sessionNotional / sessionVolume (sessionVwap below).
+     */
+    readonly sessionNotional: bigint;
+    /**
+     * Candle bars at the four sizes (P17-3, P17 D2), folded from every fill and
+     * independent of TAPE_CAP. Bars start when the tab connects (no backfill).
+     */
+    readonly bars: BarSet;
+    /**
      * Client-assigned outbound message counter. Incremented once per SENT frame,
      * NEW and CANCEL alike. NOT the FIX 34= MsgSeqNum (the produced subset carries
      * no tag 34, P7-0/Q7-4) and NOT the P7-2 server per-channel echo seqNum. It is
@@ -271,6 +291,8 @@ export const initialState: AppState = {
     sessionHighPx: SESSION_OPEN_UNSET,
     sessionLowPx: SESSION_OPEN_UNSET,
     sessionTradeCount: 0,
+    sessionNotional: 0n,
+    bars: emptyBars(),
     msgSeqNum: 0,
     lastFrameNanos: 0,
     inspectorLog: [],
@@ -278,6 +300,14 @@ export const initialState: AppState = {
     noticeSeq: 0,
     recentExecSeqs: [],
 };
+
+/**
+ * Session VWAP in integer units, rounded half up (bars.vwapUnits); -1, the
+ * SESSION_OPEN_UNSET dash, before the first fill. A statistic, never an order price.
+ */
+export function sessionVwap(state: Pick<AppState, "sessionNotional" | "sessionVolume">): number {
+    return vwapUnits(state.sessionNotional, state.sessionVolume);
+}
 
 export type Action =
     | { readonly type: "CONNECTION"; readonly status: ConnectionStatus }
@@ -371,6 +401,8 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     let sessionHighPx = state.sessionHighPx;
     let sessionLowPx = state.sessionLowPx;
     let sessionTradeCount = state.sessionTradeCount;
+    let sessionNotional = state.sessionNotional;
+    let bars = state.bars;
 
     if (isFill(frame)) {
         const entry: TapeEntry = {
@@ -414,6 +446,13 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         // EXEC counts trades and not sides. Unconditional: a PARTIALLY_FILLED print
         // is a trade exactly as a FILLED one is, and both reach this guard.
         sessionTradeCount = sessionTradeCount + 1;
+
+        // Session notional and VWAP (P17-3), then the four bar series. Each bar records
+        // the session VWAP after this fill, so a closed bar holds the VWAP after its
+        // last fill. Prices and quantities are integers on the wire, so BigInt() is exact.
+        sessionNotional = state.sessionNotional + BigInt(frame.price) * BigInt(frame.filledQuantity);
+        const vwap = vwapUnits(sessionNotional, sessionVolume);
+        bars = foldBars(state.bars, frame.timestamp, frame.price, frame.filledQuantity, vwap);
     }
 
     // Aggressor path: EXEC orderId names the aggressor on fills, and the
@@ -491,6 +530,8 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         sessionHighPx,
         sessionLowPx,
         sessionTradeCount,
+        sessionNotional,
+        bars,
         lastFrameNanos: frame.timestamp,
         inspectorLog,
         orderNotices,

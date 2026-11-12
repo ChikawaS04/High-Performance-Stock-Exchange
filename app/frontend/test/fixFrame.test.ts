@@ -100,6 +100,8 @@ describe("FIX frames advance the last-frame marker and log to the inspector (P7-
         expect(after.tape).toBe(initialState.tape);
         expect(after.myOrders).toBe(initialState.myOrders);
         expect(after.sessionVolume).toBe(initialState.sessionVolume);
+        expect(after.bars).toBe(initialState.bars);
+        expect(after.sessionNotional).toBe(initialState.sessionNotional);
         expect(after.sessionOpenPx).toBe(initialState.sessionOpenPx);
         expect(after.msgSeqNum).toBe(initialState.msgSeqNum);
 
