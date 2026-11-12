@@ -1,7 +1,7 @@
 # OMS Trading Terminal — Frontend
 
 A React + TypeScript trading terminal for a practice Order Management System. It renders a
-live depth ladder, a trade tape, a session price chart, and manual order-entry /
+live depth ladder, a trade tape, a candlestick price chart, and manual order-entry /
 open-orders panels across two routed pages, driven entirely by a single WebSocket
 connection to the Java backend — no polling, no REST.
 
@@ -45,7 +45,7 @@ pages does not reconnect the socket, reset the book, or lose a single print.
 | Route | Page | Contents |
 |---|---|---|
 | `/trading` | Trading terminal | Depth ladder, depth curve, trade tape, order-entry ticket, open-orders blotter, cancel-by-ID, FIX inspector |
-| `/chart` | Price Chart | Session price line (left region), session stats and a second order-entry ticket (right region) |
+| `/charts` | Charts | Candlestick or line price chart with volume and VWAP (left region), session stats and a second order-entry ticket (right region). The pre-rename `/chart` redirects here. |
 
 What does *not* survive navigation is page-local UI state, because leaving a route unmounts
 the page: the FIX inspector's open flag, and anything held inside a panel, including a
@@ -55,7 +55,7 @@ rather than a defect, and it is the one thing to expect when switching pages mid
 `App.tsx` stays the sole place a `clOrdId` is minted and the sole caller of the frame
 builders. Both pages receive state slices and bound handlers, never the encoders, so the two
 order-entry tickets are two consumers of one submit path, not two owners of it. An order
-placed on the Price Chart page is indistinguishable on the wire from one placed on the
+placed on the Charts page is indistinguishable on the wire from one placed on the
 Trading page, lands in the same blotter, and its fill prints on the same tape, the same
 chart and the same session stats.
 
@@ -73,7 +73,7 @@ chart and the same session stats.
   `![Open orders](docs/img/open-orders.png)`
 - **Short GIF: place → cross → cancel round-trip**
   `![Round-trip demo](docs/img/demo.gif)`
-- **Session price line with a reference line in domain** (Price Chart page)
+- **Candles with the volume pane and VWAP** (Charts page)
   `![Price chart](docs/img/chart.png)`
 - **Side panel: session stats above the panel ticket**
   `![Side panel](docs/img/side-panel.png)`
@@ -269,9 +269,10 @@ These are real properties of the running system, documented rather than glossed:
   only when the app reloads (a fresh in-memory session), not on a reconnect.
 - **A freshly (re)connected client sees an empty ladder until the next order event.** The
   server pushes a BOOK only per inbound event; there is no snapshot-on-connect message
-  (deliberately out of scope). Place any order and the ladder repopulates. On a socket drop the
-  client clears the book (a stale ladder is worse than an empty one) and reconnects with
-  exponential backoff.
+  (deliberately out of scope). Place any order and the ladder repopulates. The client
+  reconnects with
+  exponential backoff. On a socket drop the last-known book stays on screen, frozen and
+  dimmed as stale, until the next BOOK frame replaces it.
 - **`timestamp` is epoch nanoseconds.** Frames are stamped by `EpochNanoClock`, which anchors
   once at server startup (capturing `System.currentTimeMillis()` and `System.nanoTime()`
   together) and thereafter serves `anchorEpochNanos + (System.nanoTime() - anchorNanos)`. The
@@ -301,30 +302,55 @@ These are real properties of the running system, documented rather than glossed:
   server-side with no message back to the client, so the UI validates price/quantity locally
   before sending (`> 0`, `≤ 2` decimal places, positive integer qty). `ORDER_REJECTED` can
   still arrive (e.g. cancelling an unknown order) and is handled if it does.
-- **The price chart is bounded to the last 200 prints, and a reference line never widens the
-  domain.** The chart plots `state.tape`, which the reducer caps at `TAPE_CAP` (200), so it
+- **The chart draws candles from a bars slice that is independent of the tape cap.** The
+  reducer folds every fill into open, high, low, close, volume bars at four sizes (5s, 15s,
+  1m and 5m) in `state.bars`, alongside the tape rather than from it, because the tape holds
+  only the newest 200 prints: at 1m bars that might be a few candles. Each size keeps up to
+  500 closed bars (about 41 minutes at 5s, 41 hours at 5m), so switching size is instant and
+  each keeps its own history. Buckets are aligned to the clock, `floor(timestamp / size)` on
+  the epoch-nanosecond EXEC timestamp, so a 15s bar opens at :00, :15, :30 and :45 and a 1m
+  bar on the minute, exactly as on a real terminal. A quiet stretch is a gap, never an
+  invented flat bar. The time axis reads clock time (HH:MM:SS) in both chart modes.
+- **Session VWAP is exact.** The reducer keeps `sessionNotional` (the sum of price times
+  quantity) as a BigInt, because at $0.0001 units a long session passes
+  `Number.MAX_SAFE_INTEGER`. VWAP is notional over volume, rounded half up to a $0.0001 unit
+  for display; it is a statistic, never an order price. Each bar records the session VWAP
+  after its last fill, which is what the VWAP line draws, and the side panel's VWAP row
+  reads the same accumulator, so the line, its axis tag and the panel always agree.
+- **Chart settings are per surface.** The Charts page and the floating chart window on the
+  Trading page each keep their own chart type (Candles by default, or Line), bar size (15s
+  by default) and indicators (Volume and VWAP), persisted under `hpse.v1.priceChart.*` and
+  `hpse.v1.priceWindow.*`. The display colours (background, line colour, area fill) stay
+  shared. Volume is a lower pane and draws only in candle mode; the window allows one lower
+  pane and the page three.
+- **Line mode is bounded to the last 200 prints, and a reference line never widens the
+  domain.** Line mode plots `state.tape`, which the reducer caps at `TAPE_CAP` (200), so it
   is a chart of the most recent 200 trades rather than of the whole session; past the cap the
-  left edge advances as old prints age out. Two dashed reference lines can appear: the
+  left edge advances as old prints age out. Candle mode's domain comes from the visible bars'
+  highs and lows, and neither mode widens it for a reference line or for VWAP (an off-scale
+  VWAP is clipped and its tag pins to the axis edge). Two dashed reference lines can appear: the
   engine's first-trade anchor (the same value the header Chg uses) and the Alpaca market
   open. Each draws only when its price falls inside the domain the prints themselves set, and
   is silently omitted otherwise. That guard does real work rather than defending against a
   rounding edge: the synthetic book trades near $100 while the instrument's real market open
   sits near $1740, so the market-open line is usually out of domain and correctly absent. An
-  empty tape plots a quiet "No trades yet" frame and a single print plots its marker with no
-  line, so no degenerate case produces a NaN path.
+  empty tape (or no bars, in candle mode) plots a quiet "No trades yet" frame and a single
+  print plots its marker with no line, so no degenerate case produces a NaN path.
 - **Side panel session stats are connect-anchored, and are not bounded by the tape cap the
-  chart is.** The Price Chart page's side panel shows session high, session low, trade count,
-  and the last print (price and size). High, low and the count are accumulated in the reducer
+  line chart is.** The Charts page's side panel shows session high, session low, session
+  VWAP, trade count, and the last print (price and size). High, low, VWAP and the count are
+  accumulated in the reducer
   on each fill, never folded from the trade tape, precisely because the tape is capped at
   200: a tape-derived high would silently mean "high of the last 200 prints" and would fall
   as old prints aged out. They are connect-anchored, meaning they accumulate from the moment
   this browser session connected rather than from the true venue session open, so connecting
-  mid-session undercounts all three. That is the same honest caveat already carried for
+  mid-session undercounts them. Bars and VWAP are connect-anchored in exactly the same way:
+  there is no backfill, so the chart starts when the tab connects. That is the same honest caveat already carried for
   session volume and the first-trade anchor, and it has the same clean fix: the engine
   publishing session stats, or a snapshot on connect, which is a server change. They survive
   navigation, because the socket and reducer sit above the router, and they survive a
-  reconnect blip, because the connection branch clears only the book and keeps the
-  aggregates. A full page reload starts a fresh session and resets them. The ticket below the
+  reconnect blip, because the connection branch changes only the connection status and
+  keeps the book, the bars and every aggregate. A full page reload starts a fresh session and resets them. The ticket below the
   stats is the same `OrderEntry` component and the same submit path as the Trading page; only
   its density differs, and that is CSS.
 
@@ -388,11 +414,13 @@ If every step behaves as above, the round-trip is proven end to end and Phase 5 
   has no dev server and therefore no proxy, so a real deployment would need a small backend
   proxy holding the credentials. `VITE_IGNITION_SYMBOL` and the header's `SYMBOL` both
   default to `ASML` and should be kept in step.
-- **The chart is capped at the last 200 prints.** It plots the reducer tape, which is capped
-  at `TAPE_CAP`, so it is not a whole-session chart. The side panel's high, low and trade
-  count are *not* capped, being reducer accumulators, so on a long session the chart and the
-  panel can legitimately disagree about the session's extremes. Closing that gap needs a
-  dedicated price-history slice independent of the tape.
+- **Line mode is capped at the last 200 prints; candles at 500 bars per size.** Line mode
+  plots the capped reducer tape, so on a long session it and the side panel's (uncapped)
+  high and low can legitimately disagree. Candle mode reads the bars slice, which is
+  independent of the tape and holds 500 closed bars per size. There is no pan, zoom or
+  scroll-back: the chart shows the newest bars that fit its width.
+- **No bar backfill.** Bars and VWAP start when the tab connects. The Phase 15 RESEND
+  replay is the future route to backfilling them and is not wired into the terminal.
 - **Session stats are connect-anchored.** High, low, trade count, volume and the first-trade
   anchor all accumulate from when this browser session connected, not from the venue's
   session open, so a mid-session connect undercounts them. A reconnect blip preserves them; a
@@ -418,14 +446,20 @@ app/frontend/
 │   ├── App.tsx                   # composition root: socket, header strip, navbar, routes
 │   ├── format.ts                 # units of $0.0001 <-> dollars, qty, clock, midpoint (render/parse edge)
 │   ├── depth.ts                  # pure depth ladder + depth curve maths
-│   ├── priceSeries.ts            # pure price-series domain for the chart (P12)
-│   ├── sessionStats.ts           # pure session-stat display strings for the panel (P13)
+│   ├── priceSeries.ts            # pure price-series domain and axis maths for the chart (P12)
+│   ├── bars.ts                   # pure clock-aligned OHLCV bar fold and VWAP arithmetic (P17)
+│   ├── candleView.ts             # pure candle slots, domain, ticks, hit test, VWAP tag (P17)
+│   ├── chartSettings.ts          # per-surface chart type, bar size, indicators (P17)
+│   ├── indicators/
+│   │   ├── registry.ts           # indicator descriptors and pane caps (P17)
+│   │   └── layoutPanes.ts        # pure price-area and lower-pane layout (P17)
+│   ├── sessionStats.ts           # pure session-stat display strings for the panel (P13, P17)
 │   ├── pages/
 │   │   ├── TradingPage.tsx       # depth, tape, ticket, blotter, FIX inspector
-│   │   └── PriceChartPage.tsx    # chart region + side-panel region
+│   │   └── ChartsPage.tsx        # chart region + side-panel region (/charts)
 │   ├── components/
 │   │   ├── Header.tsx            # persistent instrument strip + deriveHeader
-│   │   ├── Navbar.tsx            # Trading / Price Chart NavLinks
+│   │   ├── Navbar.tsx            # Trading / Charts NavLinks
 │   │   ├── ConnectionBadge.tsx
 │   │   ├── DepthLadder.tsx
 │   │   ├── DepthCurve.tsx
@@ -434,8 +468,10 @@ app/frontend/
 │   │   ├── OpenOrders.tsx
 │   │   ├── CancelTicket.tsx
 │   │   ├── FixInspector.tsx
-│   │   ├── PriceChart.tsx        # session price line (P12)
-│   │   └── SessionStats.tsx      # four-row session block (P13)
+│   │   ├── PriceChart.tsx        # candles or line, volume, VWAP, crosshair (P12, P17)
+│   │   ├── ChartSettingsPopup.tsx # the chart's settings popup (P17)
+│   │   ├── PriceChartOverlay.tsx # the floating chart window on the Trading page
+│   │   └── SessionStats.tsx      # session block, five rows with VWAP (P13, P17)
 │   ├── protocol/
 │   │   ├── messages.ts           # the one place raw frames are narrowed
 │   │   ├── encode.ts             # NEW / CANCEL builders + nextClOrdId
@@ -455,7 +491,7 @@ app/frontend/
 Two conventions to know before adding to this tree:
 
 - **Pure logic sits beside the component that consumes it, not inside it.** `depth.ts`,
-  `priceSeries.ts` and `sessionStats.ts` are plain modules at the `src/` root, each unit
+  `priceSeries.ts`, `bars.ts`, `candleView.ts` and `sessionStats.ts` are plain modules at the `src/` root, each unit
   tested without a DOM, each paired with a component that owns only the markup and the
   scales. New derivations follow that split.
 - **Tests are flat and named by kind.** `vite.config.ts` includes `test/**/*.test.{ts,tsx}`

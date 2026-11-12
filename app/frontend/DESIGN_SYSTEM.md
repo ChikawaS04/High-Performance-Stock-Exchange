@@ -88,6 +88,21 @@ green and still feeds the header's "up" change colour, so a bid must never use i
 | `--quote-bid-wash` / `--quote-ask-wash` | 16% bid / ask | Side cell wash, translucent so the stripe shows through (§9) |
 | `--caret-size` | `20px` | Every dropdown caret (§11.6) |
 
+### Chart tokens (§16)
+| Token | Black ground | White ground | Use |
+|---|---|---|---|
+| `--candle-up` | `#00ff00` | `#1f9d3a` | Up candle (close >= open), its volume column, and the candle-mode last-price level and tag |
+| `--candle-down` | `#ff0000` | `#d40000` | Down candle, its volume column, and the candle-mode last-price level and tag |
+| `--vwap` | `#b4a7d6` | `#6a5a9a` | Session VWAP line and its axis tag |
+
+The black-ground values are the trade tape's `--tick-up` / `--tick-down`, so direction
+reads as one colour family across the terminal. `#00ff00` cannot be read on white, so
+the white chart ground overrides all three tokens under `.price-chart--white` (the
+same per-ground pattern as `.depth-overlay__body--light`). **Candles use direction
+colours and are never blue:** blue stays reserved for bid and side. The VWAP violet
+is distinct from the amber price line, the candle colours, blue and red, and is
+neither a §2 semantic colour nor the brand amber.
+
 ### Brand accent (§15)
 | Token | Hex | Use |
 |---|---|---|
@@ -374,9 +389,24 @@ A gear-opened settings popup is the §10 popup chrome filled with these parts:
   dropdown caret and keeps its own size (§11.6).
 - **Setting rows** under a category: a flex row, white ~11px sans **name on the
   left**, the control (radio set §11.2 or toggle §11.3) **on the right**.
+- **Disabled row:** a row whose setting does nothing in the current state takes
+  `settings-pop__row--disabled` (40% opacity, no pointer events, its buttons
+  `disabled`), for example Fill color while Area fill is off.
+- **Dim note:** `settings-pop__note`, `--dim` 10px sans, either inline after a row
+  name (the chart's "Candles only") or as one line under a category's rows
+  (`settings-pop__note--line`).
 - **Footer:** the silver **Done** button (§10 primary-action silver), bottom-right.
 - A transparent full-viewport backdrop catches an outside click to close.
 - Every control in a settings popup persists (§13).
+
+**Indicators category (P17, the price chart popup).** One row per indicator the
+surface offers (§16.4), the indicator name on the left and the standard §11.3 toggle
+(`On`, `Off`) on the right. An indicator the current chart type cannot draw (Volume
+in line mode) shows disabled with the inline note "Candles only" and keeps its stored
+state. Lower panes are capped per surface; once the enabled panes reach the cap, the
+toggles of panes that are off are disabled and the category shows one dim line,
+"Pane limit reached (N)", only while the cap is actually holding a pane off.
+Overlays are never disabled by the cap.
 
 ### 11.5 Dropdown / pick-list: the standard picker
 
@@ -433,14 +463,15 @@ and keeps its own size.
 
 ### 11.7 Price chart view menu: "View in trading"
 
-On the PRICE CHART page the chart's header band carries a view caret (§11.6) just
+On the Charts page the chart's header band carries a view caret (§11.6) just
 left of its settings gear. It opens a small white menu with one item, **View in
 trading**. Choosing it navigates to the trading page and opens the same price chart
 there as a floating window (§14) over the live terminal: no scrim, so the panels
 stay usable underneath. The floating chart has its own settings gear and a close
 `×` in place of the view caret, and shares the chart's persisted display settings
-(§13). Whether the window is open is held above the routes for the navigation and
-is not persisted. Accepted as built.
+(§13). It keeps its own chart type, bar size and indicators (§16). Whether the
+window is open is held above the routes for the navigation and is not persisted.
+Accepted as built.
 
 ---
 
@@ -492,6 +523,8 @@ storage module (`src/settings/persist.ts`) and one hook
   | Header | label colour (`header.labelMode`) |
   | Trade tape | levels, time units |
   | Price chart | background, line colour, gradient, fill (shared by the page and the floating window) |
+  | Charts page chart | chart type, bar size, indicators (`priceChart.chartType`, `.barSize`, `.indicators`) |
+  | Floating chart window | chart type, bar size, indicators (`priceWindow.chartType`, `.barSize`, `.indicators`) |
   | Depth chart | background |
   | Book reader | depth |
   | Blotter | status filter |
@@ -503,7 +536,9 @@ storage module (`src/settings/persist.ts`) and one hook
   send an order the user did not intend.
 - **Validation.** Every read is checked against the setting's allowed values;
   anything invalid or unparsable falls back to the default and the bad key is
-  removed. At start-up, `hpse.` keys from any other version are removed and the
+  removed. The chart's indicator set is a JSON array read leniently (any array of
+  strings) and then cleaned: unknown ids and ids the surface does not offer are
+  dropped, but an id only unavailable for the current chart type is kept. At start-up, `hpse.` keys from any other version are removed and the
   pre-pass `header.labelMode` key is moved into the namespace.
 - **Failure.** Every `localStorage` access is wrapped in try/catch; unavailable or
   full storage means "use the default", never a crash.
@@ -659,7 +694,8 @@ trading data and carries the product identity and the connection, never market d
   still shows what it is. The separator inside is a middle dot (`·`, U+00B7) with a
   space either side; the brand follows a pipe.
   - Trading page: `ASML · Trading | directROUTE`
-  - Price chart page: `ASML · Price Chart | directROUTE`
+  - Charts page: `ASML · Charts | directROUTE` (renamed from Price Chart at P17-1;
+    the old `/chart` route redirects to `/charts`)
   - The page name is the nav tab label, so the two never disagree.
 - **Static fallback.** `index.html` carries `<title>directROUTE</title>`, which is
   what shows before the app mounts. The legacy `OMS — ASML Order Book` title is
@@ -692,3 +728,95 @@ trading data and carries the product identity and the connection, never market d
   popups and toasts never carry it.
 - In running text write "directROUTE". `directRoute` is accepted informally; the mark
   itself always uses caps ROUTE.
+
+---
+
+## 16. Charts
+
+Phase 17 makes the price chart a candlestick chart and sets the chart standard that
+Phases 18 to 20 extend. Everything is hand-rolled SVG with no charting dependency.
+
+### 16.1 Surfaces and placement
+
+The chart runs on two surfaces: the **Charts page** (`/charts`) and the **floating
+window** on the Trading page (§11.7, §14). The panel title stays "Price chart". Each
+surface keeps its own chart type, bar size and indicators (§13); the display colours
+are shared.
+
+| Feature | Floating window (Trading page) | Charts page |
+|---|---|---|
+| Line or candles, volume, crosshair | Yes | Yes |
+| VWAP, moving averages, Bollinger bands | Yes | Yes |
+| Fill markers, order lines, drag to reprice | Yes | Yes |
+| Bid/ask lines | Yes | Yes |
+| Volume profile, CVD, footprint | No | Yes |
+| Liquidity heatmap | No | Yes, as a chart type |
+| Execution quality (TCA) | Executions tab in the blotter panel | No |
+
+### 16.2 Chart types and bar sizes
+
+- **Candles** (default) and **Line** (the trade-print line, as built in P12). Phase 20
+  adds a heatmap type on the page only.
+- **Bar sizes:** 5s, 15s (default), 1m, 5m. The reducer folds every fill into all four,
+  so switching size is instant and each keeps its own history (500 closed bars each).
+- **Bucketing is clock-aligned:** `bucket = floor(t / size)` on the epoch-nanosecond
+  EXEC timestamp. A 15s bar opens at :00, :15, :30 and :45, a 1m bar on the minute.
+  Empty buckets are honest gaps, never synthetic flat bars. Bars start when the tab
+  connects; there is no backfill.
+- **Time axis** reads clock time `HH:MM:SS` in both modes, ticked at round clock steps.
+
+### 16.3 Candle and volume geometry
+
+- **Slots.** The chart shows the newest bars that fit at a 5px minimum slot, from the
+  oldest visible bucket to the open bar; a gap keeps its slot. The slot width is the
+  plot width over the slot count, capped at 16px, and the slots are right-aligned so
+  the newest bar sits by the price axis.
+- **Candles.** Wick 1px, centred. Body 70% of the slot, at least 1px, filled. A doji
+  (open equals close) is a 1px body. Up and down take `--candle-up` / `--candle-down`.
+- **Price axis.** The y domain covers the visible highs and lows padded 5% each side,
+  snapped to round levels on the right-hand axis. Reference lines (session open,
+  market open) and VWAP never widen it.
+- **Last price.** In candle mode the dashed level and the axis tag take the open bar's
+  direction colour (tag ink by luminance). Line mode keeps the line colour.
+- **Display rows.** Line color, Area fill and Fill color draw nothing in candle mode
+  and show disabled there.
+- **Volume pane.** Columns aligned exactly to the candle bodies, in the candle tokens at
+  60% opacity, on a small right-hand axis labelled at the visible maximum. Candles only.
+
+### 16.4 Indicators and panes
+
+- An indicator registry (`src/indicators/registry.ts`) describes each indicator: id,
+  label, placement (`overlay` on the price area or a lower `pane`), the surfaces that
+  offer it, and the chart types that can draw it. Phase 17 registers Volume (pane,
+  candles only) and VWAP (overlay, both types).
+- **Overlays** are unlimited. **Lower panes** are capped: 1 on the window, 3 on the
+  Charts page. The popup enforces the cap (§11.4).
+- **Pane layout.** For k panes each takes `min(20%, 40% / k)` of the plot height and the
+  price area keeps the rest, never less than 60%. Panes tile below the price area with
+  a 1px separator and share the x axis.
+
+### 16.5 VWAP
+
+- Session VWAP from the reducer's notional accumulator (BigInt), rounded half up to a
+  $0.0001 unit. It is a statistic, never an order price.
+- Candle mode: a 1px `--vwap` line through each visible bar's VWAP at the slot centre.
+  Line mode: a step line from the 5s bars at their bucket start on the tape's time
+  domain. The line is clipped to the price area.
+- A right-axis tag, the last-price tag's shape in `--vwap`, pinned to the axis edge
+  when VWAP is off-scale and moved a tag height away when it would cover the
+  last-price tag.
+- The Charts side panel shows a **VWAP** row between Low and Trades.
+
+### 16.6 Crosshair and readout
+
+- On pointer move over the plot: dashed 1px vertical and horizontal hairlines in the
+  chart's ground-aware dim ink (not `--dim`, because the chart has a black and a white
+  ground), a price tag on the right axis at the pointer, and a time tag on the x axis.
+  The vertical line snaps to the hovered slot centre (candles) or the nearest print
+  (line). Over a lower pane only the vertical line and time tag show.
+- **Readout strip** at the top left of the price area, `IBM Plex Mono` tabular, 10px:
+  candles `O H L C V` plus `VWAP` when on; line `price x size @ HH:MM:SS`. Keys take the
+  dim ink, values the text ink. With no pointer it shows the newest bar or print, so
+  it always reads something.
+- Pointer state is local and never persisted. The plot never starts a floating-window
+  drag: the band is the only drag handle (§14).
