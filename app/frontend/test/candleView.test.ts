@@ -7,6 +7,7 @@ import {
     MIN_SLOT,
     bodyWidth,
     buildCandleView,
+    candleTickStep,
     candleTimeTicks,
     hitSlot,
     lineVwapSteps,
@@ -104,19 +105,22 @@ describe("buildCandleView (P17-6)", () => {
     });
 });
 
-describe("candleTimeTicks (P17-6)", () => {
-    it("ticks bucket starts on round clock steps that are whole bars", () => {
+describe("candleTimeTicks (P17-6, Charts follow-up decision 4)", () => {
+    it("ticks bucket starts on round clock steps that are whole bars, at least 80px apart", () => {
         const fills: [number, number][] = [];
         for (let i = 0; i < 40; i++) fills.push([i, 1_000_000]);
         const view = buildCandleView(seriesOf(fills), 600)!;
-        const ticks = candleTimeTicks(view, NS, 5);
+        const ticks = candleTimeTicks(view, NS);
         expect(ticks.length).toBeGreaterThan(0);
-        expect(ticks.length).toBeLessThanOrEqual(6);
-        const step = ticks.length > 1 ? ticks[1].t - ticks[0].t : 0;
-        expect(step % NS).toBe(0);
+        const stepSec = candleTickStep(view, NS);
+        // 600px over 40 slots is 15px a 15s bar: 1m is 60px, so the first step at least 80px apart is 2m.
+        expect(view.slotW).toBe(15);
+        expect(stepSec).toBe(120);
+        const step = stepSec * 1_000_000_000;
+        for (let i = 1; i < ticks.length; i++) expect(ticks[i].t - ticks[i - 1].t).toBe(step);
         for (const k of ticks) {
             // Round clock times: a whole number of steps from the epoch.
-            expect(Math.round(k.t / NS) % Math.round(step / NS || 1)).toBe(0);
+            expect(Math.round(k.t / NS) % Math.round(step / NS)).toBe(0);
             expect(k.slot).toBe(Math.round(k.t / NS) - view.firstBucket);
         }
     });

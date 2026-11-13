@@ -1,60 +1,62 @@
 /**
- * Session price chart: P12 line, P12-R Bloomberg rework, P17 candles.
+ * Session price chart: P12 line, P12-R Bloomberg rework, P17 candles, and the
+ * Charts follow-up (band toolbar, zoom and pan, clock axis, colours).
  *
  * Two chart types share one card (DESIGN_SYSTEM.md §5/§8 chrome, §11 controls,
  * §16 Charts):
  *
  *  - Candles (the default, P17 D5): clock-aligned OHLCV bars from the reducer bars
- *    slice at the chosen size. The pure candleView module picks the visible slots
- *    (newest bars that fit at the 5px minimum slot, capped at MAX_SLOT and
- *    right-aligned), the y domain from the visible highs and lows, and the time
- *    ticks. Up (close >= open) and down candles use --candle-up / --candle-down,
- *    never blue (§2). The dashed last-price level and the last-price tag take the
- *    open bar's direction colour.
+ *    slice at the chosen size. The pure candleView module picks the visible slots,
+ *    the y domain from the visible highs and lows, and the time ticks. Up
+ *    (close >= open) and down candles use --candle-up / --candle-down, which the
+ *    user may override with any colour (chartColors); wicks match the body or take
+ *    the ground-aware dim ink. The dashed last-price level and the last-price tag
+ *    take the newest bar's direction colour, the tag ink chosen by luminance.
  *  - Line: the trade-print line from the capped tape, as built in P12-R, with its
  *    area fill and the last-price tag in the line colour.
  *
- * Both modes read clock time (HH:MM:SS) on the x axis: EXEC timestamps are epoch
- * nanoseconds (P17-0 F1). Prices stay integer units; only the scales touch float,
- * here at the render edge. A reference line (session open, market open) and the
- * VWAP never widen the price domain; a reference outside it is not drawn and the
- * VWAP is clipped to the price area with its tag pinned to the axis edge.
+ * The header band (ChartBand) carries View, chart type, bar size, Indicators and the
+ * gear. Both surfaces lay out at their measured box (fit mode): the Charts page's
+ * plot keeps a 12:5 box and draws at its real pixel size, the floating window fills
+ * its frame. Before measurement (and in jsdom) the drawing is the nominal 720 x 300.
  *
- * Indicators (P17 D6) come from the registry: VWAP is an overlay in both modes;
- * volume is a lower pane in candle mode, laid out by layoutPanes under the surface's
- * pane cap. The chart settings (type, bar size, indicators) are per surface: the
- * Charts page and the floating window each keep their own (useChartSettings). The
- * display settings (background, line colour, area fill, fill colour) stay shared.
- * The settings popup lives in ChartSettingsPopup.
+ * Time axis (Charts follow-up, decision 4): round clock steps at least 80px apart,
+ * HH:MM at a step of a minute or more, HH:MM:SS below, the first label and any
+ * midnight crossing as a date tile. The crosshair time tag keeps HH:MM:SS. Price
+ * labels never overlap the volume pane's labels (decision 3).
  *
- * Crosshair (P17 D11): on pointer move over the plot, dashed hairlines in the
- * ground-aware dim ink, a price tag on the right axis at the pointer, and a time tag
- * on the x axis, snapped to the hovered slot centre (candles) or the nearest print
- * (line). A readout strip at the top left of the price area always reads something:
- * the hovered bar or print, else the newest. Pointer state is local and never
- * persisted. The plot never starts a floating-window drag; only the band does (§14).
+ * Zoom and pan (decisions 7 to 9): the mouse wheel over the plot zooms (a
+ * non-passive listener, so the page does not scroll there; elsewhere it scrolls
+ * normally); a drag on the plot pans, past a 3px threshold, with pointer capture.
+ * The maths is pure (chartViewport, candleView); this component owns only the
+ * events. While the newest bar is off screen the chart stops following and a
+ * "Latest" button returns it to live. Zoom and pan state is local to each surface
+ * and never persisted. The plot never starts a floating-window drag; only the band
+ * does (§14).
  *
- * Guards: no data plots a quiet "No trades yet" state; a single print plots only
- * the last-point marker and tag; a flat series is handled by priceAxis padding; a
- * single timestamp centres on x. Test ids (price-chart, -line, -last, -ref-session,
- * -ref-market, -cross) are preserved.
+ * Prices stay integer units; only the scales touch float, here at the render edge.
+ * A reference line (session open, market open) and the VWAP never widen the price
+ * domain. Guards: no data plots a quiet "No trades yet" state; a single print plots
+ * only the last-point marker and tag; a flat series is handled by priceAxis padding;
+ * a single timestamp centres on x. Test ids (price-chart, -line, -last,
+ * -ref-session, -ref-market, -cross) are preserved.
  */
 
-import { useId, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
-import { SETTING_KEYS, isBoolean, oneOf } from "../settings/persist";
-import { usePersistentSetting } from "../settings/usePersistentSetting";
 import { useBoxSize } from "../useBoxSize";
-import { buildPriceSeries, priceAxis, timeAxis } from "../priceSeries";
+import { buildPriceSeries, priceAxis } from "../priceSeries";
 import { formatClockNanos, formatPrice, formatQty } from "../format";
 import { barSizeNs, bucketStart, seriesBars } from "../bars";
-import type { Bar, BarSet } from "../bars";
+import type { Bar, BarSet, BarSizeId } from "../bars";
 import {
     bodyWidth,
     buildCandleView,
+    candleTickStep,
     candleTimeTicks,
     hitSlot,
+    labelClear,
     lineVwapSteps,
     nearestIndex,
     placeVwapTag,
@@ -63,15 +65,30 @@ import {
 } from "../candleView";
 import { useChartSettings } from "../chartSettings";
 import type { ChartSurface } from "../chartSettings";
+import { effectiveCandleColors, inkOn, useChartColors } from "../chartColors";
+import type { ChartBg } from "../chartColors";
+import {
+    FOLLOW_AUTO,
+    LINE_FULL,
+    isDrag,
+    panCandles,
+    panLine,
+    resolveLineWindow,
+    wheelNotches,
+    zoomCandles,
+    zoomLine,
+} from "../chartViewport";
+import type { CandlePanStart, CandleWindow, LineWindow, ResolvedLineWindow } from "../chartViewport";
+import { clockTicks, labelTicks, pickTickStep } from "../timeTicks";
 import { INDICATORS, drawableIds } from "../indicators/registry";
 import type { IndicatorDescriptor } from "../indicators/registry";
 import { layoutPanes } from "../indicators/layoutPanes";
 import type { PaneLayout } from "../indicators/layoutPanes";
 import type { TapeEntry } from "../state/reducer";
-import { ChartSettingsPopup, FILL_CHOICES, LINE_COLORS } from "./ChartSettingsPopup";
-import type { ChartBg, FillChoice } from "./ChartSettingsPopup";
+import { ChartBand } from "./ChartBand";
+import { ChartSettingsPopup } from "./ChartSettingsPopup";
 
-/** The page chart's fixed drawing size; fit mode lays out at the measured box instead. */
+/** The nominal drawing size, used until the plot is measured. */
 const NOMINAL_W = 720;
 const NOMINAL_H = 300;
 const PAD_L = 10;
@@ -80,6 +97,7 @@ const PAD_T = 14;
 const PAD_B = 26; // room for the x time labels
 const TAG_H = 18;
 const TAG_W = 58;
+const DATE_H = 15;
 const FIVE_S = barSizeNs("5s");
 
 export interface PriceChartLayout {
@@ -98,8 +116,8 @@ export interface PriceChartLayout {
 
 /**
  * The plot rectangle and axis densities for a drawing of `w` x `h` units. At the
- * nominal 720 x 300 this is exactly the pre-resize layout (6 price levels, 5 time
- * ticks); a larger floating window gets more gridlines, a smaller one fewer.
+ * nominal 720 x 300 this is exactly the pre-resize layout; a larger box gets more
+ * gridlines, a smaller one fewer.
  */
 export function priceChartLayout(w: number, h: number): PriceChartLayout {
     const VIEW_W = Math.max(w, PAD_L + PAD_R + 40);
@@ -122,17 +140,11 @@ export function priceChartLayout(w: number, h: number): PriceChartLayout {
 
 const WARN = "#e0a13c"; // Alpaca market-open reference line
 
-const isChartBg = oneOf<ChartBg>(["black", "white"]);
-const isLineColor = oneOf<string>(LINE_COLORS.map((c) => c.hex));
-const isFillChoice = oneOf<FillChoice>(FILL_CHOICES.map((f) => f.key));
-
-const GEAR_PATH =
-    "M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.82,11.69,4.82,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z";
-
 /**
  * The chart's ground-aware ink. The chart offers a black and a white ground, so its
  * neutrals are chosen per ground here rather than read from the charcoal tokens
- * (there is no global --dim, §2). dim and text serve the crosshair and readout.
+ * (there is no global --dim, §2). dim and text serve the crosshair, the readout and
+ * grey wicks.
  */
 interface Ink {
     readonly bg: string;
@@ -145,7 +157,7 @@ interface Ink {
     readonly text: string;
 }
 
-function inkFor(bg: ChartBg): Ink {
+export function inkFor(bg: ChartBg): Ink {
     return bg === "white"
         ? {
               bg: "#ffffff",
@@ -169,16 +181,6 @@ function inkFor(bg: ChartBg): Ink {
           };
 }
 
-/** Legible ink (near-black or white) for text on a coloured fill, by luminance. */
-function inkOn(hex: string): string {
-    const h = hex.replace("#", "");
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return lum > 0.6 ? "#0b0b0b" : "#ffffff";
-}
-
 const dirOf = (bar: Bar): "up" | "down" => (bar.close >= bar.open ? "up" : "down");
 
 /** A text anchor that keeps an x-axis label inside the plot near either edge. */
@@ -186,6 +188,11 @@ function labelAnchor(x: number, left: number, right: number): "start" | "middle"
     if (x - left < 26) return "start";
     if (right - x < 26) return "end";
     return "middle";
+}
+
+/** Approximate rendered width of an x-axis label (10px mono, or the 10.5px sans date tile). */
+function labelWidth(text: string, date: boolean): number {
+    return date ? text.length * 6 + 12 : text.length * 6.1;
 }
 
 interface PlotPoint {
@@ -204,14 +211,14 @@ export interface PriceChartProps {
     readonly sessionOpenPx: number;
     /** Alpaca market open in units (P11); drawn only when inside the price domain. */
     readonly openPx?: number;
-    /** When set, the view dropdown shows "View in trading" and calls this. */
+    /** When set, the band shows the View button with "View in trading", calling this. */
     readonly onViewInTrading?: () => void;
     /** When set (floating overlay), the band shows a close button that calls this. */
     readonly onClose?: () => void;
     /**
-     * Fit mode (the resizable floating window): the chart lays out at its measured
-     * box in CSS pixels, so axes, gridlines, candles and tags reflow to the window
-     * rather than a fixed drawing being scaled.
+     * Fit mode: the chart lays out at its measured box in CSS pixels, so axes,
+     * gridlines, candles and tags reflow to the box rather than a fixed drawing being
+     * scaled. The page's plot keeps a 12:5 box; the floating window fills its frame.
      */
     readonly fit?: boolean;
     /** Which surface's chart settings to use (P17 D5): the Charts page or the floating window. */
@@ -225,6 +232,18 @@ interface Hover {
     readonly sy: number;
 }
 
+/** An in-progress press on the plot: where it began and the window then on screen. */
+interface DragState {
+    readonly pointerId: number;
+    readonly x0: number;
+    readonly y0: number;
+    /** Drawing units per CSS pixel, from the svg's rect at the press. */
+    readonly scale: number;
+    readonly candle: CandlePanStart | null;
+    readonly line: ResolvedLineWindow | null;
+    moved: boolean;
+}
+
 export function PriceChart({
     tape,
     bars,
@@ -236,40 +255,42 @@ export function PriceChart({
     surface = "page",
     registry = INDICATORS,
 }: PriceChartProps) {
-    // Display settings persist across page switches and restarts, shared by the
-    // chart page and the floating overlay (UI polish D10).
-    const [bg, setBg] = usePersistentSetting<ChartBg>(SETTING_KEYS.priceChartBackground, "black", isChartBg);
-    const [lineColor, setLineColor] = usePersistentSetting<string>(
-        SETTING_KEYS.priceChartLineColor,
-        "#ffb01f",
-        isLineColor,
-    );
-    const [gradientOn, setGradientOn] = usePersistentSetting<boolean>(
-        SETTING_KEYS.priceChartGradient,
-        true,
-        isBoolean,
-    );
-    const [fill, setFill] = usePersistentSetting<FillChoice>(SETTING_KEYS.priceChartFill, "line", isFillChoice);
+    // Display settings persist, shared by the page and the floating window (§13).
+    const colors = useChartColors();
+    const { bg, lineColor, gradientOn, fill, wicks } = colors;
     // Chart settings are per surface (P17 D5).
     const settings = useChartSettings(surface, registry);
     const { chartType, barSize, indicators } = settings;
 
-    const [settingsOpen, setSettingsOpen] = useState(false);
-    const [viewOpen, setViewOpen] = useState(false);
     const [hover, setHover] = useState<Hover | null>(null);
-    const svgRef = useRef<SVGSVGElement>(null);
+    const [panning, setPanning] = useState(false);
+    // Zoom and pan: component-local, never persisted. The candle window belongs to
+    // one bar size (its buckets are that size's); switching size starts following.
+    const [cwinState, setCwinState] = useState<{ readonly size: BarSizeId; readonly win: CandleWindow }>({
+        size: barSize,
+        win: FOLLOW_AUTO,
+    });
+    const cwin = cwinState.size === barSize ? cwinState.win : FOLLOW_AUTO;
+    const setCwin = (win: CandleWindow): void => setCwinState({ size: barSize, win });
+    const [lwin, setLwin] = useState<LineWindow>(LINE_FULL);
+    const dragRef = useRef<DragState | null>(null);
+
+    const [svgEl, setSvgEl] = useState<SVGSVGElement | null>(null);
     const clipId = `pc-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
     const [plotEl, setPlotEl] = useState<HTMLDivElement | null>(null);
     const box = useBoxSize(plotEl, fit);
     const measured = fit && box.w > 0 && box.h > 0;
-    const { VIEW_W, VIEW_H, PLOT_W, PLOT_H, PLOT_LEFT, PLOT_RIGHT, PLOT_TOP, PLOT_BOTTOM, xTarget } =
-        priceChartLayout(measured ? box.w : NOMINAL_W, measured ? box.h : NOMINAL_H);
+    const { VIEW_W, VIEW_H, PLOT_W, PLOT_H, PLOT_LEFT, PLOT_RIGHT, PLOT_TOP, PLOT_BOTTOM } = priceChartLayout(
+        measured ? box.w : NOMINAL_W,
+        measured ? box.h : NOMINAL_H,
+    );
 
     const ink = inkFor(bg);
     const fillColor = fill === "line" ? lineColor : fill;
     const candles = chartType === "candles";
     const drawable = drawableIds(surface, chartType, indicators, registry);
     const vwapOn = drawable.includes("vwap");
+    const candleInk = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     // Lower panes only in candle mode (volume needs bars); price keeps >= 60%. Keyed
     // on the joined ids so a fresh drawable array each render keeps the memo stable.
@@ -286,55 +307,100 @@ export function PriceChart({
     const priceBottom = priceTop + priceH;
     const yTarget = Math.min(12, Math.max(3, Math.round(priceH / 43)));
 
-    // ---- Line geometry (P12): depends only on the tape and the price rect. ----
+    // ---- Line geometry: the tape inside the visible time window. ----
     const line = useMemo(() => {
         if (candles) return null;
         const series = buildPriceSeries(tape);
-        if (series.points.length === 0 || series.tMin === null || series.tMax === null || series.cMin === null || series.cMax === null) {
-            return null;
-        }
-        const { points, tMin, tMax, cMin, cMax } = series;
-        const yax = priceAxis(cMin, cMax, yTarget);
-        const tax = timeAxis(tMin, tMax, xTarget);
-        const { dMin, dMax } = yax;
-        const xOf = (t: number): number =>
-            tMax === tMin ? PLOT_LEFT + PLOT_W / 2 : PLOT_LEFT + ((t - tMin) / (tMax - tMin)) * PLOT_W;
-        const yOf = (px: number): number => priceBottom - ((px - dMin) / (dMax - dMin)) * priceH;
+        if (series.points.length === 0 || series.tMin === null || series.tMax === null) return null;
+        const { points, tMin, tMax } = series;
+        const win = resolveLineWindow(lwin, tMin, tMax);
+        const { lo, hi, span } = win;
         const n = tape.length;
-        const pts: PlotPoint[] = points.map((p, i) => ({
-            t: p.t,
-            px: p.pricePx,
+        // In view, plus one neighbour each side so the line runs to the plot edges.
+        let first = points.findIndex((p) => p.t >= lo);
+        if (first < 0) first = points.length - 1;
+        let last = first;
+        while (last + 1 < points.length && points[last + 1].t <= hi) last++;
+        const drawFrom = Math.max(0, first - 1);
+        const drawTo = Math.min(points.length - 1, last + 1);
+        let cMin = Infinity;
+        let cMax = -Infinity;
+        for (let i = first; i <= last; i++) {
+            if (points[i].t < lo || points[i].t > hi) continue;
+            cMin = Math.min(cMin, points[i].pricePx);
+            cMax = Math.max(cMax, points[i].pricePx);
+        }
+        if (cMin === Infinity) {
+            for (let i = drawFrom; i <= drawTo; i++) {
+                cMin = Math.min(cMin, points[i].pricePx);
+                cMax = Math.max(cMax, points[i].pricePx);
+            }
+        }
+        const yax = priceAxis(cMin, cMax, yTarget);
+        const { dMin, dMax } = yax;
+        const xOf = (t: number): number => (span <= 0 ? PLOT_LEFT + PLOT_W / 2 : PLOT_LEFT + ((t - lo) / span) * PLOT_W);
+        const yOf = (px: number): number => priceBottom - ((px - dMin) / (dMax - dMin)) * priceH;
+        const toPoint = (i: number): PlotPoint => ({
+            t: points[i].t,
+            px: points[i].pricePx,
             qty: tape[n - 1 - i].quantity,
-            x: xOf(p.t),
-            y: yOf(p.pricePx),
-        }));
-        const last = pts[pts.length - 1];
-        const linePts = pts.map((p) => `${p.x},${p.y}`).join(" ");
+            x: xOf(points[i].t),
+            y: yOf(points[i].pricePx),
+        });
+        const drawn: PlotPoint[] = [];
+        for (let i = drawFrom; i <= drawTo; i++) drawn.push(toPoint(i));
+        const inView = drawn.filter((p) => p.t >= lo && p.t <= hi);
+        const newest = toPoint(points.length - 1);
+        const linePts = drawn.map((p) => `${p.x},${p.y}`).join(" ");
         const areaPath =
-            `M ${pts[0].x} ${pts[0].y} ` +
-            pts.map((p) => `L ${p.x} ${p.y}`).join(" ") +
-            ` L ${last.x} ${priceBottom} L ${pts[0].x} ${priceBottom} Z`;
-        return { tMin, tMax, dMin, dMax, levels: yax.levels, ticks: tax.ticks, pts, last, linePts, areaPath, xOf, yOf };
-    }, [candles, tape, PLOT_LEFT, PLOT_W, priceBottom, priceH, yTarget, xTarget]);
+            drawn.length > 0
+                ? `M ${drawn[0].x} ${drawn[0].y} ` +
+                  drawn.map((p) => `L ${p.x} ${p.y}`).join(" ") +
+                  ` L ${drawn[drawn.length - 1].x} ${priceBottom} L ${drawn[0].x} ${priceBottom} Z`
+                : "";
+        const stepSec = pickTickStep(span > 0 ? PLOT_W / (span / 1_000_000_000) : 0);
+        const ticks = span > 0 ? clockTicks(lo, hi, stepSec) : [lo];
+        return {
+            tMin,
+            tMax,
+            win,
+            dMin,
+            dMax,
+            levels: yax.levels,
+            ticks,
+            stepSec,
+            drawn,
+            inView,
+            newest,
+            linePts,
+            areaPath,
+            xOf,
+            yOf,
+        };
+    }, [candles, tape, lwin, PLOT_LEFT, PLOT_W, priceBottom, priceH, yTarget]);
 
-    // ---- Candle geometry (P17-6): depends on the selected series and the plot. ----
+    // ---- Candle geometry: the selected series inside the zoom and pan window. ----
     const sizeNs = barSizeNs(barSize);
     const series = bars[barSize];
     const candle = useMemo(() => {
         if (!candles) return null;
-        const view = buildCandleView(series, PLOT_W, yTarget);
+        const view = buildCandleView(series, PLOT_W, yTarget, cwin);
         if (view === null) return null;
         const { dMin, dMax } = view;
         const yOf = (px: number): number => priceBottom - ((px - dMin) / (dMax - dMin)) * priceH;
         const xOfSlot = (slot: number): number => PLOT_LEFT + slotCentre(view, slot);
         const bw = bodyWidth(view);
-        const ticks = candleTimeTicks(view, sizeNs, xTarget).map((k) => ({ x: xOfSlot(k.slot) - view.slotW / 2, t: k.t }));
-        const last = view.bars[view.bars.length - 1].bar;
-        return { view, dMin, dMax, levels: view.levels, yOf, xOfSlot, bw, ticks, last };
-    }, [candles, series, PLOT_W, PLOT_LEFT, priceBottom, priceH, yTarget, xTarget, sizeNs]);
+        const stepSec = candleTickStep(view, sizeNs);
+        const ticks = candleTimeTicks(view, sizeNs).map((k) => ({ x: xOfSlot(k.slot) - view.slotW / 2, t: k.t }));
+        const all = seriesBars(series);
+        const newest = all[all.length - 1];
+        const lastVisible = view.bars.length > 0 ? view.bars[view.bars.length - 1].bar : newest;
+        return { view, dMin, dMax, levels: view.levels, yOf, xOfSlot, bw, ticks, stepSec, newest, lastVisible };
+    }, [candles, series, cwin, PLOT_W, PLOT_LEFT, priceBottom, priceH, yTarget, sizeNs]);
 
     // Candle and volume marks are memoised so a pointer move re-renders only the
     // crosshair and the readout, not hundreds of rects.
+    const greyWicks = wicks === "grey";
     const candleMarks = useMemo(() => {
         if (candle === null) return null;
         const { view, yOf, xOfSlot, bw } = candle;
@@ -350,23 +416,35 @@ export function PriceChart({
                     className={`price-chart__candle price-chart__candle--${dirOf(bar)}`}
                     data-testid="price-chart-candle"
                 >
-                    <line className="price-chart__wick" data-testid="price-chart-wick" x1={cx} y1={yOf(bar.high)} x2={cx} y2={yOf(bar.low)} />
+                    <line
+                        className={greyWicks ? "price-chart__wick price-chart__wick--grey" : "price-chart__wick"}
+                        data-testid="price-chart-wick"
+                        x1={cx}
+                        y1={yOf(bar.high)}
+                        x2={cx}
+                        y2={yOf(bar.low)}
+                        stroke={greyWicks ? ink.dim : undefined}
+                    />
                     <rect className="price-chart__body" data-testid="price-chart-body" x={cx - bw / 2} y={top} width={bw} height={h} />
                 </g>
             );
         });
-    }, [candle]);
+    }, [candle, greyWicks, ink.dim]);
 
     const volumePane = panes.panes.find((p) => p.id === "volume") ?? null;
+    const volTop = volumePane !== null ? PLOT_TOP + volumePane.top : null;
+    // The volume pane's own axis band: its max label just under the separator, "VOL"
+    // under that when the pane is tall enough.
+    const volMaxY = volTop !== null ? volTop + 10 : null;
+    const volWordY = volTop !== null && volumePane !== null && volumePane.height >= 34 ? volTop + 22 : null;
     const volumeMarks = useMemo(() => {
-        if (candle === null || volumePane === null) return null;
+        if (candle === null || volumePane === null || volTop === null || volMaxY === null) return null;
         const { view, xOfSlot, bw } = candle;
-        const top = PLOT_TOP + volumePane.top;
         const h = volumePane.height;
         const max = Math.max(1, view.maxVolume);
         return (
             <g className="price-chart__vol-pane" data-testid="price-chart-vol">
-                <line x1={PLOT_LEFT} y1={top} x2={PLOT_RIGHT} y2={top} stroke={ink.sep} strokeWidth="1" />
+                <line x1={PLOT_LEFT} y1={volTop} x2={PLOT_RIGHT} y2={volTop} stroke={ink.sep} strokeWidth="1" />
                 {view.bars.map(({ slot, bar }) => {
                     const vh = (bar.volume / max) * h;
                     return (
@@ -375,7 +453,7 @@ export function PriceChart({
                             className={`price-chart__vol price-chart__vol--${dirOf(bar)}`}
                             data-testid="price-chart-vol-bar"
                             x={xOfSlot(slot) - bw / 2}
-                            y={top + h - vh}
+                            y={volTop + h - vh}
                             width={bw}
                             height={vh}
                         />
@@ -385,146 +463,173 @@ export function PriceChart({
                     className="price-chart__y-label"
                     data-testid="price-chart-vol-max"
                     x={PLOT_RIGHT + 6}
-                    y={top + 8}
-                    style={{ fill: ink.axis }}
+                    y={volMaxY}
+                    style={{ fill: ink.dim }}
                     dominantBaseline="middle"
                     textAnchor="start"
                 >
                     {formatQty(view.maxVolume)}
                 </text>
+                {volWordY !== null ? (
+                    <text
+                        className="price-chart__vol-word"
+                        data-testid="price-chart-vol-word"
+                        x={PLOT_RIGHT + 6}
+                        y={volWordY}
+                        style={{ fill: ink.dim }}
+                        dominantBaseline="middle"
+                        textAnchor="start"
+                    >
+                        VOL
+                    </text>
+                ) : null}
             </g>
         );
-    }, [candle, volumePane, PLOT_TOP, PLOT_LEFT, PLOT_RIGHT, ink.sep, ink.axis]);
+    }, [candle, volumePane, volTop, volMaxY, volWordY, PLOT_LEFT, PLOT_RIGHT, ink.sep, ink.dim]);
+
+    // ---- Zoom (wheel) and pan (drag). The handlers read this render's geometry. ----
+    const toView = (clientX: number, clientY: number): Hover | null => {
+        if (svgEl === null) return null;
+        const rect = svgEl.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return null;
+        return {
+            sx: ((clientX - rect.left) / rect.width) * VIEW_W,
+            sy: ((clientY - rect.top) / rect.height) * VIEW_H,
+        };
+    };
+    const inPlot = (p: Hover): boolean =>
+        p.sx >= PLOT_LEFT && p.sx <= PLOT_RIGHT && p.sy >= PLOT_TOP && p.sy <= PLOT_BOTTOM;
+
+    const onWheel = (e: WheelEvent): boolean => {
+        const p = toView(e.clientX, e.clientY);
+        if (p === null || !inPlot(p)) return false;
+        const notches = wheelNotches(e.deltaY, e.deltaMode);
+        if (notches === 0) return true;
+        if (candle !== null) {
+            const extent = { oldest: candle.view.oldestBucket, newest: candle.view.newestBucket };
+            setCwin(zoomCandles(cwin, candle.view.slotW, notches, PLOT_W, extent));
+        } else if (line !== null) {
+            setLwin(zoomLine(lwin, notches, line.tMin, line.tMax));
+        }
+        return true;
+    };
+    const wheelRef = useRef(onWheel);
+    wheelRef.current = onWheel;
+    useEffect(() => {
+        if (svgEl === null) return;
+        const listener = (e: WheelEvent): void => {
+            if (wheelRef.current(e)) e.preventDefault();
+        };
+        svgEl.addEventListener("wheel", listener, { passive: false });
+        return () => svgEl.removeEventListener("wheel", listener);
+    }, [svgEl]);
+
+    const onDown = (e: ReactPointerEvent<SVGSVGElement>): void => {
+        if (e.button !== 0) return;
+        const p = toView(e.clientX, e.clientY);
+        if (p === null || !inPlot(p) || svgEl === null) return;
+        const rect = svgEl.getBoundingClientRect();
+        dragRef.current = {
+            pointerId: e.pointerId,
+            x0: e.clientX,
+            y0: e.clientY,
+            scale: VIEW_W / rect.width,
+            candle:
+                candle !== null
+                    ? { window: cwin, slotW: candle.view.slotW, rightBucket: candle.view.lastBucket }
+                    : null,
+            line: line !== null ? line.win : null,
+            moved: false,
+        };
+        if (typeof svgEl.setPointerCapture === "function") {
+            try {
+                svgEl.setPointerCapture(e.pointerId);
+            } catch {
+                // A synthetic pointer cannot be captured; the drag still works.
+            }
+        }
+    };
+
+    const endDrag = (e: ReactPointerEvent<SVGSVGElement>): void => {
+        const d = dragRef.current;
+        if (d === null || d.pointerId !== e.pointerId) return;
+        dragRef.current = null;
+        setPanning(false);
+        if (svgEl !== null && typeof svgEl.hasPointerCapture === "function" && svgEl.hasPointerCapture(e.pointerId)) {
+            svgEl.releasePointerCapture(e.pointerId);
+        }
+    };
 
     const onMove = (e: ReactPointerEvent<SVGSVGElement>): void => {
-        const svg = svgRef.current;
-        if (svg === null) return;
-        const rect = svg.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
-        const sx = ((e.clientX - rect.left) / rect.width) * VIEW_W;
-        const sy = ((e.clientY - rect.top) / rect.height) * VIEW_H;
-        if (sx < PLOT_LEFT || sx > PLOT_RIGHT || sy < PLOT_TOP || sy > PLOT_BOTTOM) {
-            setHover(null);
-            return;
+        const d = dragRef.current;
+        if (d !== null && d.pointerId === e.pointerId) {
+            const dxCss = e.clientX - d.x0;
+            if (!d.moved && !isDrag(dxCss, e.clientY - d.y0)) {
+                // Under the threshold: still a click, keep the crosshair.
+            } else {
+                d.moved = true;
+                setPanning(true);
+                setHover(null);
+                const dx = dxCss * d.scale;
+                if (d.candle !== null && candle !== null) {
+                    const extent = { oldest: candle.view.oldestBucket, newest: candle.view.newestBucket };
+                    setCwin(panCandles(d.candle, dx, PLOT_W, extent));
+                } else if (d.line !== null && line !== null) {
+                    setLwin(panLine(d.line, dx, PLOT_W, line.tMin, line.tMax));
+                }
+                return;
+            }
         }
-        setHover({ sx, sy });
+        const p = toView(e.clientX, e.clientY);
+        if (p === null) return;
+        setHover(inPlot(p) ? p : null);
     };
     const onLeave = (): void => setHover(null);
 
-    const band = (
-        <div className="price-chart__band">
-            <span className="price-chart__title">Price chart</span>
-            <div className="price-chart__controls">
-                {onViewInTrading ? (
-                    <div className="price-chart__view">
-                        <button
-                            type="button"
-                            className="price-chart__viewcaret"
-                            aria-haspopup="menu"
-                            aria-expanded={viewOpen}
-                            aria-label="Chart views"
-                            data-testid="pc-view-caret"
-                            onClick={() => {
-                                setViewOpen((o) => !o);
-                                setSettingsOpen(false);
-                            }}
-                        >
-                            <span className="term-caret" aria-hidden="true">{"▾"}</span>
-                        </button>
-
-                        {viewOpen && (
-                            <>
-                                <div
-                                    className="price-chart__view-backdrop"
-                                    data-testid="pc-view-backdrop"
-                                    onClick={() => setViewOpen(false)}
-                                />
-                                <div
-                                    className="field-menu__menu field-menu__menu--anchored"
-                                    role="menu"
-                                    aria-label="Chart views"
-                                    data-testid="pc-view-menu"
-                                >
-                                    {/* Navigates to the trading page and floats this chart there (App wires onViewInTrading). */}
-                                    <button
-                                        type="button"
-                                        role="menuitem"
-                                        className="field-menu__opt field-menu__opt--action"
-                                        data-testid="pc-view-trading"
-                                        onClick={() => {
-                                            setViewOpen(false);
-                                            onViewInTrading?.();
-                                        }}
-                                    >
-                                        View in trading
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                ) : null}
-
-                <button
-                    type="button"
-                    className="term-gear"
-                    aria-label="Chart settings"
-                    aria-haspopup="dialog"
-                    aria-expanded={settingsOpen}
-                    data-testid="pc-settings-gear"
-                    onClick={() => {
-                        setSettingsOpen((o) => !o);
-                        setViewOpen(false);
-                    }}
-                >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path fill="currentColor" d={GEAR_PATH} />
-                    </svg>
-                </button>
-
-                {settingsOpen && (
-                    <ChartSettingsPopup
-                        surface={surface}
-                        onClose={() => setSettingsOpen(false)}
-                        bg={bg}
-                        setBg={setBg}
-                        lineColor={lineColor}
-                        setLineColor={setLineColor}
-                        gradientOn={gradientOn}
-                        setGradientOn={setGradientOn}
-                        fill={fill}
-                        setFill={setFill}
-                        chartType={chartType}
-                        setChartType={settings.setChartType}
-                        barSize={barSize}
-                        setBarSize={settings.setBarSize}
-                        indicators={indicators}
-                        setIndicators={settings.setIndicators}
-                        registry={registry}
-                    />
-                )}
-
-                {onClose ? (
-                    <button
-                        type="button"
-                        className="price-chart__close"
-                        aria-label="Close floating chart"
-                        data-testid="pc-close"
-                        onClick={onClose}
-                    >
-                        ×
-                    </button>
-                ) : null}
-            </div>
-        </div>
+    const renderSettings = (close: () => void) => (
+        <ChartSettingsPopup
+            surface={surface}
+            onClose={close}
+            colors={colors}
+            chartType={chartType}
+            setChartType={settings.setChartType}
+            barSize={barSize}
+            setBarSize={settings.setBarSize}
+            indicators={indicators}
+            setIndicators={settings.setIndicators}
+            registry={registry}
+        />
     );
 
-    const rootClass = `price-chart price-chart--${bg}${fit ? " price-chart--fit" : ""}`;
+    const band = (
+        <ChartBand
+            surface={surface}
+            onViewInTrading={onViewInTrading}
+            onClose={onClose}
+            chartType={chartType}
+            setChartType={settings.setChartType}
+            barSize={barSize}
+            setBarSize={settings.setBarSize}
+            indicators={indicators}
+            setIndicators={settings.setIndicators}
+            registry={registry}
+            renderSettings={renderSettings}
+        />
+    );
+
+    // A picked candle colour overrides the ground's token on both grounds.
+    const rootStyle: Record<string, string> = {};
+    if (colors.candleUp !== "default") rootStyle["--candle-up"] = colors.candleUp;
+    if (colors.candleDown !== "default") rootStyle["--candle-down"] = colors.candleDown;
+    const rootClass = `price-chart price-chart--${bg}${fit ? " price-chart--fit" : ""}${
+        surface === "page" ? " price-chart--page" : ""
+    }`;
     const scene = candles ? candle : line;
 
     // Empty: a quiet frame, nothing to plot, no NaN.
     if (scene === null) {
         return (
-            <div className={rootClass}>
+            <div className={rootClass} style={rootStyle as CSSProperties} data-menu-boundary="">
                 {band}
                 <div className="price-chart__plot" ref={setPlotEl}>
                     <svg
@@ -556,16 +661,41 @@ export function PriceChart({
     const inDomain = (px: number): boolean => px >= dMin && px <= dMax;
     const sessionRef = sessionOpenPx > 0 && inDomain(sessionOpenPx) ? sessionOpenPx : null;
     const marketRef = openPx !== undefined && openPx > 0 && inDomain(openPx) ? openPx : null;
+    const following = candle !== null ? candle.view.following : line!.win.following;
 
-    // x-axis ticks: clock time, HH:MM:SS, in both modes.
-    const xTicks: readonly { readonly x: number; readonly t: number }[] =
+    // x-axis ticks: round clock steps, the first and any midnight crossing as a date.
+    const rawTicks: readonly { readonly x: number; readonly t: number }[] =
         candle !== null ? candle.ticks : line!.ticks.map((t) => ({ x: line!.xOf(t), t }));
+    const stepSec = candle !== null ? candle.stepSec : line!.stepSec;
+    const tickLabels = labelTicks(
+        rawTicks.map((k) => k.t),
+        stepSec,
+    );
+    // Drop a time label that would collide with the one before it (the date tile is wider).
+    type XLabel = { readonly x: number; readonly t: number; readonly text: string; readonly date: boolean; readonly left: number; readonly w: number };
+    const xLabels: XLabel[] = [];
+    rawTicks.forEach((k, i) => {
+        const lab = tickLabels[i];
+        const w = labelWidth(lab.text, lab.date);
+        const left = Math.max(PLOT_LEFT, Math.min(PLOT_RIGHT - w, k.x - w / 2));
+        const prev = xLabels[xLabels.length - 1];
+        if (prev !== undefined && left < prev.left + prev.w + 6) return;
+        xLabels.push({ x: k.x, t: k.t, text: lab.text, date: lab.date, left, w });
+    });
 
-    // Last price: the open bar's close (candles) or the newest print (line).
-    const lastPx = candle !== null ? candle.last.close : line!.last.px;
+    // Last price: the newest bar's close (candles) or the newest print (line), even
+    // when panned back; the tag pins to the axis edge when it is off-scale.
+    const lastPx = candle !== null ? candle.newest.close : line!.newest.px;
     const lastY = yOf(lastPx);
-    const lastDir = candle !== null ? dirOf(candle.last) : null;
+    const lastDir = candle !== null ? dirOf(candle.newest) : null;
     const tagY = Math.max(priceTop + TAG_H / 2, Math.min(priceBottom - TAG_H / 2, lastY));
+    const lastHex = lastDir === null ? lineColor : candleInk[lastDir];
+
+    // Price labels clear of the volume pane's separator and labels (decision 3).
+    const blockers: number[] = [];
+    if (volTop !== null) blockers.push(volTop);
+    if (volMaxY !== null) blockers.push(volMaxY);
+    if (volWordY !== null) blockers.push(volWordY);
 
     // VWAP overlay (P17-8): session-anchored, from the bars' recorded VWAP.
     const fiveS = bars["5s"];
@@ -576,7 +706,7 @@ export function PriceChart({
             const ps = candle.view.bars.filter((s) => s.bar.vwap >= 0).map((s) => `${candle.xOfSlot(s.slot)},${yOf(s.bar.vwap)}`);
             vwapPts = ps.length > 0 ? ps.join(" ") : null;
         } else if (line !== null) {
-            const steps = lineVwapSteps(seriesBars(fiveS), FIVE_S, line.tMin, line.tMax);
+            const steps = lineVwapSteps(seriesBars(fiveS), FIVE_S, line.win.lo, line.win.hi);
             const ps: string[] = [];
             steps.forEach((p, i) => {
                 const x = line.xOf(p.t);
@@ -589,11 +719,11 @@ export function PriceChart({
     }
     const vwapTagY = vwapPts !== null ? placeVwapTag(tagY, yOf(vwapNow), priceTop, priceBottom, TAG_H) : null;
 
-    // Crosshair (P17-10).
+    // Crosshair (P17-10), hidden while panning.
     let cross: { readonly x: number; readonly t: number; readonly py: number | null; readonly price: number | null } | null = null;
     let hoverBar: Bar | null = null;
     let hoverPrint: PlotPoint | null = null;
-    if (hover !== null) {
+    if (hover !== null && !panning) {
         const price = priceAt(hover.sy, priceTop, priceH, dMin, dMax);
         const py = price !== null ? hover.sy : null;
         if (candle !== null) {
@@ -603,19 +733,19 @@ export function PriceChart({
                 cross = { x: candle.xOfSlot(hit.slot), t: bucketStart(hit.bucket, sizeNs), py, price };
             }
         } else if (line !== null) {
-            const i = nearestIndex(line.pts.map((p) => p.x), hover.sx);
+            const i = nearestIndex(line.inView.map((p) => p.x), hover.sx);
             if (i >= 0) {
-                hoverPrint = line.pts[i];
+                hoverPrint = line.inView[i];
                 cross = { x: hoverPrint.x, t: hoverPrint.t, py, price };
             }
         }
     }
 
-    // Readout strip: the hovered bar or print, else the newest, so it always reads something.
+    // Readout strip: the hovered bar or print, else the newest in view, so it always reads something.
     type Part = readonly [key: string, value: string];
     let readout: readonly Part[];
     if (candle !== null) {
-        const b = hoverBar ?? candle.last;
+        const b = hoverBar ?? candle.lastVisible;
         const parts: Part[] = [
             ["O", formatPrice(b.open)],
             ["H", formatPrice(b.high)],
@@ -626,7 +756,7 @@ export function PriceChart({
         if (vwapOn && b.vwap >= 0) parts.push(["VWAP", formatPrice(b.vwap)]);
         readout = parts;
     } else {
-        const p = hoverPrint ?? line!.last;
+        const p = hoverPrint ?? line!.inView[line!.inView.length - 1] ?? line!.newest;
         readout = [
             ["", formatPrice(p.px)],
             ["x", formatQty(p.qty)],
@@ -636,21 +766,27 @@ export function PriceChart({
 
     const crossTagFill = ink.dim;
     const crossTagInk = inkOn(ink.dim);
+    const clip = `url(#${clipId})`;
+    const svgClass = `price-chart__svg price-chart__svg--pan${panning ? " price-chart__svg--panning" : ""}`;
 
     return (
-        <div className={rootClass}>
+        <div className={rootClass} style={rootStyle as CSSProperties} data-menu-boundary="">
             {band}
             <div className="price-chart__plot" ref={setPlotEl}>
                 <svg
-                    ref={svgRef}
-                    className="price-chart__svg"
+                    ref={setSvgEl}
+                    className={svgClass}
                     viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
                     width="100%"
                     role="img"
                     aria-label="Session price chart"
                     data-testid="price-chart"
                     data-chart-type={chartType}
+                    data-following={following ? "true" : "false"}
+                    onPointerDown={onDown}
                     onPointerMove={onMove}
+                    onPointerUp={endDrag}
+                    onPointerCancel={endDrag}
                     onPointerLeave={onLeave}
                 >
                     <defs>
@@ -665,39 +801,65 @@ export function PriceChart({
 
                     <rect x={0} y={0} width={VIEW_W} height={VIEW_H} fill={ink.bg} />
 
-                    {/* Horizontal gridlines + right-hand price labels. */}
+                    {/* Horizontal gridlines + right-hand price labels (a label is skipped near the volume pane's). */}
                     {levels.map((v) =>
                         inDomain(v) ? (
                             <g key={`y-${v}`}>
                                 <line x1={PLOT_LEFT} y1={yOf(v)} x2={PLOT_RIGHT} y2={yOf(v)} stroke={ink.grid} strokeWidth="1" />
-                                <text
-                                    className="price-chart__y-label"
-                                    x={PLOT_RIGHT + 6}
-                                    y={yOf(v)}
-                                    style={{ fill: ink.axis }}
-                                    dominantBaseline="middle"
-                                    textAnchor="start"
-                                >
-                                    {formatPrice(v)}
-                                </text>
+                                {labelClear(yOf(v), blockers) ? (
+                                    <text
+                                        className="price-chart__y-label"
+                                        data-testid="price-chart-y-label"
+                                        x={PLOT_RIGHT + 6}
+                                        y={yOf(v)}
+                                        style={{ fill: ink.axis }}
+                                        dominantBaseline="middle"
+                                        textAnchor="start"
+                                    >
+                                        {formatPrice(v)}
+                                    </text>
+                                ) : null}
                             </g>
                         ) : null,
                     )}
 
-                    {/* Vertical time ticks, labelled with clock time HH:MM:SS. */}
-                    {xTicks.map(({ x, t }) => (
-                        <g key={`t-${t}`}>
-                            <line x1={x} y1={PLOT_TOP} x2={x} y2={PLOT_BOTTOM} stroke={ink.gridV} strokeWidth="1" />
-                            <text
-                                className="price-chart__x-label"
-                                data-testid="price-chart-x-label"
-                                x={x}
-                                y={PLOT_BOTTOM + 14}
-                                style={{ fill: ink.axis }}
-                                textAnchor={labelAnchor(x, PLOT_LEFT, PLOT_RIGHT)}
-                            >
-                                {formatClockNanos(t, "s")}
-                            </text>
+                    {/* Vertical time ticks on round clock steps; the first label is the date tile. */}
+                    {xLabels.map((l) => (
+                        <g key={`t-${l.t}`}>
+                            <line x1={l.x} y1={PLOT_TOP} x2={l.x} y2={PLOT_BOTTOM} stroke={ink.gridV} strokeWidth="1" />
+                            {l.date ? (
+                                <g data-testid="price-chart-x-date">
+                                    <rect
+                                        className="price-chart__datebg"
+                                        x={l.left}
+                                        y={PLOT_BOTTOM + 4}
+                                        width={l.w}
+                                        height={DATE_H}
+                                    />
+                                    <text
+                                        className="price-chart__date"
+                                        data-testid="price-chart-x-label"
+                                        data-date="true"
+                                        x={l.left + l.w / 2}
+                                        y={PLOT_BOTTOM + 4 + DATE_H / 2}
+                                        dominantBaseline="middle"
+                                        textAnchor="middle"
+                                    >
+                                        {l.text}
+                                    </text>
+                                </g>
+                            ) : (
+                                <text
+                                    className="price-chart__x-label"
+                                    data-testid="price-chart-x-label"
+                                    x={l.x}
+                                    y={PLOT_BOTTOM + 14}
+                                    style={{ fill: ink.axis }}
+                                    textAnchor={labelAnchor(l.x, PLOT_LEFT, PLOT_RIGHT)}
+                                >
+                                    {l.text}
+                                </text>
+                            )}
                         </g>
                     ))}
 
@@ -729,8 +891,8 @@ export function PriceChart({
                         />
                     ) : null}
 
-                    {line !== null && gradientOn && line.pts.length >= 2 ? (
-                        <path className="price-chart__area" d={line.areaPath} fill="url(#pc-fill-grad)" />
+                    {line !== null && gradientOn && line.drawn.length >= 2 ? (
+                        <path className="price-chart__area" d={line.areaPath} fill="url(#pc-fill-grad)" clipPath={clip} />
                     ) : null}
 
                     {/* Dashed last-price level across the plot (Bloomberg GP signature). */}
@@ -742,6 +904,7 @@ export function PriceChart({
                             y1={lastY}
                             x2={PLOT_RIGHT}
                             y2={lastY}
+                            clipPath={clip}
                         />
                     ) : (
                         <line
@@ -755,13 +918,14 @@ export function PriceChart({
                             strokeOpacity="0.5"
                             strokeWidth="1"
                             strokeDasharray="2 3"
+                            clipPath={clip}
                         />
                     )}
 
                     {candleMarks}
                     {volumeMarks}
 
-                    {line !== null && line.pts.length >= 2 ? (
+                    {line !== null && line.drawn.length >= 2 ? (
                         <polyline
                             className="price-chart__line"
                             data-testid="price-chart-line"
@@ -771,30 +935,26 @@ export function PriceChart({
                             strokeWidth="1.6"
                             strokeLinejoin="round"
                             strokeLinecap="round"
+                            clipPath={clip}
                         />
                     ) : null}
 
-                    {line !== null ? (
+                    {line !== null && line.win.following ? (
                         <circle
                             className="price-chart__last"
                             data-testid="price-chart-last"
-                            cx={line.last.x}
-                            cy={line.last.y}
+                            cx={line.newest.x}
+                            cy={line.newest.y}
                             r="3"
                             fill={lineColor}
                         />
                     ) : null}
 
                     {vwapPts !== null ? (
-                        <polyline
-                            className="price-chart__vwap"
-                            data-testid="price-chart-vwap"
-                            points={vwapPts}
-                            clipPath={`url(#${clipId})`}
-                        />
+                        <polyline className="price-chart__vwap" data-testid="price-chart-vwap" points={vwapPts} clipPath={clip} />
                     ) : null}
 
-                    {/* Last-price tag on the right axis. */}
+                    {/* Last-price tag on the right axis; its ink is chosen by luminance. */}
                     {lastDir !== null ? (
                         <g data-testid="price-chart-tag">
                             <rect
@@ -807,8 +967,10 @@ export function PriceChart({
                             />
                             <text
                                 className={`price-chart__tag price-chart__tag--${lastDir}`}
+                                data-testid="price-chart-tag-text"
                                 x={PLOT_RIGHT + 30}
                                 y={tagY}
+                                style={{ fill: inkOn(lastHex) }}
                                 dominantBaseline="middle"
                                 textAnchor="middle"
                             >
@@ -820,6 +982,7 @@ export function PriceChart({
                             <rect x={PLOT_RIGHT + 1} y={tagY - TAG_H / 2} width={TAG_W} height={TAG_H} rx="2" fill={lineColor} />
                             <text
                                 className="price-chart__tag"
+                                data-testid="price-chart-tag-text"
                                 x={PLOT_RIGHT + 30}
                                 y={tagY}
                                 fill={inkOn(lineColor)}
@@ -943,6 +1106,25 @@ export function PriceChart({
                         </g>
                     ) : null}
                 </svg>
+
+                {!following ? (
+                    <button
+                        type="button"
+                        className="chart-btn price-chart__latest"
+                        data-testid="pc-latest"
+                        style={{
+                            right: `${((VIEW_W - PLOT_RIGHT + 6) / VIEW_W) * 100}%`,
+                            top: `${((priceBottom - 28) / VIEW_H) * 100}%`,
+                        }}
+                        onClick={() => {
+                            if (candles) setCwin({ slotW: cwin.slotW, rightBucket: null });
+                            else setLwin({ spanNs: lwin.spanNs, rightT: null });
+                        }}
+                    >
+                        Latest
+                        <span aria-hidden="true">{" ⇥"}</span>
+                    </button>
+                ) : null}
             </div>
         </div>
     );

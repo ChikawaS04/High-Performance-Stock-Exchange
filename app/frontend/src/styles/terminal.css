@@ -1874,6 +1874,22 @@ body {
 }
 .field-menu__menu--compact .field-menu__opt { font-size: 11px; }
 
+/* Option icons (Charts follow-up): an inline 14px currentColor SVG before the label,
+   in the list and in the trigger. The row keeps the list's padding and type size. */
+.field-menu__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+}
+.field-menu__icon svg { display: block; }
+.field-menu__opt--icon {
+    display: flex;
+    align-items: center;
+}
+.field-menu--icon-only .field-menu__icon { margin-right: 0; }
+
 .order-entry__presets {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -3960,6 +3976,7 @@ body {
 .price-chart__band {
     position: relative;
     display: flex;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 10px;
     min-height: 30px;
@@ -3969,6 +3986,10 @@ body {
     border-radius: 4px 4px 0 0;
 }
 .price-chart__title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--sans);
     font-size: 10px;
     font-weight: 600;
@@ -3979,34 +4000,65 @@ body {
 .price-chart__controls {
     margin-left: auto;
     display: inline-flex;
+    flex-shrink: 0;
     align-items: center;
-    gap: 2px;
+    gap: 6px;
+    white-space: nowrap;
+}
+/* 1px --hair-strong divider between band control groups (Charts follow-up). */
+.price-chart__divider {
+    width: 1px;
+    height: 16px;
+    background: var(--hair-strong);
 }
 /* The gear's own margin-left:auto would split it from the caret; neutralise it so
    the caret sits immediately left of the gear, spaced by the flex gap. */
 .price-chart__controls .term-gear { margin-left: 0; }
 
-/* §9 caret "view" menu: a bare glyph that blends into the band, opening the
-   standard white pick-list (§11.5) downward. */
-.price-chart__view { position: relative; display: inline-flex; }
-.price-chart__viewcaret {
+/* Band buttons (View, Indicators, Latest): the §4 raised charcoal control, the
+   per-row action style, sized for the band. Pressed or open, the gradient inverts. */
+.chart-btn {
     appearance: none;
-    background: transparent;
-    border: 0;
-    padding: 3px 4px;
-    cursor: pointer;
-    color: var(--text);
-    line-height: 0;
     display: inline-flex;
     align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--hair-strong);
     border-radius: 3px;
+    background: linear-gradient(var(--raise-top), var(--raise-bot));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    color: #ffffff;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: normal;
+    white-space: nowrap;
+    cursor: pointer;
 }
-.price-chart__viewcaret:hover { color: #f0f0f0; }
-.price-chart__view-backdrop { position: fixed; inset: 0; z-index: 35; background: transparent; }
-/* The view menu is the shared white list (.field-menu__menu--anchored, §9). */
+.chart-btn:hover { filter: brightness(1.12); }
+.chart-btn:active,
+.chart-btn[aria-expanded="true"] {
+    background: linear-gradient(var(--raise-bot), var(--raise-top));
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.chart-btn--icon { padding: 0 6px; }
+.chart-btn__caret { color: var(--text); margin-right: -2px; }
+.chart-btn .chart-icon { display: block; flex-shrink: 0; }
 
-/* Plot body: the svg fills it; clip to the card's rounded bottom. */
+/* View: the white §11.5 list as a menu, portalled and placed under the button. */
+.price-chart__view { position: relative; display: inline-flex; }
+.price-chart__view-backdrop { position: fixed; inset: 0; z-index: 35; background: transparent; }
+
+/* Indicators: the popup anchors under its button, right edges aligned. */
+.price-chart__ind { position: relative; display: inline-flex; }
+.settings-pop--ind { right: 0; width: 230px; }
+.settings-pop--ind .settings-pop__panel { padding: 6px 10px 8px; }
+
+/* Plot body: the svg fills it; clip to the card's rounded bottom. Relative for the
+   Latest button. */
 .price-chart__plot {
+    position: relative;
     overflow: hidden;
     border-radius: 0 0 4px 4px;
     line-height: 0;
@@ -4021,8 +4073,37 @@ body {
     font-weight: 600;
 }
 
-/* Settings popup, chart variant: a touch wider for the swatch grids. */
-.settings-pop--chart { width: 244px; }
+/* Settings popup, chart variant: a touch wider for the colour chips. */
+.settings-pop--chart { width: 260px; }
+
+/* Display sub-labels (Candles, Line): dim small caps over their rows. */
+.settings-pop__sub {
+    padding: 8px 0 2px;
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dim, #8f8f8f);
+}
+
+/* Footer with a text action left of Done (Reset colors). */
+.settings-pop__foot--split {
+    justify-content: space-between;
+    align-items: center;
+}
+.settings-pop__textbtn {
+    appearance: none;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 11px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.settings-pop__textbtn:hover { color: #ffffff; }
 
 /* Toggle labels that are words, not units, read in sans (§11.3: White / Black). */
 .settings-toggle__opt--sans { font-family: var(--sans); }
@@ -4036,21 +4117,108 @@ body {
 /* Disabled row (fill colour while area fill is off). */
 .settings-pop__row--disabled { opacity: 0.4; pointer-events: none; }
 
-/* Colour swatches: small raised chips; the selected one gets the §11 blue ring. */
-.settings-swatches { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
-.settings-swatch {
-    width: 18px;
+/* Colour chip (Charts follow-up): a sunken §4 well holding a swatch and the hex,
+   opening the palette popup anchored under it. */
+.color-chip__anchor { position: relative; display: inline-flex; }
+.color-chip {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 20px;
+    padding: 0 5px 0 3px;
+    border: 1px solid var(--hair);
+    border-radius: 3px;
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+}
+.color-chip__swatch {
+    display: inline-block;
+    width: 22px;
+    height: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.color-chip__caret { font-size: 9px; color: var(--dim, #8f8f8f); }
+
+/* Palette popup: the §10 chrome, small. 42 swatches in six columns, Recent, Hex. */
+.color-pop {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 45;
+    width: 186px;
+    background: var(--pop-body);
+    border: 1px solid #808080;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+}
+.color-pop__head { height: 24px; }
+.color-pop__grid {
+    display: grid;
+    grid-template-columns: repeat(6, 22px);
+    gap: 5px;
+    padding: 8px;
+}
+.color-pop__sw {
+    width: 22px;
     height: 18px;
     padding: 0;
-    border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(0, 0, 0, 0.6);
+    border-radius: 2px;
     cursor: pointer;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
-.settings-swatch--on {
-    border-color: #ffffff;
-    box-shadow: 0 0 0 2px var(--pop-body), 0 0 0 3px var(--quote-bid);
+.color-pop__sw--on { box-shadow: 0 0 0 1px #ffffff, 0 0 0 2px var(--quote-bid); }
+.color-pop .color-pop__label {
+    display: block;
+    margin: 0;
+    padding: 0 8px 4px;
 }
+.color-pop__recent {
+    display: flex;
+    gap: 5px;
+    min-height: 18px;
+    padding: 0 8px 8px;
+}
+.color-pop__hexrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px 10px;
+}
+.color-pop__hexrow .color-pop__label { padding: 0; }
+.color-pop__hex {
+    width: 96px;
+    height: 20px;
+    box-sizing: border-box;
+    padding: 0 6px;
+    border: 1px solid var(--hair);
+    border-radius: 0;
+    background: var(--well);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    font-family: var(--mono);
+    font-size: 11px;
+    outline: none;
+}
+.color-pop__match {
+    appearance: none;
+    display: block;
+    width: calc(100% - 16px);
+    margin: 8px 8px 0;
+    padding: 3px 6px;
+    border: 1px solid var(--hair-strong);
+    background: transparent;
+    color: #ffffff;
+    font-family: var(--sans);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+}
+.color-pop__match--on { border-color: var(--quote-bid); }
 
 /* Readout strip (P17 D11): top left of the price area, mono tabular ~10px. The
    key letters take the chart's dim ink and the values its text ink (set inline from
@@ -4088,16 +4256,13 @@ body {
 .price-chart__level--up { stroke: var(--candle-up); }
 .price-chart__level--down { stroke: var(--candle-down); }
 
-/* Axis tags. Each fill sets its legible ink once, by luminance: dark on the bright
-   black-ground green and the light violet, white on the reds and on every
-   white-ground value. */
+/* Axis tags. The candle tags' ink is chosen by luminance in PriceChart (inline),
+   since the up and down colours may be any pick; the VWAP tag sets its ink here:
+   dark on the light violet, white on the white-ground violet. */
 .price-chart__tagbg--up { fill: var(--candle-up); }
 .price-chart__tagbg--down { fill: var(--candle-down); }
 .price-chart__tagbg--vwap { fill: var(--vwap); }
-.price-chart__tag--up { fill: #0b0b0b; }
-.price-chart__tag--down { fill: #ffffff; }
 .price-chart__tag--vwap { fill: #0b0b0b; }
-.price-chart--white .price-chart__tag--up,
 .price-chart--white .price-chart__tag--vwap { fill: #ffffff; }
 
 .price-chart__vwap {
@@ -4105,6 +4270,40 @@ body {
     stroke: var(--vwap);
     stroke-width: 1;
     stroke-linejoin: round;
+}
+
+/* Date tile on the time axis (Charts follow-up): the §2 head tile, --head ground,
+   --hair-strong border, white sans. */
+.price-chart__datebg {
+    fill: var(--head);
+    stroke: var(--hair-strong);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+.price-chart__date {
+    fill: #ffffff;
+    font-family: var(--sans);
+    font-size: 10.5px;
+}
+/* The volume pane's axis word. */
+.price-chart__vol-word {
+    font-family: var(--sans);
+    font-size: 9px;
+}
+
+/* Zoom and pan: a grab cursor over the plot, grabbing while dragging. Vertical
+   touch scrolling still works. */
+.price-chart__svg--pan {
+    cursor: grab;
+    touch-action: pan-y;
+}
+.price-chart__svg--panning { cursor: grabbing; }
+
+/* Latest: a raised button at the bottom right of the price area, shown only while
+   the chart is not following the newest bar. */
+.price-chart__latest {
+    position: absolute;
+    z-index: 2;
 }
 
 /* Settings popup notes (P17-9): the dim "Candles only" beside a name, and the
@@ -4314,6 +4513,13 @@ body {
     width: 100%;
     height: 100%;
     aspect-ratio: auto;
+}
+/* The Charts page in fit mode (Charts follow-up): the plot box keeps the 12:5 shape
+   and the chart draws at that box's real size, so labels are their true 10px. */
+.price-chart--page.price-chart--fit { height: auto; }
+.price-chart--page.price-chart--fit .price-chart__plot {
+    flex: none;
+    aspect-ratio: 12 / 5;
 }
 
 /* --------------------------------------------------------------------------

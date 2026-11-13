@@ -38,6 +38,8 @@
  *
  * P17: the chart reads the bars slice on the page surface's own chart settings,
  * and the side panel gains the session VWAP row (sessionNotional / sessionVolume).
+ * Charts follow-up: the chart draws in fit mode at its real size (a 12:5 plot box,
+ * measured), so labels read at their true pixel size rather than a scaled drawing.
  *
  * An order submitted here goes through App's one handleSubmit, so it is the same
  * wire path as the Trading page: it appears in the blotter and open orders when
@@ -85,6 +87,7 @@ export function ChartsPage({
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
                     onViewInTrading={onViewInTrading}
+                    fit
                 />
             </section>
 

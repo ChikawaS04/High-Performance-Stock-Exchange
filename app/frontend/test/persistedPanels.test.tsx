@@ -77,17 +77,22 @@ describe("persisted panel settings survive a page switch (D10)", () => {
         const { unmount } = render(ui());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
         fireEvent.click(screen.getByTestId("pc-bg-white"));
+        // Colour rows open the shared palette from their chip (Charts follow-up).
+        fireEvent.click(screen.getByTestId("pc-line-chip"));
         fireEvent.click(screen.getByTestId("pc-line-#3b93ff"));
-        fireEvent.click(screen.getByTestId("pc-grad-off"));
+        fireEvent.click(screen.getByTestId("pc-fill-chip"));
         fireEvent.click(screen.getByTestId("pc-fill-#12d170"));
+        fireEvent.click(screen.getByTestId("pc-grad-off"));
         unmount();
 
         render(ui());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
         expect(screen.getByTestId("pc-bg-white").getAttribute("aria-pressed")).toBe("true");
+        fireEvent.click(screen.getByTestId("pc-line-chip"));
         expect(screen.getByTestId("pc-line-#3b93ff").getAttribute("aria-checked")).toBe("true");
         expect(screen.getByTestId("pc-grad-off").getAttribute("aria-pressed")).toBe("true");
-        expect(screen.getByTestId("pc-fill-#12d170").getAttribute("aria-checked")).toBe("true");
+        // Fill color is disabled while Area fill is off; its chip still reads the stored colour.
+        expect(screen.getByTestId("pc-fill-chip").textContent).toContain("#12D170");
     });
 
     it("depth chart background", () => {

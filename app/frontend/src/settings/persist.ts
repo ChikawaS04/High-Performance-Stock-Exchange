@@ -33,6 +33,13 @@ export const SETTING_KEYS = {
     priceChartLineColor: settingKey("priceChart", "lineColor"),
     priceChartGradient: settingKey("priceChart", "gradient"),
     priceChartFill: settingKey("priceChart", "fill"),
+    // Candle colours, wicks and the palette's recent picks (Charts follow-up), shared
+    // by the page and the window like the other display settings. Read through
+    // chartColors.useChartColors.
+    priceChartCandleUp: settingKey("priceChart", "candleUp"),
+    priceChartCandleDown: settingKey("priceChart", "candleDown"),
+    priceChartWicks: settingKey("priceChart", "wicks"),
+    priceChartRecentColors: settingKey("priceChart", "recentColors"),
     // Per-surface chart settings (P17-4): the Charts page under priceChart, the
     // floating window under priceWindow. Read through chartSettings.useChartSettings.
     priceChartChartType: settingKey("priceChart", "chartType"),

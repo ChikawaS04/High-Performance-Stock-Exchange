@@ -111,12 +111,17 @@ describe("candle rendering (P17-6)", () => {
         expect(screen.getByTestId("price-chart-tag").querySelector("rect")!.getAttribute("class")).toContain("--down");
     });
 
-    it("labels the time axis in clock time at bar boundaries", () => {
-        renderPage(session());
-        const labels = screen.getAllByTestId("price-chart-x-label").map((l) => l.textContent);
-        expect(labels.length).toBeGreaterThan(0);
-        for (const l of labels) expect(l).toMatch(/^\d{2}:\d{2}:\d{2}$/);
-        expect(labels).toContain(formatClockNanos(T0, "s"));
+    it("labels the time axis in clock time at bar boundaries, the first label as the date", () => {
+        // Forty 15s bars: at the 646px plot's 16px slots, 1m ticks sit 64px apart, so
+        // the step is 2m (128px) and the labels read HH:MM (Charts follow-up, decision 4).
+        const actions: Action[] = [];
+        for (let i = 0; i < 40; i++) actions.push(fill(T0 + i * NS + S, 1_000_000 + (i % 5) * 100, 1));
+        renderPage(actions.reduce(reducer, initialState));
+        const labels = screen.getAllByTestId("price-chart-x-label");
+        expect(labels.length).toBeGreaterThan(1);
+        expect(labels[0].getAttribute("data-date")).toBe("true");
+        expect(labels[0].textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}$/);
+        for (const l of labels.slice(1)) expect(l.textContent).toMatch(/^\d{2}:\d{2}$/);
     });
 
     it("shows the No trades yet state with no bars", () => {
@@ -130,7 +135,11 @@ describe("candle rendering (P17-6)", () => {
         renderPage(session());
         expect(screen.getByTestId("price-chart-line")).not.toBeNull();
         expect(screen.queryByTestId("price-chart-candle")).toBeNull();
-        for (const l of screen.getAllByTestId("price-chart-x-label")) expect(l.textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+        // The 46s tape across the 646px plot is 14px a second: 10s ticks, so HH:MM:SS
+        // after the first label's date tile.
+        const labels = screen.getAllByTestId("price-chart-x-label");
+        expect(labels[0].getAttribute("data-date")).toBe("true");
+        for (const l of labels.slice(1)) expect(l.textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/);
     });
 
     it("follows the selected bar size", () => {

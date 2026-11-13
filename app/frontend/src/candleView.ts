@@ -16,11 +16,21 @@
  * Price domain. The visible highs and lows only, padded 5% each side and then
  * snapped to round levels by priceAxis (which also guards a flat or one-bar
  * series with its minimum span). Reference lines and VWAP never widen it.
+ *
+ * Zoom and pan (Charts follow-up, decisions 7 and 8). An optional window fixes the
+ * slot width and the right-edge bucket (chartViewport.ts). With a fixed slot width
+ * the view spans exactly the slots that fit, ending at the right edge; when the
+ * history is shorter it starts at the oldest bar and stays right-aligned. With no
+ * window (or slotW null) it is the P17 auto fit above, following the newest bar.
+ * The y axis always refits to the bars in view.
  */
 
 import type { Bar, BarSeries } from "./bars";
 import { bucketStart, seriesBars } from "./bars";
-import { priceAxis, TIME_STEPS_SEC } from "./priceSeries";
+import { priceAxis } from "./priceSeries";
+import { clampRightBucket, clampSlotW, slotsThatFit } from "./chartViewport";
+import type { CandleWindow } from "./chartViewport";
+import { pickTickStep } from "./timeTicks";
 
 export const MIN_SLOT = 5;
 export const MAX_SLOT = 16;
@@ -33,7 +43,13 @@ export interface CandleSlot {
 
 export interface CandleView {
     readonly firstBucket: number;
+    /** The right-edge bucket in view (the newest bar while following). */
     readonly lastBucket: number;
+    /** The series' oldest and newest buckets, for the pan and zoom clamps. */
+    readonly oldestBucket: number;
+    readonly newestBucket: number;
+    /** True when the right edge is the newest bar. */
+    readonly following: boolean;
     readonly slotCount: number;
     readonly slotW: number;
     /** Plot-relative x where slot 0 starts (non-zero when slots are capped and right-aligned). */
@@ -46,32 +62,55 @@ export interface CandleView {
     readonly maxVolume: number;
 }
 
-/** The visible candle window for a plot `plotW` pixels wide, or null with no bars. */
-export function buildCandleView(series: BarSeries, plotW: number, yTarget = 6): CandleView | null {
+/**
+ * The visible candle window for a plot `plotW` pixels wide, or null with no bars.
+ * `win` is the zoom and pan state (chartViewport.ts); omitted, it is the auto fit.
+ */
+export function buildCandleView(
+    series: BarSeries,
+    plotW: number,
+    yTarget = 6,
+    win: CandleWindow = { slotW: null, rightBucket: null },
+): CandleView | null {
     const all = seriesBars(series);
     if (all.length === 0 || !(plotW > 0)) return null;
 
-    const maxSlots = Math.max(1, Math.floor(plotW / MIN_SLOT));
-    const lastBucket = all[all.length - 1].bucket;
+    const oldestBucket = all[0].bucket;
+    const newestBucket = all[all.length - 1].bucket;
+    const extent = { oldest: oldestBucket, newest: newestBucket };
+    const fixedW = win.slotW === null ? null : clampSlotW(win.slotW);
+    const maxSlots = fixedW === null ? Math.max(1, Math.floor(plotW / MIN_SLOT)) : slotsThatFit(plotW, fixedW);
+    const lastBucket =
+        win.rightBucket === null ? newestBucket : (clampRightBucket(win.rightBucket, extent, maxSlots) ?? newestBucket);
     const oldestAllowed = lastBucket - maxSlots + 1;
 
     const bars: CandleSlot[] = [];
-    let firstBucket = lastBucket;
+    let firstBucket = fixedW === null ? lastBucket : Math.max(oldestBucket, oldestAllowed);
+    let carry: Bar | null = null;
     for (const b of all) {
-        if (b.bucket < oldestAllowed) continue;
-        if (bars.length === 0) firstBucket = b.bucket;
+        if (b.bucket > lastBucket) break;
+        if (b.bucket < oldestAllowed) {
+            carry = b;
+            continue;
+        }
+        if (bars.length === 0 && fixedW === null) firstBucket = b.bucket;
         bars.push({ slot: b.bucket - firstBucket, bar: b });
     }
     const slotCount = lastBucket - firstBucket + 1;
-    const slotW = Math.min(MAX_SLOT, plotW / slotCount);
+    const slotW = fixedW ?? Math.min(MAX_SLOT, plotW / slotCount);
     const offset = plotW - slotCount * slotW;
 
+    // The domain comes from the bars in view; a view that falls wholly in a gap
+    // takes the last bar before it, so the axis never collapses.
+    const domainBars = bars.length > 0 ? bars.map((x) => x.bar) : carry !== null ? [carry] : [all[0]];
     let lo = Infinity;
     let hi = -Infinity;
     let maxVolume = 0;
-    for (const { bar } of bars) {
+    for (const bar of domainBars) {
         if (bar.low < lo) lo = bar.low;
         if (bar.high > hi) hi = bar.high;
+    }
+    for (const { bar } of bars) {
         if (bar.volume > maxVolume) maxVolume = bar.volume;
     }
     const pad = Math.round((hi - lo) * 0.05);
@@ -80,6 +119,9 @@ export function buildCandleView(series: BarSeries, plotW: number, yTarget = 6): 
     return {
         firstBucket,
         lastBucket,
+        oldestBucket,
+        newestBucket,
+        following: lastBucket === newestBucket,
         slotCount,
         slotW,
         offset,
@@ -108,21 +150,23 @@ export interface CandleTick {
 }
 
 /**
- * Time-axis ticks at bar boundaries, on round clock steps. The step is the smallest
- * TIME_STEPS_SEC entry that is a whole number of bars and keeps the count near
- * `target`. A bucket is a tick when its index is a multiple of the bars per step,
- * which on clock-aligned buckets means its start is a round clock time.
+ * The candle time-axis step in seconds (Charts follow-up, decision 4): the smallest
+ * round clock step that is a whole number of bars and puts labels at least
+ * `minGapPx` apart at the view's slot width.
  */
-export function candleTimeTicks(view: CandleView, sizeNs: number, target = 5): readonly CandleTick[] {
+export function candleTickStep(view: CandleView, sizeNs: number, minGapPx?: number): number {
     const sizeSec = sizeNs / 1_000_000_000;
-    const ideal = (view.slotCount * sizeSec) / Math.max(1, target);
-    let stepSec = TIME_STEPS_SEC[TIME_STEPS_SEC.length - 1];
-    for (const s of TIME_STEPS_SEC) {
-        if (s >= ideal && s % sizeSec === 0) {
-            stepSec = s;
-            break;
-        }
-    }
+    return pickTickStep(view.slotW / sizeSec, sizeSec, minGapPx);
+}
+
+/**
+ * Time-axis ticks at bar boundaries, on the candleTickStep. A bucket is a tick when
+ * its index is a multiple of the bars per step, which on clock-aligned buckets means
+ * its start is a round clock time.
+ */
+export function candleTimeTicks(view: CandleView, sizeNs: number, minGapPx?: number): readonly CandleTick[] {
+    const sizeSec = sizeNs / 1_000_000_000;
+    const stepSec = candleTickStep(view, sizeNs, minGapPx);
     const per = Math.max(1, Math.round(stepSec / sizeSec));
     const ticks: CandleTick[] = [];
     const start = Math.ceil(view.firstBucket / per) * per;
@@ -229,4 +273,13 @@ export function placeVwapTag(lastY: number, vwapY: number, top: number, bottom: 
         else y = below <= hi ? below : above;
     }
     return y;
+}
+
+/**
+ * True when a price-axis label at `y` keeps at least `gap` from every blocker (the
+ * volume pane's separator and its axis labels), so labels never overlap (Charts
+ * follow-up, decision 3).
+ */
+export function labelClear(y: number, blockers: readonly number[], gap = 12): boolean {
+    return blockers.every((b) => Math.abs(y - b) >= gap);
 }

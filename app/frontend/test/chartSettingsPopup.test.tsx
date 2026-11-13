@@ -73,13 +73,16 @@ describe("Chart type and Bar size rows (P17-9)", () => {
             "pc-settings-backdrop",
             "pc-bg-black",
             "pc-bg-white",
-            "pc-line-#ffb01f",
             "pc-grad-on",
             "pc-grad-off",
-            "pc-fill-line",
         ]) {
             expect(screen.getByTestId(id)).not.toBeNull();
         }
+        // The swatch ids now live in each row's palette, opened from its chip.
+        fireEvent.click(screen.getByTestId("pc-line-chip"));
+        expect(screen.getByTestId("pc-line-#ffb01f")).not.toBeNull();
+        fireEvent.click(screen.getByTestId("pc-fill-chip"));
+        expect(screen.getByTestId("pc-fill-line")).not.toBeNull();
     });
 });
 
