@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { Navbar } from "../src/components/Navbar";
 import { TradingPage } from "../src/pages/TradingPage";
-import { PriceChartPage } from "../src/pages/PriceChartPage";
+import { ChartsPage } from "../src/pages/ChartsPage";
 import { PAGE_NAMES } from "../src/documentTitle";
 import { initialState } from "../src/state/reducer";
 
@@ -29,8 +29,8 @@ function renderShell(path: string) {
                     }
                 />
                 <Route
-                    path="/chart"
-                    element={<PriceChartPage state={initialState} onSubmitOrder={vi.fn()} />}
+                    path="/charts"
+                    element={<ChartsPage state={initialState} onSubmitOrder={vi.fn()} />}
                 />
             </Routes>
         </MemoryRouter>,
@@ -43,8 +43,8 @@ describe("browser tab title follows the routed page (DESIGN_SYSTEM.md §15.6)", 
         renderShell("/trading");
         expect(document.title).toBe("ASML · Trading | directROUTE");
 
-        fireEvent.click(screen.getByRole("link", { name: "Price Chart" }));
-        expect(document.title).toBe("ASML · Price Chart | directROUTE");
+        fireEvent.click(screen.getByRole("link", { name: "Charts" }));
+        expect(document.title).toBe("ASML · Charts | directROUTE");
 
         fireEvent.click(screen.getByRole("link", { name: "Trading" }));
         expect(document.title).toBe("ASML · Trading | directROUTE");
@@ -53,6 +53,6 @@ describe("browser tab title follows the routed page (DESIGN_SYSTEM.md §15.6)", 
     it("uses the same page-name constants the Navbar renders", () => {
         renderShell("/trading");
         const labels = screen.getAllByRole("link").map((a) => a.textContent);
-        expect(labels).toEqual([PAGE_NAMES.trading, PAGE_NAMES.priceChart]);
+        expect(labels).toEqual([PAGE_NAMES.trading, PAGE_NAMES.charts]);
     });
 });

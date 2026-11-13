@@ -33,12 +33,14 @@ function unsetInput(over: Partial<SessionStatsInput> = {}): SessionStatsInput {
         sessionHighPx: SESSION_OPEN_UNSET,
         sessionLowPx: SESSION_OPEN_UNSET,
         sessionTradeCount: 0,
+        sessionNotional: 0n,
+        sessionVolume: 0,
         ...over,
     };
 }
 
 describe("buildSessionStats", () => {
-    it("formats all five fields from a populated session", () => {
+    it("formats all six fields from a populated session", () => {
         const model = buildSessionStats({
             // Newest first, so 150.25 x 4 is the last trade.
             tape: [
@@ -49,11 +51,15 @@ describe("buildSessionStats", () => {
             sessionHighPx: 1507500,
             sessionLowPx: 1492500,
             sessionTradeCount: 12,
+            // 20 shares at a 150.25 average: VWAP 150.25.
+            sessionNotional: 30_050_000n,
+            sessionVolume: 20,
         });
 
         expect(model).toEqual({
             high: "150.75",
             low: "149.25",
+            vwap: "150.25",
             trades: "12",
             lastPrice: "150.25",
             lastSize: "4",
@@ -82,6 +88,8 @@ describe("buildSessionStats", () => {
             sessionHighPx: 1507500,
             sessionLowPx: 1492500,
             sessionTradeCount: 7,
+            sessionNotional: 0n,
+            sessionVolume: 0,
         });
 
         expect(model.high).toBe("150.75");
@@ -97,6 +105,8 @@ describe("buildSessionStats", () => {
             sessionHighPx: 1015000,
             sessionLowPx: 1015000,
             sessionTradeCount: 1,
+            sessionNotional: 0n,
+            sessionVolume: 0,
         });
 
         expect(model.high).toBe("101.50");
@@ -114,6 +124,8 @@ describe("buildSessionStats", () => {
             sessionHighPx: 1500000,
             sessionLowPx: 1500000,
             sessionTradeCount: 1240,
+            sessionNotional: 0n,
+            sessionVolume: 0,
         });
 
         expect(model.trades).toBe("1,240");
@@ -138,6 +150,8 @@ describe("buildSessionStats", () => {
             sessionHighPx: 2000000,
             sessionLowPx: 1000000,
             sessionTradeCount: 3,
+            sessionNotional: 0n,
+            sessionVolume: 0,
         });
 
         expect(model.lastPrice).toBe("200.00");
@@ -150,6 +164,8 @@ describe("buildSessionStats", () => {
             sessionHighPx: 500,
             sessionLowPx: 500,
             sessionTradeCount: 1,
+            sessionNotional: 0n,
+            sessionVolume: 0,
         });
 
         expect(model.high).toBe("0.05");
@@ -163,6 +179,8 @@ describe("buildSessionStats", () => {
             sessionHighPx: 1502500,
             sessionLowPx: 1502500,
             sessionTradeCount: 1,
+            sessionNotional: 0n,
+            sessionVolume: 0,
         };
 
         const first = buildSessionStats(input);
@@ -172,5 +190,17 @@ describe("buildSessionStats", () => {
         expect(input.tape).toBe(tape);
         expect(tape).toHaveLength(1);
         expect(tape[0]).toEqual(entry({ pricePx: 1502500, quantity: 4 }));
+    });
+});
+
+describe("buildSessionStats VWAP (P17-8)", () => {
+    it("is the dash before the first fill", () => {
+        expect(buildSessionStats(unsetInput()).vwap).toBe(EMPTY_PRICE);
+    });
+
+    it("is notional over volume, rounded half up to a $0.0001 unit", () => {
+        // (1,500,000 x 1 + 1,500,001 x 1) / 2 = 1,500,000.5 -> 1,500,001 units = 150.0001
+        const m = buildSessionStats(unsetInput({ sessionNotional: 3_000_001n, sessionVolume: 2 }));
+        expect(m.vwap).toBe("150.0001");
     });
 });

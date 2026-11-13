@@ -1,5 +1,6 @@
 /**
- * Price chart page (P10-4 scaffold, P12-3 chart fill, P13-4 panel fill).
+ * Charts page (P10-4 scaffold, P12-3 chart fill, P13-4 panel fill, renamed from
+ * the Price Chart page at P17-1; the chart panel keeps the title "Price chart").
  *
  * A two-region layout, the chart region (left) and the side-panel region (right).
  * P12-3 filled the chart region with <PriceChart>, fed from the shared reducer
@@ -35,6 +36,9 @@
  * the bound handler and the display-only preview. The only protocol import this
  * page gains is the OrderIntent type in the handler signature (P14-6).
  *
+ * P17: the chart reads the bars slice on the page surface's own chart settings,
+ * and the side panel gains the session VWAP row (sessionNotional / sessionVolume).
+ *
  * An order submitted here goes through App's one handleSubmit, so it is the same
  * wire path as the Trading page: it appears in the blotter and open orders when
  * navigating back, and its fill prints on the tape, the chart and these stats.
@@ -54,7 +58,7 @@ import { OrderEntry } from "../components/OrderEntry";
 import { PAGE_NAMES } from "../documentTitle";
 import { useDocumentTitle } from "../useDocumentTitle";
 
-export interface PriceChartPageProps {
+export interface ChartsPageProps {
     readonly state: AppState;
     readonly openPx?: number;
     readonly onSubmitOrder: (intent: OrderIntent) => void;
@@ -62,13 +66,13 @@ export interface PriceChartPageProps {
     readonly onViewInTrading?: () => void;
 }
 
-export function PriceChartPage({
+export function ChartsPage({
                                    state,
                                    openPx,
                                    onSubmitOrder,
                                    onViewInTrading,
-                               }: PriceChartPageProps) {
-    useDocumentTitle(PAGE_NAMES.priceChart);
+                               }: ChartsPageProps) {
+    useDocumentTitle(PAGE_NAMES.charts);
     const connected = state.connection === "open";
 
     return (
@@ -76,6 +80,8 @@ export function PriceChartPage({
             <section tabIndex={-1} className="chart-page__region chart-page__region--chart" aria-label="Chart">
                 <PriceChart
                     tape={state.tape}
+                    bars={state.bars}
+                    surface="page"
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
                     onViewInTrading={onViewInTrading}
@@ -88,6 +94,8 @@ export function PriceChartPage({
                     sessionHighPx={state.sessionHighPx}
                     sessionLowPx={state.sessionLowPx}
                     sessionTradeCount={state.sessionTradeCount}
+                    sessionNotional={state.sessionNotional}
+                    sessionVolume={state.sessionVolume}
                 />
 
                 <OrderEntry

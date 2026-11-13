@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import { PAGE_NAMES } from "../documentTitle";
 
 /**
- * Primary navigation between the Trading terminal and the Price Chart page.
+ * Primary navigation between the Trading terminal and the Charts page.
  *
  * The router owns active state: each NavLink derives its own active styling from
  * the className callback, so there are no active/onNavigate props and no local
@@ -23,12 +23,12 @@ export function Navbar() {
                 {PAGE_NAMES.trading}
             </NavLink>
             <NavLink
-                to="/chart"
+                to="/charts"
                 className={({ isActive }) =>
                     isActive ? "nav__link nav__link--active" : "nav__link"
                 }
             >
-                {PAGE_NAMES.priceChart}
+                {PAGE_NAMES.charts}
             </NavLink>
         </nav>
     );

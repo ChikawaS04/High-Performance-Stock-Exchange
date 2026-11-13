@@ -10,6 +10,7 @@ import { MID_LABEL_PX } from "../src/depthChartLayout";
 import { SETTING_KEYS } from "../src/settings/persist";
 import { MIN_H, MIN_W } from "../src/floatingWindow";
 import type { BookState, TapeEntry } from "../src/state/reducer";
+import { emptyBars } from "../src/bars";
 
 const KEY = "hpse.v1.testWindow.geometry";
 const VP = { w: 1600, h: 900 };
@@ -210,7 +211,7 @@ describe("the chart windows use the shared shell", () => {
     });
 
     it("price chart window: drags by the chart band, resizes, persists under its own key", () => {
-        render(<PriceChartOverlay open onClose={vi.fn()} tape={TAPE} sessionOpenPx={14_466_800} />);
+        render(<PriceChartOverlay bars={emptyBars()} open onClose={vi.fn()} tape={TAPE} sessionOpenPx={14_466_800} />);
         const band = document.querySelector(".price-chart__band")!;
         drag(band, [700, 300], [650, 280]);
         drag(screen.getByTestId("price-overlay-resize-s"), [700, 600], [700, 700]);
@@ -223,7 +224,9 @@ describe("the chart windows use the shared shell", () => {
 describe("the charts lay out at the window's size", () => {
     it("price chart in fit mode draws at the measured box, with the axes and tag reflowed", () => {
         stubBox(1000, 500);
-        render(<PriceChart tape={TAPE} sessionOpenPx={14_466_800} fit />);
+        // The print line and its last-point marker are line mode (candles are the default, P17 D5).
+        localStorage.setItem(SETTING_KEYS.priceChartChartType, JSON.stringify("line"));
+        render(<PriceChart bars={emptyBars()} tape={TAPE} sessionOpenPx={14_466_800} fit />);
         const svg = screen.getByTestId("price-chart");
         expect(svg.getAttribute("viewBox")).toBe("0 0 1000 500");
         // The last point sits at the plot's right edge, and the last-price tag on the
@@ -236,7 +239,7 @@ describe("the charts lay out at the window's size", () => {
 
     it("price chart off the window keeps its fixed 720 x 300 drawing", () => {
         stubBox(1000, 500);
-        render(<PriceChart tape={TAPE} sessionOpenPx={14_466_800} />);
+        render(<PriceChart bars={emptyBars()} tape={TAPE} sessionOpenPx={14_466_800} />);
         expect(screen.getByTestId("price-chart").getAttribute("viewBox")).toBe("0 0 720 300");
     });
 

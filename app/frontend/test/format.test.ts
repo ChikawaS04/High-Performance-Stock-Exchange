@@ -252,3 +252,15 @@ describe('formatPrice — midpoint peg tape print (P14-10)', () => {
         expect(formatPrice(1_501_250)).toBe('150.125')
     })
 })
+
+describe('formatClockNanos s precision (P17-6)', () => {
+    it('renders whole seconds HH:MM:SS, the ms form without its fraction', () => {
+        const t = 1_750_000_123_456_789_000
+        expect(formatClockNanos(t, 's')).toMatch(/^\d{2}:\d{2}:\d{2}$/)
+        expect(formatClockNanos(t, 'ms').startsWith(formatClockNanos(t, 's') + '.')).toBe(true)
+    })
+
+    it('renders the dash for an unset time', () => {
+        expect(formatClockNanos(0, 's')).toBe(EMPTY_PRICE)
+    })
+})

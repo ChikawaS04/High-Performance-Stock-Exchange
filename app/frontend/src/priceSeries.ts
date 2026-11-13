@@ -81,8 +81,9 @@ export function buildPriceSeries(tape: readonly TapeEntry[]): PriceSeries {
  * priceAxis pads the actual price range out to round "nice" levels so a flat or
  * one-cent session reads flat instead of filling the panel, and yields the gridline
  * levels for the right-hand price axis. timeAxis yields sparse tick positions at
- * round elapsed intervals for the x-axis (the component labels them with
- * formatElapsed). The component owns the scales and the SVG; these own the maths.
+ * round clock intervals for the x-axis (the component labels them HH:MM:SS with
+ * formatClockNanos, since timestamps are epoch nanoseconds, P17-0 F1). The
+ * component owns the scales and the SVG; these own the maths.
  */
 
 /** A "nice" number near `value`: 1 / 2 / 5 times a power of ten. */
@@ -135,23 +136,25 @@ export function priceAxis(cMin: number, cMax: number, target = 6): PriceAxis {
     return { dMin, dMax: dMax > dMin ? dMax : dMin + step, step, levels };
 }
 
-/** Sparse time-axis ticks at round elapsed intervals. */
+/** Sparse time-axis ticks at round clock intervals. */
 export interface TimeAxis {
     readonly stepNanos: number;        // interval between ticks, in nanoseconds
-    readonly ticks: readonly number[]; // absolute timestamps (epoch/monotonic nanos)
+    readonly ticks: readonly number[]; // absolute epoch-nanosecond timestamps
 }
 
-// Round elapsed intervals in seconds, coarsening as the session lengthens.
-const TIME_STEPS_SEC: readonly number[] = [
+// Round clock intervals in seconds, coarsening as the span lengthens. Shared with
+// the candle time axis (candleView.candleTimeTicks).
+export const TIME_STEPS_SEC: readonly number[] = [
     1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200,
 ];
 
 /**
  * Build x-axis ticks from the time bounds. Picks the smallest round interval that
- * keeps the tick count near `target`, then places ticks at that interval from tMin.
- * Ticks are absolute timestamps for the component's xOf scale; the component labels
- * each with formatElapsed(tick - tMin). A zero or inverted span yields a single tick
- * at tMin (the degenerate single-timestamp case the component centres on x).
+ * keeps the tick count near `target`, then places ticks on clock multiples of that
+ * interval inside [tMin, tMax] (P17 D3 amended: :00, :15, :30 for a 15s step, not
+ * offsets from the first print). Ticks are absolute epoch timestamps for the
+ * component's xOf scale. A zero or inverted span yields a single tick at tMin (the
+ * degenerate single-timestamp case the component centres on x).
  */
 export function timeAxis(tMin: number, tMax: number, target = 5): TimeAxis {
     const spanNanos = tMax - tMin;
@@ -168,8 +171,12 @@ export function timeAxis(tMin: number, tMax: number, target = 5): TimeAxis {
     }
     const stepNanos = stepSec * 1_000_000_000;
     const ticks: number[] = [];
-    for (let e = 0; e <= spanNanos + 1; e += stepNanos) {
-        ticks.push(tMin + e);
+    // Whole multiples of the step, counted in step units so the index stays a safe
+    // integer (epoch nanos near 1.75e18 are past 2^53, an index near 1.75e9 is not).
+    const kFirst = Math.ceil(tMin / stepNanos);
+    const kLast = Math.floor(tMax / stepNanos);
+    for (let k = kFirst; k <= kLast; k++) {
+        ticks.push(k * stepNanos);
     }
     return { stepNanos, ticks };
 }

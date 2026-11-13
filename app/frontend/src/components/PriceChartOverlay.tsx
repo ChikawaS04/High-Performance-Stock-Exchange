@@ -16,6 +16,10 @@
  * at the window's size (PriceChart `fit`). The × on the band closes it (the §10 exit
  * button), and Escape also closes.
  *
+ * P17-11: the window runs the same chart on its own chart settings (the window
+ * surface: chart type, bar size, indicators, hpse.v1.priceWindow.*) and the window
+ * pane cap of one lower pane, while the display colours stay shared with the page.
+ *
  * Presentational: it forwards the reducer slices straight to PriceChart and owns only
  * the open/close affordances; FloatingWindow owns the geometry. The chart's "View in trading"
  * dropdown is not passed here (onViewInTrading omitted), so the floated chart shows a
@@ -27,12 +31,15 @@ import { useEffect } from "react";
 import { PriceChart } from "./PriceChart";
 import { FloatingWindow } from "./FloatingWindow";
 import { SETTING_KEYS } from "../settings/persist";
+import type { BarSet } from "../bars";
 import type { TapeEntry } from "../state/reducer";
 
 export interface PriceChartOverlayProps {
     readonly open: boolean;
     readonly onClose: () => void;
     readonly tape: readonly TapeEntry[];
+    /** The reducer bars slice (P17-11), for the window's candle chart. */
+    readonly bars: BarSet;
     readonly sessionOpenPx: number;
     readonly openPx?: number;
 }
@@ -45,6 +52,7 @@ export function PriceChartOverlay({
     open,
     onClose,
     tape,
+    bars,
     sessionOpenPx,
     openPx,
 }: PriceChartOverlayProps) {
@@ -75,7 +83,15 @@ export function PriceChartOverlay({
             storageKey={SETTING_KEYS.priceWindowGeometry}
             nominal={NOMINAL}
         >
-            <PriceChart tape={tape} sessionOpenPx={sessionOpenPx} openPx={openPx} onClose={onClose} fit />
+            <PriceChart
+                tape={tape}
+                bars={bars}
+                surface="window"
+                sessionOpenPx={sessionOpenPx}
+                openPx={openPx}
+                onClose={onClose}
+                fit
+            />
         </FloatingWindow>
     );
 }

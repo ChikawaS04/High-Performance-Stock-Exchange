@@ -1,8 +1,9 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
 import { PriceChart } from "../src/components/PriceChart";
 import type { TapeEntry } from "../src/state/reducer";
+import { emptyBars } from "../src/bars";
 
 // P5-0 chose no `globals: true`, so RTL's auto-cleanup never registers. Wire it
 // explicitly to keep renders isolated, matching depthCurve.render.test.tsx.
@@ -45,8 +46,11 @@ const MULTI: TapeEntry[] = [
 const NO_REF = -1;
 
 describe("PriceChart (render and guards)", () => {
+    // These cases are about the P12 print line: candles are the default (P17 D5).
+    beforeEach(() => localStorage.setItem("hpse.v1.priceChart.chartType", JSON.stringify("line")));
+
     it("renders the empty state (No trades yet) and no line for an empty tape", () => {
-        render(<PriceChart tape={[]} sessionOpenPx={NO_REF} />);
+        render(<PriceChart bars={emptyBars()} tape={[]} sessionOpenPx={NO_REF} />);
         expect(screen.getByTestId("price-chart")).not.toBeNull();
         expect(screen.getByTestId("price-chart").textContent).toContain("No trades yet");
         expect(screen.queryByTestId("price-chart-line")).toBeNull();
@@ -56,6 +60,7 @@ describe("PriceChart (render and guards)", () => {
     it("renders only the last-point marker and no line for a single print", () => {
         render(
             <PriceChart
+                bars={emptyBars()}
                 tape={[entry({ timestamp: 100, pricePx: 1000000 })]}
                 sessionOpenPx={NO_REF}
             />,
@@ -65,7 +70,7 @@ describe("PriceChart (render and guards)", () => {
     });
 
     it("renders both the price line and the last-point marker for a multi-print tape", () => {
-        render(<PriceChart tape={MULTI} sessionOpenPx={NO_REF} />);
+        render(<PriceChart bars={emptyBars()} tape={MULTI} sessionOpenPx={NO_REF} />);
         expect(screen.getByTestId("price-chart-line")).not.toBeNull();
         expect(screen.getByTestId("price-chart-last")).not.toBeNull();
     });
@@ -76,33 +81,36 @@ describe("PriceChart (render and guards)", () => {
             entry({ timestamp: 200, pricePx: 1000000 }),
             entry({ timestamp: 100, pricePx: 1000000 }),
         ];
-        expect(() => render(<PriceChart tape={flat} sessionOpenPx={NO_REF} />)).not.toThrow();
+        expect(() => render(<PriceChart bars={emptyBars()} tape={flat} sessionOpenPx={NO_REF} />)).not.toThrow();
         expect(screen.getByTestId("price-chart-line")).not.toBeNull();
         expect(screen.getByTestId("price-chart-last")).not.toBeNull();
     });
 });
 
 describe("PriceChart (reference lines)", () => {
+    // These cases are about the P12 print line: candles are the default (P17 D5).
+    beforeEach(() => localStorage.setItem("hpse.v1.priceChart.chartType", JSON.stringify("line")));
+
     it("draws the session-open reference when sessionOpenPx is in domain", () => {
         // 1010000 sits inside [1000000, 1020000].
-        render(<PriceChart tape={MULTI} sessionOpenPx={1010000} />);
+        render(<PriceChart bars={emptyBars()} tape={MULTI} sessionOpenPx={1010000} />);
         expect(screen.getByTestId("price-chart-ref-session")).not.toBeNull();
     });
 
     it("omits the session-open reference when sessionOpenPx is out of domain", () => {
         // 900000 is below the domain [1000000, 1020000].
-        render(<PriceChart tape={MULTI} sessionOpenPx={900000} />);
+        render(<PriceChart bars={emptyBars()} tape={MULTI} sessionOpenPx={900000} />);
         expect(screen.queryByTestId("price-chart-ref-session")).toBeNull();
     });
 
     it("omits the session-open reference for the unset sentinel (-1)", () => {
-        render(<PriceChart tape={MULTI} sessionOpenPx={NO_REF} />);
+        render(<PriceChart bars={emptyBars()} tape={MULTI} sessionOpenPx={NO_REF} />);
         expect(screen.queryByTestId("price-chart-ref-session")).toBeNull();
     });
 
     it("draws the market-open reference when openPx is in domain", () => {
         // 1015000 sits inside [1000000, 1020000].
-        render(<PriceChart tape={MULTI} sessionOpenPx={NO_REF} openPx={1015000} />);
+        render(<PriceChart bars={emptyBars()} tape={MULTI} sessionOpenPx={NO_REF} openPx={1015000} />);
         expect(screen.getByTestId("price-chart-ref-market")).not.toBeNull();
     });
 
@@ -110,7 +118,7 @@ describe("PriceChart (reference lines)", () => {
         // The ASML market open (~$1740.01) against synthetic prints near $100: the
         // market open must not draw and must not widen the domain, so the price line
         // still renders over the actual prints (D5).
-        render(<PriceChart tape={MULTI} sessionOpenPx={NO_REF} openPx={17400100} />);
+        render(<PriceChart bars={emptyBars()} tape={MULTI} sessionOpenPx={NO_REF} openPx={17400100} />);
         expect(screen.queryByTestId("price-chart-ref-market")).toBeNull();
         expect(screen.getByTestId("price-chart-line")).not.toBeNull();
     });

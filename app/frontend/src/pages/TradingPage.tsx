@@ -175,6 +175,7 @@ export function TradingPage({
                 open={priceOverlayOpen}
                 onClose={onClosePriceOverlay}
                 tape={state.tape}
+                bars={state.bars}
                 sessionOpenPx={state.sessionOpenPx}
                 openPx={openPx}
             />

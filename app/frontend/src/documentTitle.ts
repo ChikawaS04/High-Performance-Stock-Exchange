@@ -13,7 +13,7 @@ export const BRAND = "directROUTE";
 
 export const PAGE_NAMES = {
     trading: "Trading",
-    priceChart: "Price Chart",
+    charts: "Charts",
 } as const;
 
 export type PageName = (typeof PAGE_NAMES)[keyof typeof PAGE_NAMES];

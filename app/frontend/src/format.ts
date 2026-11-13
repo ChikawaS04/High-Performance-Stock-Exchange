@@ -261,13 +261,13 @@ export function parsePrice(input: string): number | null {
     return units
 }
 
-/** Clock display precision: milliseconds (default) or full nanoseconds. */
-export type ClockPrecision = 'ms' | 'ns'
+/** Clock display precision: whole seconds, milliseconds (default) or full nanoseconds. */
+export type ClockPrecision = 's' | 'ms' | 'ns'
 
 /**
  * Epoch-nanos to a wall-clock time string in local time.
  *
- * At 'ms' (default) this is HH:MM:SS.mmm, byte-identical to the P7-3 header
+ * At 's' this is HH:MM:SS (the chart axis, P17-6). At 'ms' (default) this is HH:MM:SS.mmm, byte-identical to the P7-3 header
  * clock whose logic moved here in P7-6 so the header and the trade tape share
  * one formatter instead of duplicating it. At 'ns' it extends to nine fractional
  * digits (HH:MM:SS.nnnnnnnnn); the sub-second part is taken by exact BigInt
@@ -287,6 +287,8 @@ export function formatClockNanos(nanos: number, precision: ClockPrecision = 'ms'
     const d = new Date(ms)
     const pad = (n: number, w = 2): string => String(n).padStart(w, '0')
     const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    // 's': whole seconds, the chart's time axis and crosshair tag (P17-6).
+    if (precision === 's') return hms
     if (precision === 'ms') {
         return `${hms}.${pad(d.getMilliseconds(), 3)}`
     }
@@ -295,33 +297,3 @@ export function formatClockNanos(nanos: number, precision: ClockPrecision = 'ms'
     return `${hms}.${pad(withinSecond, 9)}`
 }
 
-/** Clock-style elapsed display: 'm:ss' under an hour, 'h:mm:ss' past it. */
-export type ElapsedParts = { h: number; m: number; s: number }
-
-/**
- * Elapsed time as a compact clock string for the session price chart's x-axis.
- *
- * Takes a NANOSECOND DELTA (a later timestamp minus the session's first
- * timestamp), never an absolute value. TapeEntry.timestamp is System.nanoTime()
- * with an arbitrary origin (see frontend/README.md), so an absolute value has no
- * wall-clock meaning; a delta between two of them is a real duration. Rendering
- * elapsed time is therefore the honest label the arbitrary origin permits, and it
- * is why the chart x-axis reads "0:30 / 1:00 / ..." rather than a fake 1970 clock.
- *
- * Renders mm:ss (minutes not zero-padded) under an hour, and h:mm:ss past it.
- * Negative or non-finite input clamps to "0:00".
- *
- *   0            -> "0:00"
- *   30e9         -> "0:30"
- *   95e9         -> "1:35"
- *   3725e9       -> "1:02:05"
- */
-export function formatElapsed(elapsedNanos: number): string {
-    if (!Number.isFinite(elapsedNanos) || elapsedNanos <= 0) return '0:00'
-    const totalSec = Math.floor(elapsedNanos / 1_000_000_000)
-    const h = Math.floor(totalSec / 3600)
-    const m = Math.floor((totalSec % 3600) / 60)
-    const s = totalSec % 60
-    const pad = (n: number): string => String(n).padStart(2, '0')
-    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
-}

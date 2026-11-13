@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { initialState, reducer, SESSION_OPEN_UNSET, TAPE_CAP } from "../src/state/reducer";
+import { initialState, reducer, sessionVwap, SESSION_OPEN_UNSET, TAPE_CAP } from "../src/state/reducer";
+import { BAR_SIZE_IDS, barSizeNs, bucketOf } from "../src/bars";
+import { parseServerFrame } from "../src/protocol/messages";
 import type { Action, AppState } from "../src/state/reducer";
 import { cancelOrderFrame, newOrderFrame } from "../src/protocol/encode";
 import type { ExecFrame, Side } from "../src/protocol/messages";
@@ -289,5 +291,130 @@ describe("session state across a disconnect", () => {
         expect(dropped.sessionHighPx).toBe(live.sessionHighPx);
         expect(dropped.sessionLowPx).toBe(live.sessionLowPx);
         expect(dropped.sessionTradeCount).toBe(live.sessionTradeCount);
+    });
+});
+
+describe("bars slice and session notional (P17-3)", () => {
+    const S = 1_000_000_000;
+    // Clock-aligned to 5m so every size's bucket boundary sits on T0.
+    const T0 = Math.floor(1.75e18 / (300 * S)) * (300 * S);
+
+    it("starts empty: no bars, zero notional, VWAP unset", () => {
+        for (const id of BAR_SIZE_IDS) {
+            expect(initialState.bars[id].open).toBeNull();
+            expect(initialState.bars[id].closed).toHaveLength(0);
+        }
+        expect(initialState.sessionNotional).toBe(0n);
+        expect(sessionVwap(initialState)).toBe(SESSION_OPEN_UNSET);
+    });
+
+    it("the first fill opens a bar in all four series at its clock bucket", () => {
+        const t = T0 + 7 * S;
+        const state = run(initialState, fillExec(1, { price: 1_500_000, filledQuantity: 3, timestamp: t }));
+        for (const id of BAR_SIZE_IDS) {
+            expect(state.bars[id].open).toMatchObject({
+                bucket: bucketOf(t, barSizeNs(id)),
+                open: 1_500_000,
+                close: 1_500_000,
+                volume: 3,
+                trades: 1,
+                vwap: 1_500_000,
+            });
+        }
+    });
+
+    it("fills update all four series", () => {
+        const state = run(
+            initialState,
+            fillExec(1, { tradeId: 1, price: 1_500_000, filledQuantity: 2, timestamp: T0 + 1 * S }),
+            fillExec(2, { tradeId: 2, price: 1_500_500, filledQuantity: 1, timestamp: T0 + 6 * S }),
+        );
+        // 5s: two bars. 15s, 1m, 5m: one bar holding both fills.
+        expect(state.bars["5s"].closed).toHaveLength(1);
+        expect(state.bars["5s"].open?.close).toBe(1_500_500);
+        for (const id of ["15s", "1m", "5m"] as const) {
+            expect(state.bars[id].closed).toHaveLength(0);
+            expect(state.bars[id].open).toMatchObject({ high: 1_500_500, low: 1_500_000, volume: 3, trades: 2 });
+        }
+    });
+
+    it("a non-fill EXEC and a BOOK frame keep the bars reference and the notional", () => {
+        const filled = run(initialState, fillExec(1, { timestamp: T0 }));
+        const afterAccept = reducer(filled, acceptedExec(77));
+        expect(afterAccept.bars).toBe(filled.bars);
+        expect(afterAccept.sessionNotional).toBe(filled.sessionNotional);
+        const afterBook = reducer(afterAccept, bookFrame(T0 + 1));
+        expect(afterBook.bars).toBe(filled.bars);
+    });
+
+    it("CONNECTION to reconnecting keeps bars, notional and the book", () => {
+        const live = run(
+            initialState,
+            { type: "CONNECTION", status: "open" },
+            bookFrame(T0),
+            fillExec(1, { price: 1_501_000, filledQuantity: 5, timestamp: T0 + S }),
+        );
+        const dropped = reducer(live, { type: "CONNECTION", status: "reconnecting" });
+        expect(dropped.bars).toBe(live.bars);
+        expect(dropped.sessionNotional).toBe(live.sessionNotional);
+        expect(dropped.book).toBe(live.book);
+    });
+
+    it("session VWAP matches a hand computation over mixed prices and sizes", () => {
+        const state = run(
+            initialState,
+            fillExec(1, { tradeId: 1, price: 1_500_000, filledQuantity: 10, timestamp: T0 + 1 * S }),
+            fillExec(2, { tradeId: 2, price: 1_500_300, filledQuantity: 5, timestamp: T0 + 2 * S }),
+            fillExec(3, { tradeId: 3, price: 1_499_900, filledQuantity: 7, timestamp: T0 + 3 * S }),
+        );
+        // (15,000,000 + 7,501,500 + 10,499,300) / 22 = 1,500,036.36... -> 1,500,036
+        expect(state.sessionNotional).toBe(33_000_800n);
+        expect(sessionVwap(state)).toBe(1_500_036);
+    });
+
+    it("stays exact when the notional passes Number.MAX_SAFE_INTEGER", () => {
+        const fills: Action[] = [];
+        // 14,466,800 units x 10,000 shares = 1.4e11 per fill; 70,000 fills = 1.0e16.
+        for (let i = 1; i <= 70_000; i++) {
+            fills.push(fillExec(9_000_000 + i, { tradeId: i, price: 14_466_800, filledQuantity: 10_000, timestamp: T0 + i * S }));
+        }
+        fills.push(fillExec(9, { tradeId: 70_001, price: 14_466_900, filledQuantity: 10_000, timestamp: T0 + 70_001 * S }));
+        const state = run(initialState, ...fills);
+        expect(state.sessionNotional > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
+        // 14,466,800 + 100 / 70,001 = 14,466,800.0014 -> 14,466,800
+        expect(sessionVwap(state)).toBe(14_466_800);
+        expect(state.sessionNotional).toBe(14_466_800n * 10_000n * 70_000n + 14_466_900n * 10_000n);
+    });
+
+    it("Bar.vwap equals the session VWAP after that bar's last fill", () => {
+        let state = run(initialState, fillExec(1, { tradeId: 1, price: 1_500_000, filledQuantity: 4, timestamp: T0 + 1 * S }));
+        state = run(state, fillExec(2, { tradeId: 2, price: 1_501_000, filledQuantity: 2, timestamp: T0 + 2 * S }));
+        const vwapAfterBar1 = sessionVwap(state);
+        state = run(state, fillExec(3, { tradeId: 3, price: 1_490_000, filledQuantity: 9, timestamp: T0 + 6 * S }));
+        expect(state.bars["5s"].closed[0].vwap).toBe(vwapAfterBar1);
+        expect(state.bars["5s"].open?.vwap).toBe(sessionVwap(state));
+    });
+
+    it("drives a raw EXEC JSON frame through parse and reduce into the bars", () => {
+        const t = T0 + 12 * S;
+        const frame = parseServerFrame(
+            JSON.stringify({
+                type: "EXEC",
+                execType: "ORDER_FILLED",
+                orderId: 2,
+                tradeId: 1,
+                price: 1_502_500,
+                filledQuantity: 4,
+                remainingQuantity: 0,
+                aggressorOrderId: 2,
+                passiveOrderId: 1,
+                timestamp: t,
+            }),
+        );
+        expect(frame).not.toBeNull();
+        const state = reducer(initialState, { type: "FRAME", frame: frame! });
+        expect(state.bars["15s"].open).toMatchObject({ bucket: bucketOf(t, barSizeNs("15s")), close: 1_502_500, volume: 4 });
+        expect(state.sessionNotional).toBe(6_010_000n);
+        expect(sessionVwap(state)).toBe(1_502_500);
     });
 });

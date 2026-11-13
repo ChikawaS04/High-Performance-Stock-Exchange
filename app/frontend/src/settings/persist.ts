@@ -33,6 +33,14 @@ export const SETTING_KEYS = {
     priceChartLineColor: settingKey("priceChart", "lineColor"),
     priceChartGradient: settingKey("priceChart", "gradient"),
     priceChartFill: settingKey("priceChart", "fill"),
+    // Per-surface chart settings (P17-4): the Charts page under priceChart, the
+    // floating window under priceWindow. Read through chartSettings.useChartSettings.
+    priceChartChartType: settingKey("priceChart", "chartType"),
+    priceChartBarSize: settingKey("priceChart", "barSize"),
+    priceChartIndicators: settingKey("priceChart", "indicators"),
+    priceWindowChartType: settingKey("priceWindow", "chartType"),
+    priceWindowBarSize: settingKey("priceWindow", "barSize"),
+    priceWindowIndicators: settingKey("priceWindow", "indicators"),
     depthChartBackground: settingKey("depthChart", "background"),
     bookReaderDepth: settingKey("bookReader", "depth"),
     blotterStatusFilter: settingKey("blotter", "statusFilter"),
