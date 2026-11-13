@@ -170,6 +170,59 @@ class MatchingEngineHandlerReplayTest {
         assertEquals(4L, handler.getLastSeq());
     }
 
+    /** The recorded ACCEPTED at seq 1 of {@link #fourEvents()}: order 1, a BUY of 10, rests. */
+    private static ExecutionEvent recordedAcceptAtSeq1(Side side) {
+        ExecutionEvent e = new ExecutionEvent();
+        e.seq = 1;
+        e.eventType = ExecutionEventType.ORDER_ACCEPTED;
+        e.orderId = 1;
+        e.tradeId = -1;
+        e.price = PRICE;
+        e.filledQuantity = -1;
+        e.remainingQuantity = 10;
+        e.aggressorOrderId = -1;
+        e.passiveOrderId = -1;
+        e.aggressorSide = side;
+        e.aggressorParticipantId = -1;
+        e.passiveParticipantId = -1;
+        e.businessDate = -1;
+        e.timestamp = 100;
+        return e;
+    }
+
+    @Test
+    void anAcceptRecordedWithTheOrdersSideMatches() {
+        handler.beginReplay(1, recordedAcceptAtSeq1(Side.BUY));
+        handler.onCommand(order(1, Side.BUY, 10, 100));
+        assertEquals(1L, handler.getLastSeq());
+    }
+
+    @Test
+    void anAcceptRecordedBeforeAcceptsCarriedASideHasNoSideToCompare() {
+        handler.beginReplay(1, recordedAcceptAtSeq1(null));   // an older outbound recording
+        handler.onCommand(order(1, Side.BUY, 10, 100));
+        assertEquals(1L, handler.getLastSeq(), "no fail-stop on restart over an older journal");
+    }
+
+    @Test
+    void anAcceptRecordedWithTheOtherSideStillDiverges() {
+        handler.beginReplay(1, recordedAcceptAtSeq1(Side.SELL));
+        IllegalStateException diverged = assertThrows(IllegalStateException.class,
+                () -> handler.onCommand(order(1, Side.BUY, 10, 100)));
+        assertTrue(diverged.getMessage().contains("side=SELL"), diverged.getMessage());
+        assertTrue(diverged.getMessage().contains("side=BUY"), diverged.getMessage());
+    }
+
+    @Test
+    void aFillRecordedWithNoSideStillDiverges() {
+        ExecutionEvent recorded = recordedSeq4();
+        recorded.aggressorSide = null;   // the null tolerance is for accepts only
+        handler.beginReplay(4, recorded);
+        handler.onCommand(order(1, Side.BUY, 10, 100));
+        handler.onCommand(order(2, Side.BUY, 10, 200));
+        assertThrows(IllegalStateException.class, () -> handler.onCommand(order(3, Side.SELL, 15, 300)));
+    }
+
     @Test
     void aRecordedCommandSeqIsComparedAtTheFloor() {
         ExecutionEvent recorded = recordedSeq4();

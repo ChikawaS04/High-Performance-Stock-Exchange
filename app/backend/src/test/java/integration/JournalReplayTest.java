@@ -112,6 +112,13 @@ class JournalReplayTest {
 
         List<CapturingExecutionHandler.Observed> live = liveExec.snapshot();
         List<CapturingExecutionHandler.Observed> again = replayExec.snapshot();
+
+        // From raw FIX bytes: the resting SELL 100 and the iceberg SELL are acknowledged with their side,
+        // and the replayed stream (compared field by field below) regenerates it.
+        assertEquals(model.Side.SELL, accepted(live, 100).aggressorSide(), "a resting order's ACCEPTED names its side");
+        assertEquals(model.Side.SELL, accepted(live, 300).aggressorSide());
+        assertEquals(model.Side.BUY, accepted(live, 500).aggressorSide());
+        assertEquals(model.Side.SELL, accepted(again, 100).aggressorSide());
         assertEquals(live.size(), again.size(), "execution stream length");
         for (int i = 0; i < live.size(); i++) {
             assertEquals(live.get(i), again.get(i), "execution event " + i);
@@ -138,6 +145,12 @@ class JournalReplayTest {
         }
         assertEquals(engine.getNextTradeId() - 1, live.stream().filter(o -> o.tradeId() > 0).count(),
                 "trade ids are the engine's own gap-free counter");
+    }
+
+    private static CapturingExecutionHandler.Observed accepted(List<CapturingExecutionHandler.Observed> stream, long orderId) {
+        return stream.stream()
+                .filter(o -> o.eventType() == ExecutionEventType.ORDER_ACCEPTED && o.orderId() == orderId)
+                .findFirst().orElseThrow(() -> new AssertionError("no ACCEPTED for order " + orderId));
     }
 
     private static void await(BooleanSupplier condition, String what) {

@@ -24,7 +24,10 @@ final class CapturingExecutionListener implements ExecutionListener {
 
     enum Kind { FILL, ACCEPTED, EXPIRED }
 
-    /** aggressorSide is null and both participant ids are -1 on non-fills (D4). */
+    /**
+     * aggressorSide is the side of orderId's order: the aggressor's on a fill, the resting
+     * order's on an accept, null on an expiry. Both participant ids are -1 on non-fills (D4).
+     */
     record Observed(
             Kind kind,
             long orderId,
@@ -50,9 +53,9 @@ final class CapturingExecutionListener implements ExecutionListener {
     }
 
     @Override
-    public void onAccepted(long orderId, long price, long remainingQuantity) {
+    public void onAccepted(long orderId, Side side, long price, long remainingQuantity) {
         events.add(new Observed(Kind.ACCEPTED, orderId, -1L, -1L, price, -1L, remainingQuantity,
-                null, -1L, -1L));
+                side, -1L, -1L));
     }
 
     @Override

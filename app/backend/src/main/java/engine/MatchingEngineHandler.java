@@ -388,8 +388,10 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
     }
 
     @Override
-    public void onAccepted(long orderId, long price, long remainingQuantity) {
-        publish(ExecutionEventType.ORDER_ACCEPTED, orderId, NA, price, NA, remainingQuantity, NA, NA, null, NA, NA, (int) NA);
+    public void onAccepted(long orderId, Side side, long price, long remainingQuantity) {
+        // The resting order's side rides in aggressorSide, which holds the side of orderId's order
+        // on every event that has one (fills: the aggressor, which is orderId; accepts: this order).
+        publish(ExecutionEventType.ORDER_ACCEPTED, orderId, NA, price, NA, remainingQuantity, NA, NA, side, NA, NA, (int) NA);
     }
 
     @Override
@@ -448,7 +450,10 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
         boolean same = r.eventType == type && r.orderId == orderId && r.tradeId == tradeId && r.price == price
                 && r.filledQuantity == filledQuantity && r.remainingQuantity == remainingQuantity
                 && r.aggressorOrderId == aggressorOrderId && r.passiveOrderId == passiveOrderId
-                && r.aggressorSide == aggressorSide && r.aggressorParticipantId == aggressorParticipantId
+                // An ACCEPTED recorded before accepts carried the order's side holds null: nothing to compare.
+                && (r.aggressorSide == aggressorSide
+                    || (type == ExecutionEventType.ORDER_ACCEPTED && r.aggressorSide == null))
+                && r.aggressorParticipantId == aggressorParticipantId
                 && r.passiveParticipantId == passiveParticipantId && r.businessDate == businessDate
                 && r.timestamp == commandTimestamp
                 // A recording from before schema version 1 cannot say; -1 means nothing to compare.

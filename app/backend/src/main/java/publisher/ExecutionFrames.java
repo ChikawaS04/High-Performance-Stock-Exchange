@@ -47,7 +47,13 @@ public final class ExecutionFrames {
         n.put("aggressorOrderId", e.aggressorOrderId);
         n.put("passiveOrderId", e.passiveOrderId);
         // D4: fills name the aggressor's side and both participants; null and -1 otherwise.
-        n.put("aggressorSide", (e.aggressorSide == null) ? null : e.aggressorSide.name());
+        // An ACCEPTED names the resting order's side under "side" instead, so "aggressorSide" keeps
+        // meaning the aggressor on the wire and another participant can place the order in the book.
+        boolean accepted = e.eventType == ExecutionEventType.ORDER_ACCEPTED;
+        n.put("aggressorSide", (accepted || e.aggressorSide == null) ? null : e.aggressorSide.name());
+        if (accepted) {
+            n.put("side", (e.aggressorSide == null) ? null : e.aggressorSide.name());
+        }
         n.put("aggressorParticipantId", e.aggressorParticipantId);
         n.put("passiveParticipantId", e.passiveParticipantId);
         n.put("timestamp", e.timestamp);

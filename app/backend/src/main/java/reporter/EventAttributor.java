@@ -2,6 +2,7 @@ package reporter;
 
 import engine.MatchingEngineHandler;
 import event.ExecutionEvent;
+import event.ExecutionEventType;
 import event.OrderEvent;
 
 import java.nio.charset.StandardCharsets;
@@ -357,10 +358,18 @@ final class EventAttributor {
         batch.executions.add(new ReporterBatch.ExecutionRow(e.seq, type, orderInboundSeq, e.orderId, nullable(e.tradeId),
                 nullable(e.price), nullable(e.filledQuantity), nullable(e.remainingQuantity),
                 nullable(e.aggressorOrderId), nullable(e.passiveOrderId), passiveInboundSeq,
-                e.aggressorSide == null ? null : e.aggressorSide.name(),
+                // aggressor_side means the aggressor: only fills have one, though an ACCEPTED also
+                // carries its order's side in the same event field.
+                aggressorSideOf(e),
                 nullable(e.aggressorParticipantId), nullable(e.passiveParticipantId), sessionDate, e.timestamp));
         batch.audit.add(new ReporterBatch.AuditRow("OUT", e.seq, orderInboundSeq, e.orderId, type, sessionDate,
                 e.timestamp, nullable(e.price), nullable(e.filledQuantity), nullable(e.remainingQuantity)));
+    }
+
+    private static String aggressorSideOf(ExecutionEvent e) {
+        boolean fill = e.eventType == ExecutionEventType.ORDER_FILLED
+                || e.eventType == ExecutionEventType.ORDER_PARTIALLY_FILLED;
+        return (fill && e.aggressorSide != null) ? e.aggressorSide.name() : null;
     }
 
     private ReporterInconsistencyException inconsistent(ExecutionEvent e, String what) {

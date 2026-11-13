@@ -218,7 +218,7 @@ public class MatchingEngineFillWalkBenchmark {
                                      long price, long filledQuantity, long aggressorRemainingQuantity,
                                      Side aggressorSide, long aggressorParticipantId,
                                      long passiveParticipantId) { }
-        @Override public void onAccepted(long orderId, long price, long remainingQuantity) { }
+        @Override public void onAccepted(long orderId, Side side, long price, long remainingQuantity) { }
         @Override public void onExpired(long orderId, long expiredQuantity) { expiries++; }
     }
 }

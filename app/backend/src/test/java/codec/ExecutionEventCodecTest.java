@@ -124,6 +124,15 @@ class ExecutionEventCodecTest {
     }
 
     @Test
+    void anAcceptedOrdersSideRoundTrips() {
+        ExecutionEvent src = report(3L, ExecutionEventType.ORDER_ACCEPTED, 21L, 1_000_000L, 100L);
+        src.aggressorSide = Side.SELL;
+        ExecutionEvent dst = roundTrip(src);
+        assertSameEvent(src, dst);
+        assertEquals(Side.SELL, dst.aggressorSide);
+    }
+
+    @Test
     void acceptedRoundTripsWithSentinels() {
         ExecutionEvent dst = roundTrip(report(3L, ExecutionEventType.ORDER_ACCEPTED, 21L, 1_000_000L, 100L));
         assertSameEvent(report(3L, ExecutionEventType.ORDER_ACCEPTED, 21L, 1_000_000L, 100L), dst);

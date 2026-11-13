@@ -126,7 +126,7 @@ class MatchingEngineTradeIdTest {
 
         Observed accepted = cap.get(1);
         assertEquals(Kind.ACCEPTED, accepted.kind());
-        assertNull(accepted.aggressorSide());
+        assertEquals(Side.SELL, accepted.aggressorSide(), "the rested remainder's side");
         assertEquals(-1L, accepted.aggressorParticipantId());
         assertEquals(-1L, accepted.passiveParticipantId());
     }

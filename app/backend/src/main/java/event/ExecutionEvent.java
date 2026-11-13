@@ -22,7 +22,7 @@ public final class ExecutionEvent {
     public long remainingQuantity;  // aggressor remaining (fills) / resting qty (accepted); -1 otherwise
     public long aggressorOrderId;   // fills only; -1 otherwise
     public long passiveOrderId;     // fills only; -1 otherwise
-    public Side aggressorSide;      // fills only; null otherwise (D4)
+    public Side aggressorSide;      // side of orderId's order: the aggressor's (fills) or the resting order's (accepted); null otherwise (D4)
     public long aggressorParticipantId; // fills only; -1 otherwise (D4)
     public long passiveParticipantId;   // fills only; -1 otherwise (D4)
     public int  businessDate;       // SESSION_OPENED / SESSION_CLOSED only (YYYYMMDD); -1 otherwise

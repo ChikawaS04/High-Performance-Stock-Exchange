@@ -399,7 +399,7 @@ class MatchingEngineHandlerTest {
         assertEquals(4, obs.size());
 
         Observed accepted = obs.get(0);
-        assertNull(accepted.aggressorSide());
+        assertEquals(Side.SELL, accepted.aggressorSide(), "an accept carries its resting order's side");
         assertEquals(-1L, accepted.aggressorParticipantId());
         assertEquals(-1L, accepted.passiveParticipantId());
 

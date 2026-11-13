@@ -279,6 +279,23 @@ class EventAttributorTest {
     }
 
     @Test
+    void anAcceptedOrdersSideIsNeverWrittenAsAnAggressorSide() {
+        open();
+        long resting = newOrder(7L, 10L);
+        event(ExecutionEventType.ORDER_ACCEPTED, resting, e -> {
+            e.orderId = 7L;
+            e.price = PRICE;
+            e.remainingQuantity = 10L;
+            e.aggressorSide = Side.SELL;   // the resting order's side, as the engine now reports it
+        });
+        assertNull(lastExecution().aggressorSide(), "aggressor_side means the aggressor; an accept has none");
+
+        long buyer = newOrder(8L, 10L);
+        fill(buyer, 8L, 7L, 10L, 0L);
+        assertEquals("BUY", lastExecution().aggressorSide());
+    }
+
+    @Test
     void aFillNamesTheAggressorsNewAndTheRestingPassiveOrder() {
         open();
         long passive = newOrder(7L, 10L);

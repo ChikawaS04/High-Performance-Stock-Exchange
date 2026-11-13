@@ -64,8 +64,8 @@ class SnapshotCodecTest {
         }
 
         @Override
-        public void onAccepted(long orderId, long price, long remainingQuantity) {
-            events.add("ACK " + orderId + " " + price + " " + remainingQuantity);
+        public void onAccepted(long orderId, Side side, long price, long remainingQuantity) {
+            events.add("ACK " + orderId + " " + side + " " + price + " " + remainingQuantity);
         }
 
         @Override

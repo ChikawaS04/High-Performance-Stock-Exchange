@@ -93,6 +93,10 @@ class OutboundRecordingTest {
         assertTrue(run.published().size() > run.commands(), "the scenario trades: " + run.published().size());
         assertGapFreeFromOne(recorded);
         assertEquals(run.published(), recorded, "every published event recorded once, every field, in seq order");
+        List<Observed> accepts = recorded.stream()
+                .filter(o -> o.eventType() == event.ExecutionEventType.ORDER_ACCEPTED).toList();
+        assertTrue(!accepts.isEmpty() && accepts.stream().allMatch(o -> o.aggressorSide() != null),
+                "every recorded ACCEPTED keeps its order's side through the SBE encoder and decoder");
     }
 
     @Test

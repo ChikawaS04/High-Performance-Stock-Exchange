@@ -27,8 +27,12 @@ public interface ExecutionListener {
                 long price, long filledQuantity, long aggressorRemainingQuantity,
                 Side aggressorSide, long aggressorParticipantId, long passiveParticipantId);
 
-    /** Fired when an order (or its unfilled remainder) rests on the book. */
-    void onAccepted(long orderId, long price, long remainingQuantity);
+    /**
+     * Fired when an order (or its unfilled remainder) rests on the book. side is the resting
+     * order's side, so a participant that did not send the order can still place it on the
+     * right side of its view of the book.
+     */
+    void onAccepted(long orderId, Side side, long price, long remainingQuantity);
 
     /**
      * Fired when an order (or an unfilled remainder) expires by time in force rather
@@ -43,7 +47,7 @@ public interface ExecutionListener {
     ExecutionListener NO_OP = new ExecutionListener() {
         @Override public void onFill(long a, long p, long t, long pr, long f, long r,
                                      Side s, long ap, long pp) { }
-        @Override public void onAccepted(long o, long pr, long r) { }
+        @Override public void onAccepted(long o, Side s, long pr, long r) { }
         @Override public void onExpired(long o, long q) { }
     };
 }

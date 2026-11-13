@@ -211,6 +211,38 @@ class WebSocketPublisherTest {
     }
 
     @Test
+    void execAcceptNamesTheRestingOrdersSideUnderSideNotAggressorSide() throws Exception {
+        WebSocketPublisher pub = new WebSocketPublisher(
+                new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
+
+        ExecutionEvent e = exec(ExecutionEventType.ORDER_ACCEPTED,
+                7L, -1L, 1_500_000L, -1L, 25L, -1L, -1L, 99L);
+        e.aggressorSide = Side.SELL;
+        e.aggressorParticipantId = -1L;
+        e.passiveParticipantId = -1L;
+
+        JsonNode n = parse(pub.serializeExecution(e));
+
+        assertEquals("SELL", n.get("side").asText());
+        assertTrue(n.get("aggressorSide").isNull(), "an accept has no aggressor");
+    }
+
+    @Test
+    void execFillCarriesNoSideKey() throws Exception {
+        WebSocketPublisher pub = new WebSocketPublisher(
+                new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);
+        ExecutionEvent e = exec(ExecutionEventType.ORDER_FILLED,
+                7L, 1L, 1_500_000L, 10L, 0L, 7L, 5L, 99L);
+        e.aggressorSide = Side.BUY;
+        e.aggressorParticipantId = 1L;
+        e.passiveParticipantId = 1L;
+
+        JsonNode n = parse(pub.serializeExecution(e));
+        assertEquals("BUY", n.get("aggressorSide").asText());
+        assertFalse(n.has("side"), "the fill frame is unchanged");
+    }
+
+    @Test
     void execAcceptCarriesMinusOneForNaFields() throws Exception {
         WebSocketPublisher pub = new WebSocketPublisher(
                 new DefaultChannelGroup(GlobalEventExecutor.INSTANCE), mapper);

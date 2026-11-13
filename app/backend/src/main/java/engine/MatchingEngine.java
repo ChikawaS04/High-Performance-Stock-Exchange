@@ -354,7 +354,7 @@ public class MatchingEngine implements BookView {
         if (order.getQuantity() > 0) {
             if (tif == TimeInForce.GTC) {
                 addToBook((order.getSide() == Side.BUY) ? bids : asks, order);
-                executionListener.onAccepted(order.getOrderID(), order.getPrice(), order.getQuantity());
+                executionListener.onAccepted(order.getOrderID(), order.getSide(), order.getPrice(), order.getQuantity());
             } else {
                 order.expire();
                 executionListener.onExpired(order.getOrderID(), order.getQuantity());
@@ -414,7 +414,7 @@ public class MatchingEngine implements BookView {
         Deque<Order> pool = (order.getSide() == Side.BUY) ? pegBids : pegAsks;
         pool.addLast(order);
         openOrders.put(order.getOrderID(), order);
-        executionListener.onAccepted(order.getOrderID(), order.getPrice(), order.getQuantity());
+        executionListener.onAccepted(order.getOrderID(), order.getSide(), order.getPrice(), order.getQuantity());
     }
 
     /**

@@ -134,9 +134,13 @@ class ReporterDayTest {
                     continue;
                 }
                 orderEvents++;
+                // aggressor_side holds the aggressor only: an ACCEPTED's side (the resting order's) is not written.
+                boolean fill = e.eventType == ExecutionEventType.ORDER_FILLED
+                        || e.eventType == ExecutionEventType.ORDER_PARTIALLY_FILLED;
                 assertEquals(String.join(" ", e.eventType.name(), Long.toString(e.orderId), text(e.tradeId), text(e.price),
                                 text(e.filledQuantity), text(e.remainingQuantity), text(e.aggressorOrderId),
-                                text(e.passiveOrderId), String.valueOf(e.aggressorSide), text(e.aggressorParticipantId),
+                                text(e.passiveOrderId), fill ? String.valueOf(e.aggressorSide) : "null",
+                                text(e.aggressorParticipantId),
                                 text(e.passiveParticipantId), Long.toString(e.timestamp)),
                         rows("SELECT event_type, order_id, trade_id, price, filled_quantity, remaining_quantity,"
                                 + " aggressor_order_id, passive_order_id, aggressor_side, aggressor_participant_id,"
