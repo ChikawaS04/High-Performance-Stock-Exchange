@@ -44,6 +44,7 @@ export const SETTING_KEYS = {
     depthChartBackground: settingKey("depthChart", "background"),
     bookReaderDepth: settingKey("bookReader", "depth"),
     blotterStatusFilter: settingKey("blotter", "statusFilter"),
+    blotterOwnerFilter: settingKey("blotter", "ownerFilter"),
     priceWindowGeometry: settingKey("priceWindow", "geometry"),
     depthWindowGeometry: settingKey("depthWindow", "geometry"),
 } as const;

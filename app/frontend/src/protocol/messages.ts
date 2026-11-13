@@ -91,6 +91,17 @@ export interface ExecFrame {
      * parses exactly as before.
      */
     readonly seq?: number;
+    /**
+     * The aggressor's side on a fill. The server has sent it on every fill since
+     * Phase 15 (D4); the terminal reads it so every print on the tape shows BUY or
+     * SELL, not only its own. Absent on every other report.
+     */
+    readonly aggressorSide?: Side;
+    /**
+     * The resting order's side on an ORDER_ACCEPTED, so the blotter can place
+     * another participant's order (a bot's) on the right side. Absent otherwise.
+     */
+    readonly side?: Side;
 }
 
 /**
@@ -195,6 +206,11 @@ function str(value: unknown): string | null {
     return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+/** A wire side, or null when absent, null or anything else. */
+function side(value: unknown): Side | null {
+    return value === "BUY" || value === "SELL" ? value : null;
+}
+
 function levels(value: unknown): Level[] | null {
     if (!Array.isArray(value)) return null;
     const out: Level[] = [];
@@ -248,6 +264,9 @@ export function parseServerFrame(raw: string): ServerFrame | null {
             const timestamp = int(parsed.timestamp);
             // Optional: absent or malformed simply means "no sequence to dedupe on".
             const seq = int(parsed.seq);
+            // Optional too: absent, null or malformed means "the wire does not say".
+            const aggressorSide = side(parsed.aggressorSide);
+            const orderSide = side(parsed.side);
             if (
                 orderId === null ||
                 tradeId === null ||
@@ -272,6 +291,8 @@ export function parseServerFrame(raw: string): ServerFrame | null {
                 passiveOrderId,
                 timestamp,
                 ...(seq !== null ? { seq } : {}),
+                ...(aggressorSide !== null ? { aggressorSide } : {}),
+                ...(orderSide !== null ? { side: orderSide } : {}),
             };
         }
         case "FIX": {

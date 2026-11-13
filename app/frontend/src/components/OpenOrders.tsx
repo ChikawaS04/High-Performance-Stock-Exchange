@@ -49,27 +49,44 @@
  *    Order ID field does nothing; only a click on Confirm Cancel sends.
  *  - D6: a status filter single-select (the shared FieldMenu) in the header band,
  *    left of the caret. The predicate is the pure blotterFilter module.
+ *
+ * Simulation bots: an owner filter (MINE, the default / ALL PARTICIPANTS / one per
+ * bot) left of the status filter, persisted like it, and an Owner column. Other
+ * participants' rows come from the reducer's marketOrders slice, built from the
+ * EXEC stream alone; blotterRows merges both sources into one row shape. Cancel is
+ * offered only on this terminal's own rows: the venue has no ownership check, so a
+ * cancel on a bot's row would really cancel the bot's order. For another
+ * participant's row the Sent column shows the venue time of its first report, and
+ * TIF and Price show a dash where the wire never stated them.
  */
 
 import { useEffect, useRef, useState } from "react";
 
 import { isCancellable } from "../state/reducer";
-import type { MyOrder } from "../state/reducer";
-import { formatPrice, formatClockNanos } from "../format";
+import type { MarketOrder, MyOrder } from "../state/reducer";
+import { formatPrice, formatClockNanos, EMPTY_PRICE } from "../format";
 import { validateOrigClOrdId } from "./CancelTicket";
 import { FieldMenu } from "./FieldMenu";
 import {
+    DEFAULT_OWNER_FILTER,
     DEFAULT_STATUS_FILTER,
+    OWNER_FILTER_OPTIONS,
     STATUS_FILTER_OPTIONS,
-    emptyFilterMessage,
+    blotterRows,
+    emptyBlotterMessage,
     filterOrders,
+    isOwnerFilter,
     isStatusFilter,
+    type OwnerFilter,
     type StatusFilter,
 } from "../blotterFilter";
+import { OWNER_LABELS } from "../participants";
 import { SETTING_KEYS } from "../settings/persist";
 import { usePersistentSetting } from "../settings/usePersistentSetting";
 
 const FILTER_MENU = STATUS_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
+const OWNER_MENU = OWNER_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
+const NO_MARKET_ORDERS: readonly MarketOrder[] = [];
 
 /**
  * Filled quantity for a row: original minus remaining, clamped at zero. Pure and
@@ -77,7 +94,7 @@ const FILTER_MENU = STATUS_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o
  * logic is unit-tested without a DOM. Derived rather than stored, so it can never
  * drift from remainingQty.
  */
-export function filledOf(order: MyOrder): number {
+export function filledOf(order: Pick<MyOrder, "originalQty" | "remainingQty">): number {
     return Math.max(0, order.originalQty - order.remainingQty);
 }
 
@@ -86,7 +103,7 @@ export function filledOf(order: MyOrder): number {
  * midpoint peg (P14-10, checked first since a peg is never an iceberg), ICE when an
  * iceberg display quantity is set (P14-6), LMT otherwise.
  */
-export function orderTypeLabel(order: MyOrder): string {
+export function orderTypeLabel(order: Pick<MyOrder, "ordType" | "displayQty">): string {
     if (order.ordType === "PEG_MID") return "MID";
     return order.displayQty > 0 ? "ICE" : "LMT";
 }
@@ -99,11 +116,13 @@ function orderTypeWords(order: MyOrder): string {
 
 export interface OpenOrdersProps {
     readonly orders: readonly MyOrder[];
+    /** Other participants' orders (the bots'), shown under the owner filter. */
+    readonly marketOrders?: readonly MarketOrder[];
     readonly onCancel: (origClOrdId: number) => void;
     readonly disabled?: boolean;
 }
 
-export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersProps) {
+export function OpenOrders({ orders, marketOrders = NO_MARKET_ORDERS, onCancel, disabled = false }: OpenOrdersProps) {
     const [menuOpen, setMenuOpen] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [idInput, setIdInput] = useState("");
@@ -115,9 +134,17 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
         DEFAULT_STATUS_FILTER,
         isStatusFilter,
     );
+    const [ownerFilter, setOwnerFilter] = usePersistentSetting<OwnerFilter>(
+        SETTING_KEYS.blotterOwnerFilter,
+        DEFAULT_OWNER_FILTER,
+        isOwnerFilter,
+    );
     const menuWrapRef = useRef<HTMLDivElement>(null);
 
-    const shown = filterOrders(orders, statusFilter);
+    const rows = blotterRows(orders, marketOrders, ownerFilter);
+    const shown = filterOrders(rows, statusFilter);
+    const ownerLabel =
+        OWNER_FILTER_OPTIONS.find((o) => o.value === ownerFilter)?.label ?? ownerFilter;
     const filterLabel =
         STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)?.label ?? statusFilter;
 
@@ -193,6 +220,16 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
             <div className="open-orders__head">
                 <span className="open-orders__panel-title">Orders</span>
                 <FieldMenu
+                    testId="blotter-owner-filter"
+                    ariaLabel="Owner filter"
+                    compact
+                    className="open-orders__owner-filter"
+                    options={OWNER_MENU}
+                    value={ownerFilter}
+                    triggerLabel={ownerLabel}
+                    onSelect={(v) => setOwnerFilter(v as OwnerFilter)}
+                />
+                <FieldMenu
                     testId="blotter-filter"
                     ariaLabel="Status filter"
                     compact
@@ -231,9 +268,9 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
             </div>
 
             <div className="open-orders__body">
-                {orders.length === 0 ? (
+                {rows.length === 0 ? (
                     <div className="open-orders__empty" data-testid="open-orders-empty">
-                        No orders yet
+                        {emptyBlotterMessage(ownerFilter, "ALL")}
                     </div>
                 ) : (
                     <div className="open-orders__scroll" data-testid="open-orders-scroll">
@@ -241,7 +278,11 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                             <thead>
                             <tr>
                                 <th className="open-orders__col-id">ID</th>
-                                <th className="open-orders__col-time" title="Client-assigned send time">
+                                <th className="open-orders__col-owner">Owner</th>
+                                <th
+                                    className="open-orders__col-time"
+                                    title="Client-assigned send time; venue time of the first report for another participant's order"
+                                >
                                     Sent
                                 </th>
                                 <th className="open-orders__col-side">Side</th>
@@ -257,11 +298,11 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                             {shown.length === 0 ? (
                                 <tr className="open-orders__filter-empty-row">
                                     <td
-                                        colSpan={9}
+                                        colSpan={10}
                                         className="open-orders__filter-empty"
                                         data-testid="open-orders-filter-empty"
                                     >
-                                        {emptyFilterMessage(statusFilter)}
+                                        {emptyBlotterMessage(ownerFilter, statusFilter)}
                                     </td>
                                 </tr>
                             ) : null}
@@ -272,15 +313,18 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                                     data-testid="open-orders-row"
                                 >
                                     <td className="open-orders__id">{order.clOrdId}</td>
+                                    <td className="open-orders__owner" data-testid={`owner-${order.clOrdId}`}>
+                                        {OWNER_LABELS[order.owner]}
+                                    </td>
                                     <td className="open-orders__time" data-testid={`sent-${order.clOrdId}`}>
-                                        {formatClockNanos(order.sentAtNanos ?? 0)}
+                                        {formatClockNanos(order.timeNanos ?? 0)}
                                     </td>
                                     <td className="open-orders__side">{order.side}</td>
                                     <td className="open-orders__type" data-testid={`type-${order.clOrdId}`}>
                                         {orderTypeLabel(order)}
                                     </td>
                                     <td className="open-orders__tif" data-testid={`tif-${order.clOrdId}`}>
-                                        {order.tif}
+                                        {order.tif ?? EMPTY_PRICE}
                                     </td>
                                     <td className="open-orders__price">
                                         {order.ordType === "PEG_MID" ? "MID" : formatPrice(order.pricePx)}
@@ -290,7 +334,7 @@ export function OpenOrders({ orders, onCancel, disabled = false }: OpenOrdersPro
                                     </td>
                                     <td className="open-orders__status">{order.status}</td>
                                     <td className="open-orders__action">
-                                        {isCancellable(order.status) ? (
+                                        {order.owner === "YOU" && isCancellable(order.status) ? (
                                             <button
                                                 type="button"
                                                 className="open-orders__cancel"

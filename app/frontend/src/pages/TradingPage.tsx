@@ -157,6 +157,7 @@ export function TradingPage({
                     <section tabIndex={-1} className="panel panel--blotter" aria-label="Order blotter">
                         <OpenOrders
                             orders={state.myOrders}
+                            marketOrders={state.marketOrders}
                             onCancel={onCancelOrder}
                             disabled={!connected}
                         />

@@ -96,6 +96,12 @@ export const NOTICE_CAP = 32;
 export const SEQ_MEMORY = 256;
 
 /**
+ * Newest-first cap on other participants' orders (marketOrders). The bots send
+ * several orders a second, so the slice is bounded the way the tape is.
+ */
+export const MARKET_ORDERS_CAP = 500;
+
+/**
  * Sentinel for "no traded price yet this session": no trade has printed, so there
  * is no open, no high and no low. Exported since P13-1 so the three price-valued
  * session accumulators and their tests name one constant rather than repeating a
@@ -145,12 +151,10 @@ export interface TapeEntry {
     /** True when either side of the trade is one of this client's orders. */
     readonly mine: boolean;
     /**
-     * Aggressor side (P7-6), derived client-side where knowable. No EXEC frame
-     * carries a side, so this is set only when one of our own orders is in the
-     * trade: our side when we are the aggressor, the opposite when we are the
-     * passive side (a trade always crosses a buy against a sell). undefined for
-     * anonymous prints. That derivable set equals `mine`, so the tag shows on
-     * own-trade rows only.
+     * Aggressor side. Read from the fill frame's aggressorSide, which the server
+     * sends on every fill, so every print carries BUY or SELL. A frame without it
+     * (an older server, a test fixture) falls back to the P7-6 derivation from our
+     * own orders, and an anonymous print without it stays undefined.
      */
     readonly aggressorSide?: Side;
 }
@@ -190,6 +194,35 @@ export interface MyOrder {
 }
 
 /**
+ * Another participant's order (a bot's, or another terminal's), built only from
+ * the EXEC stream, which every connection receives. Nothing here was sent by this
+ * terminal, so every field is what the wire stated:
+ *
+ *  - side: the ACCEPTED frame's side, or a fill's aggressorSide.
+ *  - pricePx: the limit price from ORDER_ACCEPTED; -1 (rendered as a dash) for an
+ *    order seen only as an aggressor, whose limit the wire never states.
+ *  - ordType: PEG_MID when it rested with no limit price, LIMIT otherwise. An
+ *    iceberg's display size is not on the wire, so it shows as LIMIT.
+ *  - tif: GTC once it has rested (only GTC rests); null while unknown.
+ *  - firstSeenNanos: venue time of the first report about it, the row's time.
+ *
+ * Only orders first seen through ORDER_ACCEPTED or an aggressor fill get a row: an
+ * order that rested before this tab connected, or a rejected or expired order with
+ * no earlier report, has no side on the wire and is left out.
+ */
+export interface MarketOrder {
+    readonly clOrdId: number;
+    readonly side: Side;
+    readonly pricePx: number;
+    readonly originalQty: number;
+    readonly remainingQty: number;
+    readonly status: OrderStatus;
+    readonly ordType: OrdType;
+    readonly tif: TimeInForce | null;
+    readonly firstSeenNanos: number;
+}
+
+/**
  * One P7-9 inspector entry: either a raw inbound FIX echo or an outbound EXEC
  * notification. Both already carry `type` and `timestamp`, so no wrapper is
  * needed; the discriminant on `type` narrows exactly like ServerFrame.
@@ -202,6 +235,11 @@ export interface AppState {
     readonly tape: readonly TapeEntry[];
     /** Newest first. Keyed by clOrdId, which the server echoes as EXEC orderId. */
     readonly myOrders: readonly MyOrder[];
+    /**
+     * Every other participant's order seen on the EXEC stream, newest first,
+     * capped at MARKET_ORDERS_CAP. Never holds an order that is in myOrders.
+     */
+    readonly marketOrders: readonly MarketOrder[];
     /**
      * Total quantity traded this session. Accumulated per fill EXEC. One onFill per
      * trade, aggressor-only, filledQuantity per-event (P7-0/Q7-2), so summing across
@@ -286,6 +324,7 @@ export const initialState: AppState = {
     book: EMPTY_BOOK,
     tape: [],
     myOrders: [],
+    marketOrders: [],
     sessionVolume: 0,
     sessionOpenPx: SESSION_OPEN_UNSET,
     sessionHighPx: SESSION_OPEN_UNSET,
@@ -339,6 +378,123 @@ export function aggressorSideFor(
     if (passive !== undefined) return passive === "BUY" ? "SELL" : "BUY";
 
     return undefined;
+}
+
+/** A market order's status after a fill leaves it `remainingQty` to go. */
+function filledStatus(remainingQty: number): OrderStatus {
+    return remainingQty === 0 ? "FILLED" : "PARTIALLY_FILLED";
+}
+
+/** Replace the row for `id` with fn(row); null when there is no such row. */
+function updateMarketOrder(
+    orders: readonly MarketOrder[],
+    id: number,
+    fn: (o: MarketOrder) => MarketOrder,
+): readonly MarketOrder[] | null {
+    const i = orders.findIndex((o) => o.clOrdId === id);
+    if (i === -1) return null;
+    const next = fn(orders[i]);
+    if (next === orders[i]) return orders;
+    return orders.map((o, j) => (j === i ? next : o));
+}
+
+function addMarketOrder(orders: readonly MarketOrder[], order: MarketOrder): readonly MarketOrder[] {
+    return [order, ...orders].slice(0, MARKET_ORDERS_CAP);
+}
+
+/**
+ * Fold one EXEC into the other participants' orders (see MarketOrder). Pure and
+ * exported for direct unit testing. `isMine` names this terminal's own ids, which
+ * never get a row here. Returns the same array when nothing changes, so a no-op
+ * frame keeps the slice reference.
+ */
+export function applyMarketExec(
+    orders: readonly MarketOrder[],
+    frame: ExecFrame,
+    isMine: (id: number) => boolean,
+): readonly MarketOrder[] {
+    if (isFill(frame)) {
+        let out = orders;
+        const agg = frame.aggressorOrderId;
+        if (agg > 0 && !isMine(agg)) {
+            const remainingQty = frame.remainingQuantity;
+            const updated = updateMarketOrder(out, agg, (o) => {
+                const filled = o.originalQty - o.remainingQty + frame.filledQuantity;
+                return { ...o, remainingQty, originalQty: filled + remainingQty, status: filledStatus(remainingQty) };
+            });
+            if (updated !== null) {
+                out = updated;
+            } else if (frame.aggressorSide !== undefined) {
+                out = addMarketOrder(out, {
+                    clOrdId: agg,
+                    side: frame.aggressorSide,
+                    pricePx: -1,
+                    originalQty: frame.filledQuantity + remainingQty,
+                    remainingQty,
+                    status: filledStatus(remainingQty),
+                    ordType: "LIMIT",
+                    tif: null,
+                    firstSeenNanos: frame.timestamp,
+                });
+            }
+        }
+        // Passive path: the resting order gets no EXEC of its own, so decrement it here,
+        // as passiveFill does for our own orders. A terminal row is never resurrected.
+        const pas = frame.passiveOrderId;
+        if (pas > 0 && pas !== agg && !isMine(pas)) {
+            const updated = updateMarketOrder(out, pas, (o) => {
+                if (isTerminal(o.status)) return o;
+                const remainingQty = Math.max(0, o.remainingQty - frame.filledQuantity);
+                return { ...o, remainingQty, status: filledStatus(remainingQty) };
+            });
+            if (updated !== null) out = updated;
+        }
+        return out;
+    }
+
+    const id = frame.orderId;
+    if (id <= 0 || isMine(id)) return orders;
+    switch (frame.execType) {
+        case "ORDER_ACCEPTED": {
+            const ordType: OrdType = frame.price < 0 ? "PEG_MID" : "LIMIT";
+            const updated = updateMarketOrder(orders, id, (o) => {
+                // A trailing ACCEPTED after fills reports the rested remainder.
+                const filled = o.originalQty - o.remainingQty;
+                return {
+                    ...o,
+                    side: frame.side ?? o.side,
+                    pricePx: frame.price,
+                    remainingQty: frame.remainingQuantity,
+                    originalQty: filled + frame.remainingQuantity,
+                    status: filled > 0 ? "PARTIALLY_FILLED" : "OPEN",
+                    ordType,
+                    tif: "GTC",
+                };
+            });
+            if (updated !== null) return updated;
+            if (frame.side === undefined) return orders;
+            return addMarketOrder(orders, {
+                clOrdId: id,
+                side: frame.side,
+                pricePx: frame.price,
+                originalQty: frame.remainingQuantity,
+                remainingQty: frame.remainingQuantity,
+                status: "OPEN",
+                ordType,
+                tif: "GTC",
+                firstSeenNanos: frame.timestamp,
+            });
+        }
+        case "ORDER_CANCELLED":
+            return updateMarketOrder(orders, id, (o) => (isTerminal(o.status) ? o : { ...o, status: "CANCELLED" })) ?? orders;
+        case "ORDER_EXPIRED":
+            return updateMarketOrder(orders, id, (o) => (isTerminal(o.status) ? o : { ...o, status: "EXPIRED" })) ?? orders;
+        default:
+            // ORDER_REJECTED: a NEW rejected outright never had a row, and a CANCEL for an
+            // order that already traded away is rejected under that order's id while the
+            // order itself is unaffected. Either way there is nothing to change.
+            return orders;
+    }
 }
 
 /** Status transition for one EXEC applied to one of my orders (aggressor path). */
@@ -413,7 +569,9 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
             passiveOrderId: frame.passiveOrderId,
             timestamp: frame.timestamp,
             mine: knows(frame.aggressorOrderId) || knows(frame.passiveOrderId),
-            aggressorSide: aggressorSideFor(state.myOrders, frame.aggressorOrderId, frame.passiveOrderId),
+            aggressorSide:
+                frame.aggressorSide ??
+                aggressorSideFor(state.myOrders, frame.aggressorOrderId, frame.passiveOrderId),
         };
         tape = [entry, ...state.tape].slice(0, TAPE_CAP);
 
@@ -492,6 +650,9 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         if (changed) myOrders = next;
     }
 
+    // Other participants' orders (the bots'), from the same frame.
+    const marketOrders = applyMarketExec(state.marketOrders, frame, knows);
+
     // Every EXEC belongs in the P7-9 inspector log, whatever its execType: the
     // inspector's honest promise is to show the actual outbound EXEC stream, not
     // fills only. Newest first, capped.
@@ -525,6 +686,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         ...state,
         tape,
         myOrders,
+        marketOrders,
         sessionVolume,
         sessionOpenPx,
         sessionHighPx,

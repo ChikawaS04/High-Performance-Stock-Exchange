@@ -17,11 +17,10 @@
  *    microsecond the digits reflect JSON-number (IEEE-754) transport rounding, not
  *    engine truth.
  *
- *  - Aggressor side, at the only fidelity the wire supports. No EXEC frame carries
- *    a side, so it is derivable only for trades touching one of this client's own
- *    orders (aggressorSide on TapeEntry, computed in the reducer where myOrders is
- *    in scope). That set is exactly the `mine` set, so a BUY/SELL tag appears on the
- *    focus-blue own-trade rows and anonymous prints show none. Shown as the Side
+ *  - Aggressor side on every print. The fill frame's aggressorSide (sent by the
+ *    server on every fill) is copied onto TapeEntry by the reducer, so bot and other
+ *    participants' prints show BUY or SELL too; a frame without it falls back to the
+ *    P7-6 derivation from this client's own orders. Shown as the Side
  *    cell, styled exactly like the open-orders Side cell (DESIGN_SYSTEM.md §9): the
  *    legible quote colour on a translucent wash of the same hue.
  *

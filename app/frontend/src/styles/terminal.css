@@ -4315,3 +4315,25 @@ body {
     height: 100%;
     aspect-ratio: auto;
 }
+
+/* --------------------------------------------------------------------------
+   Simulation bots: the blotter Owner column and owner filter. The owner filter
+   sits left of the status filter and takes the auto margin that pushes the pair
+   right; Owner is a short code like Side, so sans, left-aligned, bright white.
+   -------------------------------------------------------------------------- */
+.open-orders__owner-filter {
+    margin-left: auto;
+    min-width: 92px;
+}
+.open-orders__owner-filter + .open-orders__filter {
+    margin-left: 6px;
+}
+.open-orders__col-owner {
+    text-align: left;
+}
+.open-orders .open-orders__owner {
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 11px;
+    color: #ffffff;
+}
