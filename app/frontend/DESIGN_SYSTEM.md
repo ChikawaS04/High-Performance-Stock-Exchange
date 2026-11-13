@@ -98,8 +98,10 @@ green and still feeds the header's "up" change colour, so a bid must never use i
 The black-ground values are the trade tape's `--tick-up` / `--tick-down`, so direction
 reads as one colour family across the terminal. `#00ff00` cannot be read on white, so
 the white chart ground overrides all three tokens under `.price-chart--white` (the
-same per-ground pattern as `.depth-overlay__body--light`). **Candles use direction
-colours and are never blue:** blue stays reserved for bid and side. The VWAP violet
+same per-ground pattern as `.depth-overlay__body--light`). **The default candle
+colours are direction colours; a user may pick any colour** (display config, like
+the line colour, §16.8). A picked up or down colour overrides its token on the
+chart root on both grounds; only the defaults switch with the ground. The VWAP violet
 is distinct from the amber price line, the candle colours, blue and red, and is
 neither a §2 semantic colour nor the brand amber.
 
@@ -395,9 +397,28 @@ A gear-opened settings popup is the §10 popup chrome filled with these parts:
 - **Dim note:** `settings-pop__note`, `--dim` 10px sans, either inline after a row
   name (the chart's "Candles only") or as one line under a category's rows
   (`settings-pop__note--line`).
-- **Footer:** the silver **Done** button (§10 primary-action silver), bottom-right.
+- **Sub-label:** `settings-pop__sub`, a dim 9px uppercase sans label grouping rows
+  inside a category (the chart's **Candles** and **Line**).
+- **Colour row:** the name on the left and a **colour chip** on the right: a sunken
+  §4 well holding a swatch and the hex in mono (`#00FF00`), or "Match line" for a fill
+  that follows the line. The chip opens the **palette popup**, the §10 chrome at a
+  small size anchored under the chip: the 42-swatch palette in six columns, a
+  **Recent** row of the last four picks (newest first, once each), and a **Hex** field
+  (a sunken mono well) that takes `#RRGGBB` on Enter or blur and ignores anything
+  else. A pick applies and closes the palette; one palette is open at a time.
+- **Footer:** the silver **Done** button (§10 primary-action silver), bottom-right. A
+  popup with a reset adds a **text button** (underlined `--text` sans, no chrome) at the
+  left of the footer: the chart's **Reset colors**.
 - A transparent full-viewport backdrop catches an outside click to close.
 - Every control in a settings popup persists (§13).
+
+**Price chart popup, Display category (Charts follow-up).** In order: Background,
+Chart type, Bar size (candles only), then the **Candles** sub-label with Up candle,
+Down candle and Wicks (Match body or Grey), then the **Line** sub-label with Line
+color, Area fill and Fill color. Rows that draw nothing in the current chart type
+show disabled (the candle rows in line mode, the line rows in candle mode, with the
+dim line "Line rows apply in line mode"). Reset colors restores up, down, line, fill
+and wicks to their defaults; Recent stays.
 
 **Indicators category (P17, the price chart popup).** One row per indicator the
 surface offers (§16.4), the indicator name on the left and the standard §11.3 toggle
@@ -406,7 +427,8 @@ in line mode) shows disabled with the inline note "Candles only" and keeps its s
 state. Lower panes are capped per surface; once the enabled panes reach the cap, the
 toggles of panes that are off are disabled and the category shows one dim line,
 "Pane limit reached (N)", only while the cap is actually holding a pane off.
-Overlays are never disabled by the cap.
+Overlays are never disabled by the cap. The band's Indicators popup (§16.7) renders
+the same rows (one shared component), so the two always agree.
 
 ### 11.5 Dropdown / pick-list: the standard picker
 
@@ -418,9 +440,14 @@ Order entry, the book reader depth selector and the blotter status filter all us
 it, and **no native `<select>` is used anywhere in the terminal.**
 
 - **The list is white.** `#ffffff` background, 1px `#555` border, `3px` radius, a 2px
-  inner pad, and a lift shadow (`0 6px 16px rgba(0,0,0,.5)`). It opens just below its
-  field (`top: 100% + 2px`), spans the field width, and sits above everything
-  (`z-index`). The host card must allow it to escape (`overflow: visible`).
+  inner pad, and a lift shadow (`0 6px 16px rgba(0,0,0,.5)`). It sits above everything
+  (`z-index`).
+- **The list is proportionate to its trigger** (Charts follow-up). Its width is the
+  larger of the trigger's width and its widest option with its padding and icon, never
+  a fixed width wider than that. It opens 2px under the trigger with the **left edges
+  aligned**; a list that would run past its host panel's right edge aligns its **right
+  edge** to the trigger's instead. The host panel is the nearest `.price-chart`,
+  `.panel` or `[data-menu-boundary]`, else the viewport (`src/menuPlacement.ts`).
 - **No visible scrollbar.** `max-height ~164px` with `overflow-y: auto`, scrollbar
   hidden (`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`). It still
   scrolls by wheel/drag.
@@ -428,6 +455,11 @@ it, and **no native `<select>` is used anywhere in the terminal.**
   `aria-selected` highlight. Text labels are `IBM Plex Sans`, left-aligned; numeric
   options are `IBM Plex Mono`, tabular, right-aligned (the `--num` modifier). Option
   text that names an order type or a status is all caps.
+- **Option icons.** An option may carry an icon: an inline 14px stroke SVG in
+  `currentColor`, `aria-hidden`, before its text label, which it always keeps. The row
+  height and type size stay those of the list. The trigger then shows the selected
+  option's icon before its value; an **icon-only** trigger (the floating chart window)
+  drops the text and names the field and value in its `aria-label`.
 - **Two triggers, one list.** A **single-select** (TIF, order type, book reader depth,
   blotter status filter) uses a **white button trigger** that matches the list:
   white, black text, `#555` border, grey hover, value left, the standard `▾` caret
@@ -440,8 +472,8 @@ it, and **no native `<select>` is used anywhere in the terminal.**
   the panel keeps its own scrolling. The panel caret menus (§9) use the same white
   list classes (`.field-menu__menu`, `.field-menu__opt`), anchored under their caret.
 - **Compact variant.** `field-menu--compact` is a slimmer trigger for a panel header
-  band (the book reader depth, the blotter filter). Its list may be wider than the
-  trigger and aligns to the trigger's right edge.
+  band (the book reader depth, the blotter filter, the price chart's chart type and
+  bar size). Its list follows the proportion rule above like every other.
 - **No blue focus.** Neither the trigger nor the field shows a focus ring
   (`outline: none`, no blue box-shadow). This is the one deliberate place the terminal
   drops the §2 focus ring, by request, on the order-entry fields.
@@ -455,7 +487,7 @@ it, and **no native `<select>` is used anywhere in the terminal.**
 Every dropdown and header-menu caret is the `▾` glyph at `--caret-size` (`20px`),
 through the `.term-caret` class (UI polish D7). The blotter header caret is the
 reference size; the TIF, Type, Qty and Display carets, the book reader and blotter
-filter carets, and the price chart's view caret all match it. Fields reserve right
+filter carets, and the caret on the price chart's View button all match it. Fields reserve right
 padding for it (28px on a trigger, 26px on an editable input) so a value never runs
 under the caret, and the order-entry row still fits on one line (§6). The `▸`
 category caret in a settings popup is a disclosure control, not a dropdown caret,
@@ -463,12 +495,13 @@ and keeps its own size.
 
 ### 11.7 Price chart view menu: "View in trading"
 
-On the Charts page the chart's header band carries a view caret (§11.6) just
-left of its settings gear. It opens a small white menu with one item, **View in
-trading**. Choosing it navigates to the trading page and opens the same price chart
+On the Charts page the chart's header band starts its controls with a **View**
+button: a raised charcoal button (§4, the per-row action style) labelled `View ▾`. It
+opens the white §11.5 list as a menu, proportionate to the button and under it, with
+one item, **View in trading**. Choosing it navigates to the trading page and opens the same price chart
 there as a floating window (§14) over the live terminal: no scrim, so the panels
 stay usable underneath. The floating chart has its own settings gear and a close
-`×` in place of the view caret, and shares the chart's persisted display settings
+`×` and no View button, and shares the chart's persisted display settings
 (§13). It keeps its own chart type, bar size and indicators (§16). Whether the
 window is open is held above the routes for the navigation and is not persisted.
 Accepted as built.
@@ -522,7 +555,7 @@ storage module (`src/settings/persist.ts`) and one hook
   |---|---|
   | Header | label colour (`header.labelMode`) |
   | Trade tape | levels, time units |
-  | Price chart | background, line colour, gradient, fill (shared by the page and the floating window) |
+  | Price chart | background, line colour, gradient, fill, up candle, down candle, wicks, recent colours (`priceChart.background`, `.lineColor`, `.gradient`, `.fill`, `.candleUp`, `.candleDown`, `.wicks`, `.recentColors`; shared by the page and the floating window) |
   | Charts page chart | chart type, bar size, indicators (`priceChart.chartType`, `.barSize`, `.indicators`) |
   | Floating chart window | chart type, bar size, indicators (`priceWindow.chartType`, `.barSize`, `.indicators`) |
   | Depth chart | background |
@@ -532,13 +565,17 @@ storage module (`src/settings/persist.ts`) and one hook
 
 - **What never persists:** order-ticket values (side, price, quantity, TIF, type),
   open popups, whether a floating window is open, expanded categories, scroll
-  positions, and the FIX inspector's filter and selection. A stale ticket value restored on start could
+  positions (including the chart's zoom and pan), and the FIX inspector's filter and
+  selection. A stale ticket value restored on start could
   send an order the user did not intend.
 - **Validation.** Every read is checked against the setting's allowed values;
   anything invalid or unparsable falls back to the default and the bad key is
   removed. The chart's indicator set is a JSON array read leniently (any array of
   strings) and then cleaned: unknown ids and ids the surface does not offer are
-  dropped, but an id only unavailable for the current chart type is kept. At start-up, `hpse.` keys from any other version are removed and the
+  dropped, but an id only unavailable for the current chart type is kept. The chart's
+  colours are any `#rrggbb` (the line colour and fill too; fill also takes `"line"`,
+  the candle colours `"default"`); the recent colours are read leniently and cleaned to
+  at most four valid colours. At start-up, `hpse.` keys from any other version are removed and the
   pre-pass `header.labelMode` key is moved into the namespace.
 - **Failure.** Every `localStorage` access is wrapped in try/catch; unavailable or
   full storage means "use the default", never a crash.
@@ -763,25 +800,35 @@ are shared.
   EXEC timestamp. A 15s bar opens at :00, :15, :30 and :45, a 1m bar on the minute.
   Empty buckets are honest gaps, never synthetic flat bars. Bars start when the tab
   connects; there is no backfill.
-- **Time axis** reads clock time `HH:MM:SS` in both modes, ticked at round clock steps.
+- **Time axis** reads clock time in both modes (§16.9).
 
 ### 16.3 Candle and volume geometry
 
-- **Slots.** The chart shows the newest bars that fit at a 5px minimum slot, from the
-  oldest visible bucket to the open bar; a gap keeps its slot. The slot width is the
-  plot width over the slot count, capped at 16px, and the slots are right-aligned so
-  the newest bar sits by the price axis.
+- **Slots.** Until the user zooms, the chart shows the newest bars that fit at a 5px
+  minimum slot, from the oldest visible bucket to the open bar; a gap keeps its slot.
+  The slot width is the plot width over the slot count, capped at 16px, and the slots
+  are right-aligned so the newest bar sits by the price axis. Zoom fixes the slot
+  width instead (§16.10).
 - **Candles.** Wick 1px, centred. Body 70% of the slot, at least 1px, filled. A doji
   (open equals close) is a 1px body. Up and down take `--candle-up` / `--candle-down`.
+  A bar that traded above and below its body draws its wick visibly past both ends.
+  **Wicks** match the body (default) or take the chart's ground-aware dim ink (Grey).
 - **Price axis.** The y domain covers the visible highs and lows padded 5% each side,
   snapped to round levels on the right-hand axis. Reference lines (session open,
   market open) and VWAP never widen it.
-- **Last price.** In candle mode the dashed level and the axis tag take the open bar's
-  direction colour (tag ink by luminance). Line mode keeps the line colour.
+- **Last price.** In candle mode the dashed level and the axis tag take the newest
+  bar's direction colour, the chosen one when picked, with the tag ink by luminance.
+  Line mode keeps the line colour. Panned back, the level and tag still read the
+  newest bar; the level is clipped to the price area and the tag pins to its edge.
 - **Display rows.** Line color, Area fill and Fill color draw nothing in candle mode
-  and show disabled there.
+  and show disabled there; Up candle, Down candle and Wicks likewise in line mode.
 - **Volume pane.** Columns aligned exactly to the candle bodies, in the candle tokens at
-  60% opacity, on a small right-hand axis labelled at the visible maximum. Candles only.
+  60% opacity (so they follow chosen colours). Its own axis band on the right holds the
+  visible maximum just under the separator and the dim word `VOL` under that. Candles
+  only.
+- **Labels never overlap.** A price level label is skipped when it would sit within
+  12px of the volume pane's separator or labels. The Charts page draws at its real
+  size (fit mode, a 12:5 plot box), so axis text is its true 10px and never scaled.
 
 ### 16.4 Indicators and panes
 
@@ -820,3 +867,71 @@ are shared.
   it always reads something.
 - Pointer state is local and never persisted. The plot never starts a floating-window
   drag: the band is the only drag handle (§14).
+
+### 16.7 Band toolbar (Charts follow-up)
+
+The chart's `--head` band carries the PRICE CHART title on the left and, on the
+right, in order:
+
+| Control | Look | Does |
+|---|---|---|
+| **View ▾** (Charts page only) | §4 raised charcoal button | Opens the §11.5 menu with View in trading (§11.7) |
+| divider | 1px `--hair-strong`, 16px tall | |
+| **Chart type** | compact white single-select (§11.5), the current type's icon and name | Candles (two candles, one filled, one hollow, each with a wick) or Line (a polyline) |
+| **Bar size** | compact white single-select, mono options right-aligned | 5s, 15s, 1m, 5m; hidden in line mode |
+| **Indicators** | raised charcoal button with the indicator icon | A §10 popup anchored under it with the same rows as the gear's Indicators category |
+| divider, then the **gear** | §11.1 | The settings popup, unchanged in what it holds |
+
+The band controls are shortcuts to the same persisted keys as the gear popup, so the
+two always agree. One band popup or menu is open at a time.
+
+The **floating window band is compact**: no View button; the chart type trigger and
+the Indicators button are icon only, each with an `aria-label`; then bar size, the
+gear and the close `×`. The band never wraps (title, then a nowrap control group);
+at the 360px minimum window width it needs about 330px, and the title ellipsises as
+a last resort.
+
+### 16.8 Colours
+
+Up candle, down candle, line colour and fill colour are each chosen on their own from
+one shared palette of 42 swatches (greens, reds, blues, cyans, violets, oranges and
+yellows, neutrals; `src/chartColors.ts`), which holds every earlier line colour, plus
+any `#RRGGBB` through the Hex field (§11.4). Defaults: up `#00ff00` / down `#ff0000`
+on black, `#1f9d3a` / `#d40000` on white, line `#ffb01f`, fill Match line, wicks Match
+body. A chosen candle colour applies on both grounds. Colours are display settings
+shared by both surfaces (§13).
+
+### 16.9 Time axis
+
+- Tick steps come from round clock steps (5s, 10s, 15s, 30s, 1m, 2m, 5m, 10m, 15m,
+  30m, 1h, then 2h, 4h, 6h, 12h, 1 day) so labels sit at least **80px apart**. In
+  candle mode the step is a whole number of bars, so a tick is a bar boundary.
+- Labels read `HH:MM` when the step is a minute or more and `HH:MM:SS` below, 24-hour
+  local time, mono 10px.
+- The **first label** and any tick that **crosses midnight** show the date instead
+  (`Fri 13 Nov`) as a head tile: `--head` ground, `--hair-strong` border, white sans,
+  centred on its tick. A label that would collide with the one before it is dropped.
+- The crosshair time tag keeps full `HH:MM:SS`. Line mode follows the same rules.
+
+### 16.10 Zoom and pan
+
+- **Wheel zoom** over the plot only: a non-passive wheel listener on the plot, so the
+  page does not scroll there; elsewhere (the axes included) the page scrolls normally.
+  Wheel up zooms in (wider slots, fewer bars), wheel down out. One notch changes the
+  slot width by 1.15; a trackpad scales by its delta. The slot width is clamped to
+  3px to 40px. While following, the zoom anchors on the newest bar, pinned at the
+  price axis; panned back, it anchors on the view's right edge. The y axis refits to
+  the bars in view.
+- **Drag to pan** on the plot, with pointer capture and a 3px threshold so a click is
+  not a drag: dragging right moves back in time, left forward, in whole-slot steps.
+  It cannot go newer than the latest bar nor older than the oldest closed bar. The
+  cursor is `grab`, `grabbing` while dragging, and the crosshair hides while dragging.
+  The plot never moves the floating window; the band is its only move handle (§14).
+- **Following.** Once the newest bar is off screen the chart stops scrolling on new
+  bars, and a raised **Latest ⇥** button appears at the bottom right of the price
+  area; clicking it, or dragging back to the right edge, resumes following.
+- **Line mode** zooms and pans a time window over the tape (still the last 200
+  prints): the span scales by the same factor per notch, from the whole tape down to
+  10 seconds, and a drag moves the window by the dragged fraction of its span.
+- Zoom and pan state is per surface, local to the component, and never persisted. A
+  bar size change returns the chart to following.

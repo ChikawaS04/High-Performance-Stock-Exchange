@@ -310,7 +310,13 @@ These are real properties of the running system, documented rather than glossed:
   each keeps its own history. Buckets are aligned to the clock, `floor(timestamp / size)` on
   the epoch-nanosecond EXEC timestamp, so a 15s bar opens at :00, :15, :30 and :45 and a 1m
   bar on the minute, exactly as on a real terminal. A quiet stretch is a gap, never an
-  invented flat bar. The time axis reads clock time (HH:MM:SS) in both chart modes.
+  invented flat bar.
+- **The time axis reads like TWS or Bloomberg.** Ticks fall on round clock steps (5s up to
+  1h, then hour multiples) chosen so labels sit at least 80px apart; in candle mode a step
+  is always a whole number of bars. Labels read `HH:MM` at a step of a minute or more and
+  `HH:MM:SS` below, in 24-hour local time. The first label, and any tick that crosses
+  midnight, shows the date instead (`Fri 13 Nov`) as a small head tile. The crosshair's
+  time tag keeps the full `HH:MM:SS`. Both chart modes follow the same rules.
 - **Session VWAP is exact.** The reducer keeps `sessionNotional` (the sum of price times
   quantity) as a BigInt, because at $0.0001 units a long session passes
   `Number.MAX_SAFE_INTEGER`. VWAP is notional over volume, rounded half up to a $0.0001 unit
@@ -320,9 +326,37 @@ These are real properties of the running system, documented rather than glossed:
 - **Chart settings are per surface.** The Charts page and the floating chart window on the
   Trading page each keep their own chart type (Candles by default, or Line), bar size (15s
   by default) and indicators (Volume and VWAP), persisted under `hpse.v1.priceChart.*` and
-  `hpse.v1.priceWindow.*`. The display colours (background, line colour, area fill) stay
-  shared. Volume is a lower pane and draws only in candle mode; the window allows one lower
-  pane and the page three.
+  `hpse.v1.priceWindow.*`. The display settings (background, colours, area fill, wicks)
+  stay shared. Volume is a lower pane and draws only in candle mode; the window allows one
+  lower pane and the page three.
+- **The band is a toolbar.** The chart's header band reads `View ▾` (Charts page only:
+  View in trading), the chart type picker with its icon, the bar size picker (candles
+  only), an Indicators button whose popup holds the same rows as the gear's Indicators
+  category, and the gear. They are shortcuts to the gear popup's persisted keys, so the
+  two always agree. The floating window's band is compact (icon-only chart type and
+  Indicators, no View) and fits its 360px minimum width without wrapping. Every list
+  opened from the band sizes to its content, at least as wide as its button, and opens
+  under it with the left edges aligned unless that would run past the panel's edge.
+- **Colours are the user's to choose.** Up candle, down candle, line colour and fill
+  colour each come from one 42-swatch palette, with a Recent row of the last four picks
+  and a Hex field for any `#RRGGBB`. The defaults are the direction colours (`#00ff00` /
+  `#ff0000` on black, `#1f9d3a` / `#d40000` on white); a picked candle colour applies on
+  both grounds, the volume columns follow it at 60% opacity, and the last-price tag picks
+  its ink by luminance. Wicks match the body or turn grey. Reset colors in the gear popup
+  restores the defaults. All of it persists (`hpse.v1.priceChart.candleUp`, `.candleDown`,
+  `.wicks`, `.recentColors`, alongside the existing `.lineColor` and `.fill`).
+- **Wheel to zoom, drag to pan.** The mouse wheel over the plot zooms (the page does not
+  scroll there; it does elsewhere): wheel up widens the candles toward the newest bar,
+  wheel down narrows them, between 3px and 40px a slot, and the price axis refits to the
+  bars in view. Dragging the plot pans in whole bars, never past the newest bar nor the
+  oldest one held. Once the newest bar is off screen the chart stops following new bars and
+  a Latest button returns it to live, as does dragging back to the right edge. Line mode
+  zooms and pans a time window over the tape the same way. Zoom and pan are per surface
+  and never persisted.
+- **The Charts page draws at its real size.** The page chart lays out at its measured box
+  (a 12:5 plot), as the floating window always has, so its axis text is its true 10px
+  rather than a scaled-up drawing, and a price label never collides with the volume
+  pane's labels.
 - **Line mode is bounded to the last 200 prints, and a reference line never widens the
   domain.** Line mode plots `state.tape`, which the reducer caps at `TAPE_CAP` (200), so it
   is a chart of the most recent 200 trades rather than of the whole session; past the cap the
@@ -417,8 +451,8 @@ If every step behaves as above, the round-trip is proven end to end and Phase 5 
 - **Line mode is capped at the last 200 prints; candles at 500 bars per size.** Line mode
   plots the capped reducer tape, so on a long session it and the side panel's (uncapped)
   high and low can legitimately disagree. Candle mode reads the bars slice, which is
-  independent of the tape and holds 500 closed bars per size. There is no pan, zoom or
-  scroll-back: the chart shows the newest bars that fit its width.
+  independent of the tape and holds 500 closed bars per size, which bounds how far a pan
+  can go back.
 - **No bar backfill.** Bars and VWAP start when the tab connects. The Phase 15 RESEND
   replay is the future route to backfilling them and is not wired into the terminal.
 - **Session stats are connect-anchored.** High, low, trade count, volume and the first-trade
@@ -450,6 +484,10 @@ app/frontend/
 │   ├── bars.ts                   # pure clock-aligned OHLCV bar fold and VWAP arithmetic (P17)
 │   ├── candleView.ts             # pure candle slots, domain, ticks, hit test, VWAP tag (P17)
 │   ├── chartSettings.ts          # per-surface chart type, bar size, indicators (P17)
+│   ├── chartColors.ts            # palette, candle colours, wicks, recent picks (Charts follow-up)
+│   ├── chartViewport.ts          # pure wheel zoom and drag pan maths (Charts follow-up)
+│   ├── timeTicks.ts              # pure clock tick steps and axis labels (Charts follow-up)
+│   ├── menuPlacement.ts          # pure placement of the white pick-list (Charts follow-up)
 │   ├── indicators/
 │   │   ├── registry.ts           # indicator descriptors and pane caps (P17)
 │   │   └── layoutPanes.ts        # pure price-area and lower-pane layout (P17)
@@ -469,7 +507,11 @@ app/frontend/
 │   │   ├── CancelTicket.tsx
 │   │   ├── FixInspector.tsx
 │   │   ├── PriceChart.tsx        # candles or line, volume, VWAP, crosshair (P12, P17)
+│   │   ├── ChartBand.tsx         # the chart's header toolbar (Charts follow-up)
 │   │   ├── ChartSettingsPopup.tsx # the chart's settings popup (P17)
+│   │   ├── ColorPalette.tsx      # colour chip rows and the palette popup
+│   │   ├── IndicatorRows.tsx     # indicator toggles shared by the gear and the band
+│   │   ├── FieldMenu.tsx         # the one standard dropdown (§11.5)
 │   │   ├── PriceChartOverlay.tsx # the floating chart window on the Trading page
 │   │   └── SessionStats.tsx      # session block, five rows with VWAP (P13, P17)
 │   ├── protocol/
