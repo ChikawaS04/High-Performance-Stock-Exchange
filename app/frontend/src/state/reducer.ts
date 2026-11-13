@@ -62,6 +62,12 @@
  * 15s, 1m, 5m) folded by the pure bars module. Both exist for the same reason the
  * other accumulators do: the tape is capped. A frame that is not a fill keeps the
  * bars reference. Nothing serializes AppState (P17-0 F4), so a bigint here is safe.
+ *
+ * P18-1 adds this terminal's own executions, for the chart overlays and the
+ * Executions tab. isOwnOrder is the one ownership test. Every fill that moves one of
+ * our rows (aggressor or passive) appends an OwnFill to myFills (capped, newest
+ * first, for the markers) and folds into that row's exact ExecAggregate (uncapped,
+ * for execution quality). Both carry the session VWAP after the fill.
  */
 
 import { isFill } from "../protocol/messages";
@@ -100,6 +106,13 @@ export const SEQ_MEMORY = 256;
  * several orders a second, so the slice is bounded the way the tape is.
  */
 export const MARKET_ORDERS_CAP = 500;
+
+/**
+ * Newest-first cap on this terminal's own fill records (P18-1), which the chart's
+ * fill markers read. Execution quality never reads this list: each order's exact
+ * aggregates live on its row (MyOrder.exec), so the cap cannot drift a metric.
+ */
+export const OWN_FILLS_CAP = 1000;
 
 /**
  * Sentinel for "no traded price yet this session": no trade has printed, so there
@@ -191,6 +204,49 @@ export interface MyOrder {
      * blotter renders such a row's send time as EMPTY_PRICE.
      */
     readonly sentAtNanos?: number;
+    /**
+     * Exact running aggregates of this order's own fills (P18-1), folded in the
+     * reducer from every fill that names it, aggressor or passive. Absent until the
+     * first fill. Uncapped by construction (one per order), so execution quality
+     * reads exact values however long the session runs.
+     */
+    readonly exec?: ExecAggregate;
+}
+
+/** Which side of a trade an own fill was on (P18-1). */
+export type FillRole = "aggressive" | "passive";
+
+/**
+ * Running totals of one own order's fills (P18-1). Notionals are bigint (price
+ * units times shares) for the same reason sessionNotional is (P17 D4).
+ */
+export interface ExecAggregate {
+    /** Shares filled. */
+    readonly qty: number;
+    /** Sum of price * qty over every fill. */
+    readonly notional: bigint;
+    /** Shares filled while resting (passive). */
+    readonly passiveQty: number;
+    /** Shares filled as the aggressor, and their notional. */
+    readonly aggQty: number;
+    readonly aggNotional: bigint;
+    /** Session VWAP after this order's last fill, in units (the fill included). */
+    readonly lastVwap: number;
+}
+
+/**
+ * One own fill (P18-1), newest first in AppState.myFills. `vwap` is the session
+ * VWAP after this fill, which is what the chart's VWAP line shows at that instant.
+ */
+export interface OwnFill {
+    readonly clOrdId: number;
+    readonly tradeId: number;
+    readonly side: Side;
+    readonly pricePx: number;
+    readonly qty: number;
+    readonly timestamp: number;
+    readonly role: FillRole;
+    readonly vwap: number;
 }
 
 /**
@@ -235,6 +291,13 @@ export interface AppState {
     readonly tape: readonly TapeEntry[];
     /** Newest first. Keyed by clOrdId, which the server echoes as EXEC orderId. */
     readonly myOrders: readonly MyOrder[];
+    /**
+     * This terminal's own fills (P18-1), newest first, capped at OWN_FILLS_CAP. One
+     * entry per own side of a fill, aggressor or passive, decided by the same
+     * ownership test as myOrders (isOwnOrder). Keeps its reference on every frame
+     * that records no own fill.
+     */
+    readonly myFills: readonly OwnFill[];
     /**
      * Every other participant's order seen on the EXEC stream, newest first,
      * capped at MARKET_ORDERS_CAP. Never holds an order that is in myOrders.
@@ -324,6 +387,7 @@ export const initialState: AppState = {
     book: EMPTY_BOOK,
     tape: [],
     myOrders: [],
+    myFills: [],
     marketOrders: [],
     sessionVolume: 0,
     sessionOpenPx: SESSION_OPEN_UNSET,
@@ -378,6 +442,33 @@ export function aggressorSideFor(
     if (passive !== undefined) return passive === "BUY" ? "SELL" : "BUY";
 
     return undefined;
+}
+
+/**
+ * The one ownership test (P18 D1): an id is this terminal's when it names a row in
+ * myOrders, the orders this terminal sent. Never decided from the id's range: the
+ * bots' blocks are known (participants.ts), but another terminal's ids look exactly
+ * like ours. The NA sentinel (-1) and any non-positive id are never ours.
+ */
+export function isOwnOrder(myOrders: readonly MyOrder[], id: number): boolean {
+    return id > 0 && myOrders.some((o) => o.clOrdId === id);
+}
+
+/**
+ * Fold one own fill into an order's running aggregates (P18-1). Pure. Prices and
+ * quantities are integers on the wire, so the BigInt products are exact.
+ */
+export function foldExec(exec: ExecAggregate | undefined, pricePx: number, qty: number, role: FillRole, vwap: number): ExecAggregate {
+    const notional = BigInt(pricePx) * BigInt(qty);
+    const base: ExecAggregate = exec ?? { qty: 0, notional: 0n, passiveQty: 0, aggQty: 0, aggNotional: 0n, lastVwap: vwap };
+    return {
+        qty: base.qty + qty,
+        notional: base.notional + notional,
+        passiveQty: base.passiveQty + (role === "passive" ? qty : 0),
+        aggQty: base.aggQty + (role === "aggressive" ? qty : 0),
+        aggNotional: base.aggNotional + (role === "aggressive" ? notional : 0n),
+        lastVwap: vwap,
+    };
 }
 
 /** A market order's status after a fill leaves it `remainingQty` to go. */
@@ -548,8 +639,7 @@ export function passiveFill(order: MyOrder, filledQty: number): MyOrder {
 }
 
 function applyExec(state: AppState, frame: ExecFrame): AppState {
-    const knows = (id: number): boolean =>
-        id > 0 && state.myOrders.some((o) => o.clOrdId === id);
+    const knows = (id: number): boolean => isOwnOrder(state.myOrders, id);
 
     let tape = state.tape;
     let sessionVolume = state.sessionVolume;
@@ -559,6 +649,8 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     let sessionTradeCount = state.sessionTradeCount;
     let sessionNotional = state.sessionNotional;
     let bars = state.bars;
+    // Session VWAP after this fill (P18-1 stamps it on own fills); unset off fills.
+    let fillVwap = SESSION_OPEN_UNSET;
 
     if (isFill(frame)) {
         const entry: TapeEntry = {
@@ -609,8 +701,8 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         // the session VWAP after this fill, so a closed bar holds the VWAP after its
         // last fill. Prices and quantities are integers on the wire, so BigInt() is exact.
         sessionNotional = state.sessionNotional + BigInt(frame.price) * BigInt(frame.filledQuantity);
-        const vwap = vwapUnits(sessionNotional, sessionVolume);
-        bars = foldBars(state.bars, frame.timestamp, frame.price, frame.filledQuantity, vwap);
+        fillVwap = vwapUnits(sessionNotional, sessionVolume);
+        bars = foldBars(state.bars, frame.timestamp, frame.price, frame.filledQuantity, fillVwap);
     }
 
     // Aggressor path: EXEC orderId names the aggressor on fills, and the
@@ -628,18 +720,43 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
             ? state.myOrders.findIndex((o) => o.clOrdId === frame.passiveOrderId)
             : -1;
 
+    // Own fills (P18-1): one record per own side of this fill. A fill is folded only
+    // when it actually moved the row: nextOrder and passiveFill return the same row
+    // for a terminal order, which is also what keeps notices from firing twice, so
+    // the aggregates, the fill list and the row's status can never disagree.
+    const ownFills: OwnFill[] = [];
+    const withFill = (o: MyOrder, role: FillRole): MyOrder => {
+        ownFills.push({
+            clOrdId: o.clOrdId,
+            tradeId: frame.tradeId,
+            side: o.side,
+            pricePx: frame.price,
+            qty: frame.filledQuantity,
+            timestamp: frame.timestamp,
+            role,
+            vwap: fillVwap,
+        });
+        return { ...o, exec: foldExec(o.exec, frame.price, frame.filledQuantity, role, fillVwap) };
+    };
+
     let myOrders = state.myOrders;
     if (aggIndex !== -1 || passiveIndex !== -1) {
         let changed = false;
         const next = state.myOrders.map((o, i) => {
             if (i === aggIndex) {
-                const updated = nextOrder(o, frame);
-                if (updated !== o) changed = true;
+                let updated = nextOrder(o, frame);
+                if (updated !== o) {
+                    changed = true;
+                    if (isFill(frame)) updated = withFill(updated, "aggressive");
+                }
                 return updated;
             }
             if (i === passiveIndex) {
-                const updated = passiveFill(o, frame.filledQuantity);
-                if (updated !== o) changed = true;
+                let updated = passiveFill(o, frame.filledQuantity);
+                if (updated !== o) {
+                    changed = true;
+                    updated = withFill(updated, "passive");
+                }
                 return updated;
             }
             return o;
@@ -649,6 +766,10 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         // checks depend on slice-level identity holding on no-op paths).
         if (changed) myOrders = next;
     }
+
+    // Newest first; a frame with no own fill keeps the slice reference.
+    const myFills =
+        ownFills.length === 0 ? state.myFills : [...ownFills, ...state.myFills].slice(0, OWN_FILLS_CAP);
 
     // Other participants' orders (the bots'), from the same frame.
     const marketOrders = applyMarketExec(state.marketOrders, frame, knows);
@@ -686,6 +807,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         ...state,
         tape,
         myOrders,
+        myFills,
         marketOrders,
         sessionVolume,
         sessionOpenPx,

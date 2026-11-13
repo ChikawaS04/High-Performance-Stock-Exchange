@@ -356,6 +356,7 @@ describe("bars slice and session notional (P17-3)", () => {
         );
         const dropped = reducer(live, { type: "CONNECTION", status: "reconnecting" });
         expect(dropped.bars).toBe(live.bars);
+        expect(dropped.myFills).toBe(live.myFills);
         expect(dropped.sessionNotional).toBe(live.sessionNotional);
         expect(dropped.book).toBe(live.book);
     });
