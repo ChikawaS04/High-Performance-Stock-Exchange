@@ -1,6 +1,5 @@
 package participant;
 
-import model.Prices;
 import model.Side;
 import model.TimeInForce;
 
@@ -8,132 +7,124 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Liquidity provider. Keeps a two-sided GTC limit quote resting around a fair value, re-quoting
- * when fair moves or on a cadence, and leans its quotes against accumulated inventory.
+ * Liquidity provider. Keeps a ladder of GTC quotes resting on both sides of a centre price, so
+ * the book and the depth chart have shape, and refreshes the ladder when the centre moves, when
+ * the market gets more volatile, or on a cadence.
  *
- * <p><b>Fair value is anchored to the market open.</b> Before any trade prints, fair is the
- * open-price anchor passed in at construction (the Alpaca market open the terminal also draws),
- * so the maker gives the venue a real starting level. Once trades print, fair follows the last
- * trade price, so when the taker sweeps the book up or down the maker re-centres onto the new
- * level and keeps quoting around it. That is the point of the open: a known place to start, from
- * which price is pushed up or down.
+ * <p><b>Centre.</b> Before the first print the centre is the open (the Alpaca market open the
+ * terminal also draws), which gives the venue its starting level. After that it follows the last
+ * on-tick trade, so when other bots push price the maker re-centres on the new level. It never
+ * centres on the book, which holds its own quotes. The centre is then
+ * shifted against inventory: a long maker lowers both sides to sell more and buy less.
  *
- * <p>Posts GTC (it wants to rest). Cancels its existing quotes before posting fresh ones, so it
- * never stacks duplicate resting orders. clOrdIds come from its own {@link Bots.IdSequence}, so
- * every quote is attributable to the maker on the wire.
+ * <p><b>Spread.</b> Level {@code i} (0-based) sits {@code half + i} ticks from the centre on each
+ * side, where {@code half = baseHalfSpreadTicks + volMultiplier * volatility}, the volatility being
+ * the typical tick move between trades. A choppy market widens the maker out.
  *
- * <p>State is touched only on the client's single executor thread (see {@link ParticipantClient}),
- * so no synchronization is needed.
+ * <p>Every price is the on-tick centre plus a whole number of ticks. A quote outside the risk band,
+ * or one that would take the position past its limit, is not sent.
  */
 public final class MarketMakerStrategy implements Strategy {
 
-    /** Tunables; all tick/qty counts, not raw units, except {@code openUnits}. */
     public record Config(
-            long openUnits,              // market-open anchor, units of $0.0001
-            int halfSpreadTicks,         // distance from fair to each quote, in one-cent ticks
-            long clipQty,                // size posted on each side
-            int requoteThresholdTicks,   // re-centre when fair moves at least this many ticks
-            long requoteIntervalMillis,  // force a refresh at least this often
-            int skewTicksPerClip,        // shift centre this many ticks per clip of net inventory
-            int maxSkewTicks) {          // clamp on the inventory skew
+            long openUnits,
+            int baseHalfSpreadTicks,     // distance from centre to the first level
+            long[] levelQtys,            // size per level, inner first; its length is the depth
+            double volMultiplier,        // extra half-spread ticks per tick of volatility
+            int requoteMoveTicks,        // re-centre when the centre moves this many ticks
+            long requoteIntervalMillis,  // refresh at least this often
+            long skewClipQty,            // inventory per tick of centre skew
+            int maxSkewTicks,
+            RiskLimits risk) {
+
+        public static Config defaults(long openUnits) {
+            return new Config(openUnits, 2, new long[] {100, 200, 300}, 1.0, 2, 10_000, 300, 10,
+                    new RiskLimits(openUnits, RiskLimits.DEFAULT_BAND_PERCENT, 3_000));
+        }
     }
 
     private final Config cfg;
-    private final Bots.IdSequence ids;
+    private final OwnOrders own;
+    private final PriceStats stats;
 
-    // Resting state (executor thread only).
-    private long bidId;      // 0 = no resting bid
-    private long askId;      // 0 = no resting ask
-    private long bidRemaining;
-    private long askRemaining;
-    private long lastCentre = Prices.NA;
-    private long lastQuoteMillis = Long.MIN_VALUE;
-    private long inventory;   // net position, + = long
+    private long reference;          // last on-tick trade, the open before the first print
+    private long lastCentre = -1;
+    private long lastHalf = -1;
+    private long lastQuoteMillis = Long.MIN_VALUE / 2;
 
     public MarketMakerStrategy(Config cfg, Bots.IdSequence ids) {
         this.cfg = cfg;
-        this.ids = ids;
+        this.own = new OwnOrders(ids);
+        this.stats = new PriceStats(cfg.openUnits(), 8, 40, 20);
+        this.reference = cfg.openUnits();
     }
 
     @Override public String name() { return "MAKER"; }
 
-    @Override public long rangeBase() { return Bots.MAKER_BASE; }
+    @Override public Bots.Owner owner() { return own.ids().owner(); }
 
     @Override
     public List<Action> onTick(MarketView view, long nowMillis) {
-        long fair = view.hasTraded() ? view.lastTradeUnits() : cfg.openUnits();
-        if (fair <= 0) {
-            return List.of();   // nothing to anchor to yet
-        }
-        long centre = roundToTick(fair - skewUnits());
+        reference = Anchors.reference(view, reference);
+        long centre = reference - Anchors.ticks(skewTicks());
+        long half = cfg.baseHalfSpreadTicks() + Math.round(cfg.volMultiplier() * stats.volTicks());
 
-        boolean missing = (bidId == 0 || askId == 0);
-        boolean moved = lastCentre > 0 && Math.abs(centre - lastCentre) >= (long) cfg.requoteThresholdTicks() * Prices.TICK;
+        boolean empty = own.working().isEmpty();
+        boolean moved = lastCentre > 0 && Math.abs(centre - lastCentre) >= Anchors.ticks(cfg.requoteMoveTicks());
+        boolean widened = half != lastHalf;
         boolean stale = nowMillis - lastQuoteMillis >= cfg.requoteIntervalMillis();
-        if (!missing && !moved && !stale) {
+        if (!empty && !moved && !widened && !stale) {
             return List.of();
         }
 
-        long half = (long) cfg.halfSpreadTicks() * Prices.TICK;
-        long bidPx = roundToTick(centre - half);
-        long askPx = roundToTick(centre + half);
-        if (bidPx <= 0) {
-            return List.of();   // degenerate; skip this tick
+        List<Action> out = new ArrayList<>(own.cancelAll());
+        long bidWorking = 0;
+        long askWorking = 0;
+        long[] qtys = cfg.levelQtys();
+        for (int i = 0; i < qtys.length; i++) {
+            long bidPx = centre - Anchors.ticks(half + i);
+            long askPx = centre + Anchors.ticks(half + i);
+            if (cfg.risk().inBand(bidPx) && cfg.risk().allows(Side.BUY, qtys[i], own.position(), bidWorking)) {
+                out.add(own.sent(Action.newLimit(own.ids().next(), Side.BUY, TimeInForce.GTC, bidPx, qtys[i])));
+                bidWorking += qtys[i];
+            }
+            if (cfg.risk().inBand(askPx) && cfg.risk().allows(Side.SELL, qtys[i], own.position(), askWorking)) {
+                out.add(own.sent(Action.newLimit(own.ids().next(), Side.SELL, TimeInForce.GTC, askPx, qtys[i])));
+                askWorking += qtys[i];
+            }
         }
-
-        List<Action> out = new ArrayList<>(4);
-        if (bidId != 0) out.add(Action.cancel(ids.next(), bidId));
-        if (askId != 0) out.add(Action.cancel(ids.next(), askId));
-
-        bidId = ids.next();
-        askId = ids.next();
-        bidRemaining = cfg.clipQty();
-        askRemaining = cfg.clipQty();
-        out.add(Action.newLimit(bidId, Side.BUY, TimeInForce.GTC, bidPx, cfg.clipQty()));
-        out.add(Action.newLimit(askId, Side.SELL, TimeInForce.GTC, askPx, cfg.clipQty()));
-
         lastCentre = centre;
+        lastHalf = half;
         lastQuoteMillis = nowMillis;
         return out;
     }
 
     @Override
     public void onExec(ExecReport e) {
-        if (!ParticipantClient.isFill(e.execType())) {
-            return;
-        }
-        // The maker only ever rests, so its fills show up as the passive side of a trade.
-        if (e.passiveOrderId() == bidId && bidId != 0) {
-            inventory += e.filledQuantity();          // bought
-            bidRemaining -= e.filledQuantity();
-            if (bidRemaining <= 0) bidId = 0;          // fully consumed -> repost next tick
-        } else if (e.passiveOrderId() == askId && askId != 0) {
-            inventory -= e.filledQuantity();          // sold
-            askRemaining -= e.filledQuantity();
-            if (askRemaining <= 0) askId = 0;
-        }
+        own.onExec(e);
+        stats.onExec(e);
     }
 
-    /** Net inventory, in price units, translated to a centre shift and clamped. */
-    private long skewUnits() {
-        if (cfg.skewTicksPerClip() == 0 || cfg.clipQty() <= 0) {
-            return 0L;
+    @Override
+    public List<Action> onSessionClose() {
+        lastCentre = -1;
+        return own.cancelEverything();
+    }
+
+    @Override
+    public boolean hasResting() {
+        return !own.resting().isEmpty();
+    }
+
+    /** Net inventory as a centre shift in ticks, clamped. Positive when long. */
+    long skewTicks() {
+        if (cfg.skewClipQty() <= 0) {
+            return 0;
         }
-        long clips = inventory / cfg.clipQty();
-        long ticks = clips * cfg.skewTicksPerClip();
-        long clamp = cfg.maxSkewTicks();
-        if (ticks > clamp) ticks = clamp;
-        if (ticks < -clamp) ticks = -clamp;
-        return ticks * Prices.TICK;
+        long ticks = own.position() / cfg.skewClipQty();
+        return Math.max(-cfg.maxSkewTicks(), Math.min(cfg.maxSkewTicks(), ticks));
     }
 
-    private static long roundToTick(long units) {
-        long r = units % Prices.TICK;
-        return (r == 0) ? units : units - r;   // floor to the one-cent tick
-    }
-
-    // Test visibility into resting state.
-    long inventoryForTest() { return inventory; }
-    long bidIdForTest() { return bidId; }
-    long askIdForTest() { return askId; }
+    // Test visibility.
+    OwnOrders ownForTest() { return own; }
 }

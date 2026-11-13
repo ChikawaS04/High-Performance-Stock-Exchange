@@ -5,11 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import event.ExecutionEventType;
 import model.Prices;
+import model.Side;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.List;
@@ -21,20 +24,27 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * An external WebSocket participant: one connection to {@code ws://host:port/ws} speaking the
- * terminal's own JSON protocol (NEW/CANCEL out, BOOK/EXEC/FIX in). It owns no engine internals
- * and cannot reach them; it is an ordinary client exactly like the React terminal, so it cannot
- * perturb the hot path or the single-producer inbound invariant.
+ * terminal's own JSON protocol (NEW/CANCEL out, BOOK/EXEC/SESSION in). It owns no engine internals
+ * and cannot reach them; it is an ordinary client exactly like the React terminal, so its orders
+ * take the same gateway, journal and engine path as the terminal's.
+ *
+ * <p><b>Session.</b> On start it reads the venue's session state from {@code GET /health}, then
+ * follows SESSION frames. The strategy is ticked only while the session is open. When the session
+ * closes, the strategy's {@link Strategy#onSessionClose} cancels are sent.
+ *
+ * <p><b>Stop.</b> Stopping first stops the ticks (so the strategy cannot post after its cancel
+ * sweep), sends the cancels, then waits, bounded, until the venue has confirmed that nothing the
+ * strategy rested is left ({@link Strategy#hasResting}), re-sending the cancels each second for
+ * anything still open. Only then is the socket closed, so a bot leaves nothing behind it.
  *
  * <p><b>Threading.</b> Everything that touches strategy state or the local market view runs on
- * one single-thread {@link ScheduledExecutorService}: the periodic {@code onTick}, and each
- * inbound frame's dispatch (marshalled off the socket reader thread onto the same executor). So a
- * {@link Strategy} needs no locks, mirroring the engine's single-writer discipline. Outbound sends
- * are chained on a {@link CompletableFuture} tail because {@link WebSocket#sendText} forbids
- * overlapping sends.
+ * one single-thread {@link ScheduledExecutorService}: the periodic tick and each inbound frame's
+ * dispatch (marshalled off the socket reader thread onto the same executor). That logic lives in
+ * {@link Core}, which does no I/O, so it is unit-tested directly. Outbound sends are chained on a
+ * {@link CompletableFuture} tail because {@link WebSocket#sendText} forbids overlapping sends.
  *
  * <p>An optional {@link MarketListener} receives every decoded BOOK/EXEC frame after the view is
- * updated; the {@link PriceTracker}'s read-only observer connection uses it. Trading clients pass
- * null.
+ * updated; the {@link PriceTracker}'s read-only observer connection uses it.
  */
 public final class ParticipantClient {
 
@@ -48,18 +58,12 @@ public final class ParticipantClient {
 
     private final URI uri;
     private final String symbol;
-    private final Strategy strategy;
     private final long tickMillis;
-    private final MarketListener listener;
     private final ObjectMapper mapper;
+    private final Core core;
 
     private final ScheduledExecutorService exec;
     private final StringBuilder textBuf = new StringBuilder();   // socket-reader thread only
-
-    // Local market view — mutated only on the executor thread.
-    private long bestBid = Prices.NA;
-    private long bestAsk = Prices.NA;
-    private long lastTradeUnits = Prices.NA;
 
     private volatile WebSocket webSocket;
     private CompletableFuture<WebSocket> sendTail;               // executor thread only
@@ -68,10 +72,9 @@ public final class ParticipantClient {
                              MarketListener listener, ObjectMapper mapper) {
         this.uri = uri;
         this.symbol = symbol;
-        this.strategy = strategy;
         this.tickMillis = tickMillis;
-        this.listener = listener;
         this.mapper = mapper;
+        this.core = new Core(strategy, listener);
         this.exec = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "participant-" + strategy.name());
             t.setDaemon(true);
@@ -79,86 +82,193 @@ public final class ParticipantClient {
         });
     }
 
-    /** Connect, then start the tick loop. Blocks until the handshake completes. */
+    /** Read the session state, connect, then start the tick loop. Blocks until the handshake completes. */
     public void start(HttpClient http) {
+        boolean open = readSessionOpen(http);
+        exec.execute(() -> core.setSessionOpen(open));
         this.webSocket = http.newWebSocketBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .buildAsync(uri, new Listener())
                 .join();
-        this.sendTail = CompletableFuture.completedFuture(webSocket);
+        exec.execute(() -> this.sendTail = CompletableFuture.completedFuture(webSocket));
         exec.scheduleAtFixedRate(this::safeTick, tickMillis, tickMillis, TimeUnit.MILLISECONDS);
-        log.info("{} connected to {}", strategy.name(), uri);
+        log.info("{} connected to {} (session {})", core.strategy.name(), uri, open ? "OPEN" : "CLOSED");
     }
 
-    /** Stop ticking and close the socket. Idempotent-ish; intended for one shutdown. */
+    private static final long STOP_TIMEOUT_MILLIS = 6_000;
+    private static final long STOP_RECANCEL_MILLIS = 1_000;
+    private static final long STOP_POLL_MILLIS = 100;
+
+    /**
+     * Stop ticking, cancel everything the strategy has resting, wait (bounded) until the venue has
+     * confirmed every cancel, then close the socket. Intended for one shutdown.
+     */
     public void stop() {
+        String name = core.strategy.name();
+        try {
+            exec.submit(() -> {
+                core.stopping = true;
+                sendAll(core.onStop());
+            }).get(2, TimeUnit.SECONDS);
+            long deadline = System.currentTimeMillis() + STOP_TIMEOUT_MILLIS;
+            long nextRecancel = System.currentTimeMillis() + STOP_RECANCEL_MILLIS;
+            while (exec.schedule(core.strategy::hasResting, STOP_POLL_MILLIS, TimeUnit.MILLISECONDS)
+                    .get(2, TimeUnit.SECONDS)) {
+                long now = System.currentTimeMillis();
+                if (now >= deadline) {
+                    log.warn("{} stopped with orders still resting: the venue did not confirm every cancel", name);
+                    break;
+                }
+                if (now >= nextRecancel) {
+                    exec.submit(() -> sendAll(core.onStop())).get(2, TimeUnit.SECONDS);
+                    nextRecancel = now + STOP_RECANCEL_MILLIS;
+                }
+            }
+            exec.submit(() -> sendTail).get(2, TimeUnit.SECONDS).get(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.warn("{} could not finish cancelling on stop: {}", name, e.toString());
+        }
         exec.shutdownNow();
         WebSocket ws = webSocket;
         if (ws != null) {
             try {
-                ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye");
-            } catch (RuntimeException ignored) {
+                ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye").get(2, TimeUnit.SECONDS);
+            } catch (Exception ignored) {
                 // closing a half-dead socket is best-effort
             }
         }
+    }
+
+    /** {@code GET /health} on the same host and port; an unreachable or unparsable answer reads as open. */
+    private boolean readSessionOpen(HttpClient http) {
+        URI health = URI.create("http://" + uri.getHost() + ":" + uri.getPort() + "/health");
+        try {
+            HttpResponse<String> res = http.send(HttpRequest.newBuilder(health)
+                    .timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() == 200) {
+                return !"CLOSED".equals(mapper.readTree(res.body()).path("session").asText());
+            }
+            log.warn("{} answered HTTP {}; assuming the session is open", health, res.statusCode());
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.warn("Could not read {}: {}; assuming the session is open", health, e.toString());
+        }
+        return true;
     }
 
     // --- tick + dispatch (executor thread) -----------------------------------------------
 
     private void safeTick() {
         try {
-            MarketView view = snapshotView();
-            List<Action> actions = strategy.onTick(view, System.currentTimeMillis());
-            for (Action a : actions) {
-                send(a);
-            }
+            sendAll(core.onTick(System.currentTimeMillis()));
         } catch (RuntimeException e) {
-            log.warn("{} tick failed: {}", strategy.name(), e.toString());
+            log.warn("{} tick failed: {}", core.strategy.name(), e.toString());
         }
-    }
-
-    private MarketView snapshotView() {
-        long mid = (bestBid > 0 && bestAsk > 0) ? (bestBid + bestAsk) / 2 : Prices.NA;
-        return new MarketView(bestBid, bestAsk, mid, lastTradeUnits);
     }
 
     private void dispatch(String json) {
         try {
-            JsonNode node = mapper.readTree(json);
-            String type = node.path("type").asText();
-            if ("BOOK".equals(type)) {
-                bestBid = node.path("bestBid").asLong(Prices.NA);
-                bestAsk = node.path("bestAsk").asLong(Prices.NA);
-                long mid = (bestBid > 0 && bestAsk > 0) ? (bestBid + bestAsk) / 2 : Prices.NA;
-                if (listener != null) {
-                    listener.onBook(bestBid, bestAsk, mid, node.path("timestamp").asLong());
-                }
-            } else if ("EXEC".equals(type)) {
-                ExecReport r = parseExec(node);
-                if (isFill(r.execType()) && r.priceUnits() > 0) {
-                    lastTradeUnits = r.priceUnits();
-                }
-                strategy.onExec(r);
-                if (listener != null) {
-                    listener.onExec(r);
-                }
-            }
-            // FIX echo frames and anything else are ignored.
+            sendAll(core.onFrame(mapper.readTree(json)));
         } catch (Exception e) {
-            log.warn("{} dropped undecodable frame: {}", strategy.name(), e.toString());
+            log.warn("{} dropped undecodable frame: {}", core.strategy.name(), e.toString());
         }
     }
 
-    // --- outbound ------------------------------------------------------------------------
+    private void sendAll(List<Action> actions) {
+        for (Action a : actions) {
+            send(a);
+        }
+    }
 
     private void send(Action a) {
+        if (sendTail == null) {
+            return;   // not connected yet
+        }
         String json = encode(mapper, a, symbol);
-        // Chain to respect the no-overlapping-send contract; all mutation of sendTail is on exec.
         sendTail = sendTail.thenCompose(w -> w.sendText(json, true))
                 .exceptionally(ex -> {
-                    log.warn("{} send failed: {}", strategy.name(), ex.toString());
+                    log.warn("{} send failed: {}", core.strategy.name(), ex.toString());
                     return webSocket;
                 });
+    }
+
+    // --- pure core (unit-tested) ---------------------------------------------------------
+
+    /**
+     * The client's decision logic, with no socket and no executor: it folds frames into the market
+     * view and the session state, and returns the actions to send. Confined to one thread.
+     */
+    static final class Core {
+        final Strategy strategy;
+        private final MarketListener listener;
+
+        private long bestBid = Prices.NA;
+        private long bestAsk = Prices.NA;
+        private long lastTradeUnits = Prices.NA;
+        private boolean sessionOpen;
+        /** Set once by {@link ParticipantClient#stop}: no more ticks, only the stop's cancels. */
+        boolean stopping;
+
+        Core(Strategy strategy, MarketListener listener) {
+            this.strategy = strategy;
+            this.listener = listener;
+        }
+
+        void setSessionOpen(boolean open) {
+            this.sessionOpen = open;
+        }
+
+        boolean sessionOpen() {
+            return sessionOpen;
+        }
+
+        MarketView view() {
+            long mid = (bestBid > 0 && bestAsk > 0) ? (bestBid + bestAsk) / 2 : Prices.NA;
+            return new MarketView(bestBid, bestAsk, mid, lastTradeUnits);
+        }
+
+        List<Action> onTick(long nowMillis) {
+            return (sessionOpen && !stopping) ? strategy.onTick(view(), nowMillis) : List.of();
+        }
+
+        List<Action> onStop() {
+            return strategy.onSessionClose();
+        }
+
+        List<Action> onFrame(JsonNode node) {
+            String type = node.path("type").asText();
+            switch (type) {
+                case "BOOK" -> {
+                    bestBid = node.path("bestBid").asLong(Prices.NA);
+                    bestAsk = node.path("bestAsk").asLong(Prices.NA);
+                    if (listener != null) {
+                        long mid = (bestBid > 0 && bestAsk > 0) ? (bestBid + bestAsk) / 2 : Prices.NA;
+                        listener.onBook(bestBid, bestAsk, mid, node.path("timestamp").asLong());
+                    }
+                }
+                case "EXEC" -> {
+                    ExecReport r = parseExec(node);
+                    if (isFill(r.execType()) && r.priceUnits() > 0) {
+                        lastTradeUnits = r.priceUnits();
+                    }
+                    strategy.onExec(r);
+                    if (listener != null) {
+                        listener.onExec(r);
+                    }
+                }
+                case "SESSION" -> {
+                    boolean open = "OPEN".equals(node.path("state").asText());
+                    boolean closing = sessionOpen && !open;
+                    sessionOpen = open;
+                    if (closing && !stopping) {
+                        return strategy.onSessionClose();
+                    }
+                }
+                default -> { }   // FIX echo frames and anything else are ignored
+            }
+            return List.of();
+        }
     }
 
     // --- static codec (shared with tests) ------------------------------------------------
@@ -174,6 +284,9 @@ public final class ParticipantClient {
             n.put("tif", a.tif().name());
             n.put("price", a.priceUnits());
             n.put("qty", a.qty());
+            if (a.maxFloor() > 0) {
+                n.put("maxFloor", a.maxFloor());
+            }
             n.put("symbol", symbol);
         } else {
             n.put("type", "CANCEL");
@@ -194,7 +307,20 @@ public final class ParticipantClient {
                 n.path("remainingQuantity").asLong(Prices.NA),
                 n.path("aggressorOrderId").asLong(Prices.NA),
                 n.path("passiveOrderId").asLong(Prices.NA),
-                n.path("timestamp").asLong(0L));
+                n.path("timestamp").asLong(0L),
+                side(n.path("aggressorSide"), n.path("side")));
+    }
+
+    /** The first of the nodes that names a side, or null. */
+    private static Side side(JsonNode... nodes) {
+        for (JsonNode s : nodes) {
+            if (s.isTextual()) {
+                String v = s.asText();
+                if ("BUY".equals(v)) return Side.BUY;
+                if ("SELL".equals(v)) return Side.SELL;
+            }
+        }
+        return null;
     }
 
     /** A fill event carries a real trade price; accepts/cancels/rejects/expiries do not. */
@@ -216,7 +342,13 @@ public final class ParticipantClient {
             if (last) {
                 String msg = textBuf.toString();
                 textBuf.setLength(0);
-                exec.execute(() -> dispatch(msg));
+                if (!exec.isShutdown()) {   // frames still arriving after stop() have nowhere to go
+                    try {
+                        exec.execute(() -> dispatch(msg));
+                    } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                        // stop() shut the executor down between the check and the execute
+                    }
+                }
             }
             ws.request(1);
             return null;
@@ -224,7 +356,7 @@ public final class ParticipantClient {
 
         @Override
         public void onError(WebSocket ws, Throwable error) {
-            log.warn("{} socket error: {}", strategy.name(), error.toString());
+            log.warn("{} socket error: {}", core.strategy.name(), error.toString());
         }
     }
 }

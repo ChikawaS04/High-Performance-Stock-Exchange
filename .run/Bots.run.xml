@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Bots" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="participant.ParticipantSimMain" />
+    <module name="OrderBookDemo" />
+    <option name="VM_PARAMETERS" value="--add-exports java.base/jdk.internal.misc=ALL-UNNAMED" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/app/backend" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

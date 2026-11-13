@@ -1,90 +1,118 @@
 package participant;
 
-import event.ExecutionEventType;
 import model.Prices;
 import model.Side;
+import model.TimeInForce;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static participant.Fixtures.OPEN;
+import static participant.Fixtures.cancels;
+import static participant.Fixtures.emptyView;
+import static participant.Fixtures.fill;
+import static participant.Fixtures.news;
+import static participant.Fixtures.print;
+import static participant.Fixtures.side;
+import static participant.Fixtures.ticks;
+import static participant.Fixtures.view;
 
-/** Pure decision-logic tests for the maker. No socket, no threads; seeded id sequence. */
 class MarketMakerStrategyTest {
 
-    private static final long OPEN = 1_500_000L;   // $150.00
+    private static MarketMakerStrategy maker(MarketMakerStrategy.Config cfg) {
+        return new MarketMakerStrategy(cfg, new Bots.IdSequence(Bots.Owner.MAKER));
+    }
 
-    private MarketMakerStrategy maker() {
-        // halfSpread 5 ticks, clip 50, requote if moved >=2 ticks or 3s elapsed, skew 1 tick/clip, cap 10.
-        return new MarketMakerStrategy(
-                new MarketMakerStrategy.Config(OPEN, 5, 50, 2, 3_000, 1, 10),
-                new Bots.IdSequence(Bots.MAKER_BASE));
+    private static MarketMakerStrategy.Config cfg(RiskLimits risk, long skewClip) {
+        MarketMakerStrategy.Config d = MarketMakerStrategy.Config.defaults(OPEN);
+        return new MarketMakerStrategy.Config(OPEN, d.baseHalfSpreadTicks(), d.levelQtys(), d.volMultiplier(),
+                d.requoteMoveTicks(), d.requoteIntervalMillis(), skewClip, d.maxSkewTicks(), risk);
     }
 
     @Test
-    void firstTick_quotesSymmetricallyAroundOpen_onTick_whenNoTradeYet() {
-        List<Action> out = maker().onTick(MarketView.empty(), 1_000L);
-        assertEquals(2, out.size());   // no prior quotes to cancel
+    void theFirstTickLaddersThreeLevelsEachSideOfTheOpen() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        List<Action> out = m.onTick(emptyView(), 1_000);
 
-        Action bid = out.get(0);
-        Action ask = out.get(1);
-        assertEquals(Side.BUY, bid.side());
-        assertEquals(Side.SELL, ask.side());
-        assertEquals(OPEN - 5 * Prices.TICK, bid.priceUnits());   // 1_499_500
-        assertEquals(OPEN + 5 * Prices.TICK, ask.priceUnits());   // 1_500_500
-        assertEquals(50L, bid.qty());
-        assertTrue(bid.priceUnits() % Prices.TICK == 0 && ask.priceUnits() % Prices.TICK == 0);
-        assertEquals(Bots.Owner.MAKER, Bots.owner(bid.clOrdId()));
-        assertEquals(Bots.Owner.MAKER, Bots.owner(ask.clOrdId()));
+        assertEquals(List.of(OPEN - ticks(2), OPEN - ticks(3), OPEN - ticks(4)),
+                side(out, Side.BUY).stream().map(Action::priceUnits).toList());
+        assertEquals(List.of(OPEN + ticks(2), OPEN + ticks(3), OPEN + ticks(4)),
+                side(out, Side.SELL).stream().map(Action::priceUnits).toList());
+        assertEquals(List.of(100L, 200L, 300L), side(out, Side.BUY).stream().map(Action::qty).toList());
+        for (Action a : out) {
+            assertEquals(TimeInForce.GTC, a.tif());
+            assertTrue(Prices.isOnTick(a.priceUnits()));
+            assertEquals(Bots.Owner.MAKER, Bots.owner(a.clOrdId()));
+        }
     }
 
     @Test
-    void unchangedFairWithinInterval_doesNotRequote() {
-        MarketMakerStrategy m = maker();
-        m.onTick(MarketView.empty(), 1_000L);
-        List<Action> second = m.onTick(MarketView.empty(), 1_200L);   // same fair, 200ms later
-        assertTrue(second.isEmpty());
+    void nothingMovedWithinTheIntervalMeansNoRequote() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        m.onTick(emptyView(), 1_000);
+        assertTrue(m.onTick(view(OPEN - ticks(2), OPEN + ticks(2), -1), 2_000).isEmpty());
     }
 
     @Test
-    void lastTradeAboveOpen_reCentresUp_andCancelsPriorQuotes() {
-        MarketMakerStrategy m = maker();
-        List<Action> first = m.onTick(MarketView.empty(), 1_000L);
-        long priorBid = first.get(0).clOrdId();
-        long priorAsk = first.get(1).clOrdId();
+    void aMoveInTheLastTradeCancelsTheLadderAndReCentresOnIt() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        m.onTick(emptyView(), 1_000);
+        long last = OPEN + ticks(5);
+        m.onExec(print(last));
+        List<Action> out = m.onTick(view(OPEN - ticks(2), OPEN + ticks(2), last), 2_000);
 
-        long traded = OPEN + 10 * Prices.TICK;   // taker walked price up 10 cents
-        MarketView moved = new MarketView(Prices.NA, Prices.NA, Prices.NA, traded);
-        List<Action> out = m.onTick(moved, 1_500L);
-
-        // two cancels (prior bid+ask) then two fresh quotes
-        assertEquals(4, out.size());
-        assertEquals(Action.Kind.CANCEL, out.get(0).kind());
-        assertEquals(Action.Kind.CANCEL, out.get(1).kind());
-        assertEquals(priorBid, out.get(0).origClOrdId());
-        assertEquals(priorAsk, out.get(1).origClOrdId());
-        assertEquals(traded - 5 * Prices.TICK, out.get(2).priceUnits());
-        assertEquals(traded + 5 * Prices.TICK, out.get(3).priceUnits());
+        assertEquals(6, cancels(out).size(), "every quote from the first ladder");
+        assertEquals(last - ticks(2), side(out, Side.BUY).get(0).priceUnits());
+        assertEquals(last + ticks(2), side(out, Side.SELL).get(0).priceUnits());
     }
 
     @Test
-    void passiveBuyFill_updatesInventory_andRepostsThatSide() {
-        MarketMakerStrategy m = maker();
-        List<Action> first = m.onTick(MarketView.empty(), 1_000L);
-        long bidId = first.get(0).clOrdId();
-        assertEquals(bidId, m.bidIdForTest());
+    void anOffTickPegPrintIsNeverUsedAsTheCentre() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        List<Action> out = m.onTick(view(OPEN - ticks(1), OPEN + ticks(1), OPEN + 50), 1_000);
+        for (Action a : news(out)) assertTrue(Prices.isOnTick(a.priceUnits()), "price " + a.priceUnits());
+        assertEquals(OPEN - ticks(2), side(out, Side.BUY).get(0).priceUnits(), "still centred on the open");
+    }
 
-        // The maker's resting bid is fully lifted by an aggressor.
-        m.onExec(new ExecReport(ExecutionEventType.ORDER_FILLED,
-                /*orderId(aggressor)*/ 2_000_050L, /*tradeId*/ 1L, /*price*/ OPEN - 5 * Prices.TICK,
-                /*filled*/ 50L, /*remaining(aggressor)*/ 0L,
-                /*aggressorId*/ 2_000_050L, /*passiveId*/ bidId, /*ts*/ 10L));
+    @Test
+    void inventoryShiftsTheCentreAgainstThePosition() {
+        MarketMakerStrategy m = maker(cfg(new RiskLimits(OPEN, 20, 3_000), 100));
+        List<Action> first = m.onTick(emptyView(), 1_000);
+        long innerBid = side(first, Side.BUY).get(0).clOrdId();
+        m.onExec(fill(9L, innerBid, Side.SELL, OPEN - ticks(2), 100, 0));   // bought 100 at the inner bid
+        assertEquals(100, m.ownForTest().position());
 
-        assertEquals(50L, m.inventoryForTest());   // bought 50
-        assertEquals(0L, m.bidIdForTest());          // bid cleared -> next tick reposts
+        List<Action> out = m.onTick(emptyView(), 20_000);   // stale: refresh
+        assertEquals(OPEN - ticks(1) - ticks(2), side(out, Side.BUY).get(0).priceUnits(), "one tick lower when long 100");
+        assertEquals(OPEN - ticks(1) + ticks(2), side(out, Side.SELL).get(0).priceUnits());
+    }
 
-        List<Action> next = m.onTick(MarketView.empty(), 1_200L);   // missing side forces requote
-        assertTrue(next.stream().anyMatch(a -> a.kind() == Action.Kind.NEW && a.side() == Side.BUY));
+    @Test
+    void quotesOutsideTheBandAreNotSent() {
+        RiskLimits narrow = new RiskLimits(OPEN, 1, 3_000);   // 150 ticks either side
+        MarketMakerStrategy m = maker(cfg(narrow, 300));
+        List<Action> out = m.onTick(view(-1, -1, narrow.highest()), 1_000);
+        assertTrue(side(out, Side.SELL).isEmpty(), "every offer would sit above the band");
+        assertEquals(3, side(out, Side.BUY).size());
+    }
+
+    @Test
+    void thePositionLimitTrimsTheLadder() {
+        MarketMakerStrategy m = maker(cfg(new RiskLimits(OPEN, 20, 150), 300));
+        List<Action> out = m.onTick(emptyView(), 1_000);
+        assertEquals(1, side(out, Side.BUY).size(), "100 fits under 150; 100 + 200 does not");
+        assertEquals(1, side(out, Side.SELL).size());
+    }
+
+    @Test
+    void sessionCloseCancelsEveryQuote() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        List<Action> out = m.onTick(emptyView(), 1_000);
+        List<Action> close = m.onSessionClose();
+        assertEquals(6, close.size());
+        assertEquals(news(out).stream().map(Action::clOrdId).toList(),
+                close.stream().map(Action::origClOrdId).toList());
     }
 }
