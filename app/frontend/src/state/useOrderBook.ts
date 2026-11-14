@@ -6,6 +6,14 @@
  * StrictMode-safe: the effect's cleanup detaches handlers, clears the pending
  * retry timer, and closes the socket, so a double-invoked mount cannot leave an
  * orphan connection or a zombie reconnect loop.
+ *
+ * P20-1 adds the depth recorder for the liquidity heatmap (heatmap/depthRecorder.ts).
+ * It lives here, at the socket edge, because its ring is written in place and the
+ * reducer must stay pure. Every parsed BOOK frame is recorded with its receipt time
+ * before the dispatch, the socket opening and closing mark a reconnect and a break,
+ * and one HEATMAP_TICK_MS interval moves the recorder's right edge through quiet
+ * stretches. The recorder is created once per hook instance and survives reconnects
+ * and StrictMode's double-invoked effect.
  */
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
@@ -14,6 +22,7 @@ import { parseServerFrame } from "../protocol/messages";
 import type { ClientFrame } from "../protocol/messages";
 import { serializeClientFrame } from "../protocol/encode";
 import { initialState, reducer } from "./reducer";
+import { DepthRecorder, HEATMAP_TICK_MS } from "../heatmap/depthRecorder";
 import type { AppState, LocalAction, SendMeta } from "./reducer";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/ws";
@@ -29,17 +38,28 @@ export interface OrderBookApi {
     readonly send: (frame: ClientFrame, meta?: SendMeta) => boolean;
     /** Dispatches a local action (P18-5). Typed to LocalAction, so no wire frame can pass. */
     readonly dispatchLocal: (action: LocalAction) => void;
+    /** The session's depth history for the heatmap (P20-1). */
+    readonly depth: DepthRecorder;
+}
+
+/** Wall clock in epoch nanoseconds (a double: about 256 ns resolution, ample for 250 ms buckets). */
+function wallNs(): number {
+    return Date.now() * 1_000_000;
 }
 
 export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAULT_WS_URL): OrderBookApi {
     const [state, dispatch] = useReducer(reducer, initialState);
     const socketRef = useRef<WebSocket | null>(null);
+    const depthRef = useRef<DepthRecorder | null>(null);
+    if (depthRef.current === null) depthRef.current = new DepthRecorder();
+    const depth = depthRef.current;
 
     useEffect(() => {
         let disposed = false;
         let socket: WebSocket | null = null;
         let timer: ReturnType<typeof setTimeout> | null = null;
         let attempt = 0;
+        const advance = setInterval(() => depth.advance(wallNs()), HEATMAP_TICK_MS);
 
         const detach = (ws: WebSocket): void => {
             ws.onopen = null;
@@ -60,6 +80,7 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
             ws.onopen = () => {
                 if (disposed) return;
                 attempt = 0;
+                depth.connected();
                 dispatch({ type: "CONNECTION", status: "open" });
             };
 
@@ -71,6 +92,7 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
                     console.warn("dropping unparseable server frame");
                     return;
                 }
+                if (frame.type === "BOOK") depth.ingest(frame, wallNs());
                 dispatch({ type: "FRAME", frame });
             };
 
@@ -86,6 +108,8 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
                 // The reducer keeps the book, frozen and dimmed as stale, and breaks the
                 // bid/ask lines with one empty quote point (P18-6). The next BOOK frame
                 // (the snapshot on reconnect, or the next order flow) replaces it.
+                // The heatmap records a break: empty columns until that frame (P20-1).
+                depth.disconnected();
                 dispatch({ type: "CONNECTION", status: "reconnecting" });
 
                 const delay = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
@@ -98,6 +122,7 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
 
         return () => {
             disposed = true;
+            clearInterval(advance);
             if (timer !== null) clearTimeout(timer);
             socketRef.current = null;
             if (socket !== null) {
@@ -105,7 +130,7 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
                 socket.close();
             }
         };
-    }, [url]);
+    }, [url, depth]);
 
     const send = useCallback((frame: ClientFrame, meta?: SendMeta): boolean => {
         const ws = socketRef.current;
@@ -129,5 +154,5 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
 
     const dispatchLocal = useCallback((action: LocalAction): void => dispatch(action), []);
 
-    return { state, send, dispatchLocal };
+    return { state, send, dispatchLocal, depth };
 }
