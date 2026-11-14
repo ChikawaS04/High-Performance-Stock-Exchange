@@ -15,14 +15,25 @@ const FIXTURE: IndicatorDescriptor[] = [
 
 describe("indicator registry (P17-5)", () => {
     it("registers volume (pane, candles only) and VWAP (overlay, both types) on both surfaces", () => {
-        expect(INDICATORS.map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", "volprofile", "cvd"]);
-        expect(onSurface("page").map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", "volprofile", "cvd"]);
-        expect(onSurface("window").map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask"]);
+        const MAS = ["sma", "sma2", "ema", "ema2"];
+        expect(INDICATORS.map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", "volprofile", "cvd", ...MAS]);
+        expect(onSurface("page").map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", "volprofile", "cvd", ...MAS]);
+        expect(onSurface("window").map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", ...MAS]);
     });
 
     it("volume is not available in line mode; VWAP is", () => {
         expect(availableIndicators("page", "line").map((d) => d.id)).toEqual(["vwap", "executions", "orders", "bidask", "volprofile"]);
-        expect(availableIndicators("window", "candles").map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask"]);
+        expect(availableIndicators("window", "candles").map((d) => d.id)).toEqual([
+            "volume",
+            "vwap",
+            "executions",
+            "orders",
+            "bidask",
+            "sma",
+            "sma2",
+            "ema",
+            "ema2",
+        ]);
     });
 
     it("drawableIds keeps enabled ids the chart type can draw", () => {

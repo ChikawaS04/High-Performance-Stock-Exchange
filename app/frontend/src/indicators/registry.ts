@@ -58,6 +58,11 @@ export interface IndicatorDescriptor {
     readonly params?: readonly IndicatorParam[];
 }
 
+/** A bar-count length parameter (P19-8, P19-9): 2 to 200 bars. */
+function lengthParam(def: number): IndicatorParam {
+    return { id: "length", label: "Length", kind: "int", min: 2, max: 200, default: def, presets: [5, 10, 20, 50, 100, 200] };
+}
+
 export const INDICATORS: readonly IndicatorDescriptor[] = [
     // P19-6: every indicator drawn per bar slot or on the price scale also draws in
     // footprint, which shares the candle slots and price scale.
@@ -115,6 +120,19 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
     // P19-4: cumulative volume delta as a lower pane (P19 D5), Charts page only, off by
     // default. It reads each bar's cvd, so it needs bars; it counts toward PANE_CAP.
     { id: "cvd", label: "CVD", placement: "pane", surfaces: ["page"], chartTypes: ["candles", "footprint"] },
+    // P19-8: simple and exponential moving averages on bar closes (P19 D8), each twice so
+    // two lengths can show at once (the second instance dashed). Both surfaces, bar
+    // chart types only, off by default.
+    ...(["sma", "sma2", "ema", "ema2"] as const).map(
+        (id): IndicatorDescriptor => ({
+            id,
+            label: `${id.startsWith("sma") ? "SMA" : "EMA"}${id.endsWith("2") ? " 2" : ""}`,
+            placement: "overlay",
+            surfaces: ["page", "window"],
+            chartTypes: ["candles", "footprint"],
+            params: [lengthParam(id.endsWith("2") ? 50 : 20)],
+        }),
+    ),
 ];
 
 /** The ids a fresh install starts with: every descriptor marked defaultOn, in registry order. */

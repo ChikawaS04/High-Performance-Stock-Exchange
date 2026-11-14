@@ -141,6 +141,12 @@
     /* Session VWAP line and tag (P17 D9): a neutral grey-violet, distinct from the
        amber price line, the candle colours, blue and red. */
     --vwap: #b4a7d6;
+    /* Bar indicator display colours (P19-8, P19-9, DESIGN_SYSTEM.md §16): distinct in hue
+       from the VWAP violet, the amber price line and brand amber, the default candle
+       green and red, and the quote blue and red. */
+    --ind-sma: #1fd6e8;
+    --ind-ema: #f14fe6;
+    --ind-boll: #a9b4c4;
 }
 
 * {
@@ -4235,7 +4241,16 @@ body {
     --candle-up: #1f9d3a;
     --candle-down: #d40000;
     --vwap: #6a5a9a;
+    --ind-sma: #00808a;
+    --ind-ema: #a8329b;
+    --ind-boll: #5b6778;
 }
+
+/* Moving averages (P19-8): 1px lines, the second instance of each dashed. */
+.price-chart__ma { fill: none; stroke-width: 1; stroke-linejoin: round; }
+.price-chart__ma--sma { stroke: var(--ind-sma); }
+.price-chart__ma--ema { stroke: var(--ind-ema); }
+.price-chart__ma--second { stroke-dasharray: 4 3; }
 .price-chart__candle { shape-rendering: crispEdges; }
 .price-chart__candle--up { fill: var(--candle-up); stroke: var(--candle-up); }
 .price-chart__candle--down { fill: var(--candle-down); stroke: var(--candle-down); }

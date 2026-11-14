@@ -79,6 +79,10 @@ describe("useChartSettings indicator migration (P18-2)", () => {
             "executions",
             "orders",
             "bidask",
+            "sma",
+            "sma2",
+            "ema",
+            "ema2",
         ]);
         act(() => first.result.current.setIndicators(["volume"]));
         first.unmount();

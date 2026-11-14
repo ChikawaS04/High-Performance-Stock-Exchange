@@ -117,6 +117,11 @@ import { ChartSettingsPopup } from "./ChartSettingsPopup";
 import { VolumeProfileLayer } from "./VolumeProfileLayer";
 import { CvdPane } from "./CvdPane";
 import { FootprintLayer } from "./FootprintLayer";
+import { MovingAverageLayer } from "./MovingAverageLayer";
+import type { MaLine } from "./MovingAverageLayer";
+import { movingAverage } from "../indicators/movingAverages";
+import type { MaKind } from "../indicators/movingAverages";
+import { paramValue } from "../indicatorParams";
 import { FOOTPRINT_SLOT, footprintBar, footprintRowStep, rowAt } from "../footprint";
 import { TICK_PX } from "../prices";
 import { profileStats } from "../indicators/volumeProfile";
@@ -619,6 +624,30 @@ export function PriceChart({
         );
     }, [candle, volumePane, volTop, volMaxY, volWordY, PLOT_LEFT, PLOT_RIGHT, ink.sep, ink.dim]);
 
+    // Moving averages (P19-8): each enabled SMA and EMA at its persisted length,
+    // memoised on the series and length (movingAverages.movingAverage).
+    const maLines: readonly MaLine[] = useMemo(() => {
+        if (!candles) return [];
+        const out: MaLine[] = [];
+        for (const id of ["sma", "sma2", "ema", "ema2"]) {
+            if (!drawable.includes(id)) continue;
+            const d = registry.find((x) => x.id === id);
+            if (d === undefined || d.params === undefined) continue;
+            const kind: MaKind = id.startsWith("sma") ? "sma" : "ema";
+            const length = paramValue(settings.params, d, "length");
+            out.push({ id, kind, second: id.endsWith("2"), length, values: movingAverage(series, kind, length) });
+        }
+        return out;
+        // drawableKey stands in for drawable, which is a fresh array each render.
+    }, [candles, drawableKey, registry, settings.params, series]);
+    const maMarks = useMemo(
+        () =>
+            candle === null || maLines.length === 0 ? null : (
+                <MovingAverageLayer lines={maLines} bars={candle.view.bars} xOfSlot={candle.xOfSlot} yOf={candle.yOf} />
+            ),
+        [candle, maLines],
+    );
+
     // CVD pane (P19-4): each visible bar's recorded session delta.
     const cvdPane = panes.panes.find((p) => p.id === "cvd") ?? null;
     const cvdTop = cvdPane !== null ? PLOT_TOP + cvdPane.top : null;
@@ -1081,7 +1110,8 @@ export function PriceChart({
     }
 
     // Readout strip: the hovered bar or print, else the newest in view, so it always reads something.
-    type Part = readonly [key: string, value: string];
+    // An indicator's key may take its own colour (P19-8); every other key takes the dim ink.
+    type Part = readonly [key: string, value: string, keyFill?: string];
     let readout: readonly Part[];
     if (candle !== null) {
         const b = hoverBar ?? candle.lastVisible;
@@ -1093,6 +1123,11 @@ export function PriceChart({
             ["V", formatQty(b.volume)],
         ];
         if (vwapOn && b.vwap >= 0) parts.push(["VWAP", formatPrice(b.vwap)]);
+        // Each enabled average at this bar, labelled with its length; none before its window fills.
+        for (const l of maLines) {
+            const v = l.values.get(b.bucket);
+            if (v !== undefined) parts.push([`${l.kind.toUpperCase()}${l.length}`, formatPrice(v.units), `var(--ind-${l.kind})`]);
+        }
         // Footprint: the hovered row's range and its sell and buy shares (P19-6).
         if (footprintMode && hoverBar !== null && hoverPrice !== null) {
             const row = rowAt(footprintBar(hoverBar, candle.fpStep), hoverPrice);
@@ -1321,6 +1356,8 @@ export function PriceChart({
                         />
                     ) : null}
 
+                    {maMarks !== null ? <g clipPath={clip}>{maMarks}</g> : null}
+
                     {vwapPts !== null ? (
                         <polyline className="price-chart__vwap" data-testid="price-chart-vwap" points={vwapPts} clipPath={clip} />
                     ) : null}
@@ -1485,10 +1522,15 @@ export function PriceChart({
                         dominantBaseline="middle"
                         pointerEvents="none"
                     >
-                        {readout.map(([k, v], i) => (
+                        {readout.map(([k, v, keyFill], i) => (
                             <tspan key={`${k}-${i}`}>
                                 {k !== "" ? (
-                                    <tspan className="price-chart__readout-key" fill={ink.dim} dx={i === 0 ? 0 : 8}>
+                                    <tspan
+                                        className="price-chart__readout-key"
+                                        fill={keyFill === undefined ? ink.dim : undefined}
+                                        style={keyFill === undefined ? undefined : { fill: keyFill }}
+                                        dx={i === 0 ? 0 : 8}
+                                    >
                                         {k}
                                     </tspan>
                                 ) : null}
