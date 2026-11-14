@@ -5,6 +5,11 @@
  * table family. The metrics are pure (executionQuality.ts); this component only
  * renders them. Cost is red and improvement green, in the direction colours (§2),
  * never the bid blue or ask red.
+ *
+ * P18-11: a pinned last row, ALL, sums the filled quantity and gives the
+ * quantity-weighted average of each metric over the orders that have one
+ * (summarizeExecutionQuality). It sits in the table foot and stays in view while
+ * the body scrolls (sticky to the bottom of the scroll area).
  */
 
 import {
@@ -14,7 +19,10 @@ import {
     formatFilled,
     formatPct,
     formatSpreadPaid,
+    summarizeExecutionQuality,
+    DASH,
 } from "../executionQuality";
+import { formatQty } from "../format";
 import type { ExecutionQualityRow } from "../executionQuality";
 
 export interface ExecutionsTableProps {
@@ -37,6 +45,7 @@ export function ExecutionsTable({ rows }: ExecutionsTableProps) {
             </div>
         );
     }
+    const summary = summarizeExecutionQuality(rows);
     return (
         <div className="open-orders__scroll" data-testid="executions-scroll">
             <table className="open-orders__table exec-q__table" data-testid="executions-table">
@@ -88,6 +97,25 @@ export function ExecutionsTable({ rows }: ExecutionsTableProps) {
                         </tr>
                     ))}
                 </tbody>
+                <tfoot>
+                    <tr className="exec-q__summary" data-testid="executions-summary">
+                        <td className="open-orders__id exec-q__summary-label">ALL</td>
+                        <td className="open-orders__side exec-q__summary-dash">{DASH}</td>
+                        <td className="open-orders__qty" data-testid="exq-sum-qty">
+                            {formatQty(summary.filledQty)}
+                        </td>
+                        <td className="open-orders__qty" data-testid="exq-sum-filled">
+                            {formatPct(summary.filledFrac * 100)}
+                        </td>
+                        <td className="open-orders__price exec-q__summary-dash">{DASH}</td>
+                        <CostCell value={summary.vsArrivalBps} text={formatBps(summary.vsArrivalBps)} testId="exq-sum-arrival" />
+                        <CostCell value={summary.vsVwapBps} text={formatBps(summary.vsVwapBps)} testId="exq-sum-vwap" />
+                        <CostCell value={summary.spreadPaid} text={formatSpreadPaid(summary.spreadPaid)} testId="exq-sum-spread" />
+                        <td className="open-orders__qty" data-testid="exq-sum-passive">
+                            {formatPct(summary.passivePct)}
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     );

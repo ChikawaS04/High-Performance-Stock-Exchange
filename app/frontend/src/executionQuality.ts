@@ -162,3 +162,56 @@ export function costClass(x: number | null): "cost" | "improve" | "flat" | "none
     const r = Math.round(x * 100) / 100;
     return r > 0 ? "cost" : r < 0 ? "improve" : "flat";
 }
+
+// ---- Summary row (P18 D11) ----------------------------------------------------------
+
+export interface ExecutionQualitySummary {
+    /** Shares filled across every row. */
+    readonly filledQty: number;
+    /** Total filled / total original, 0 to 1; 0 with no rows. */
+    readonly filledFrac: number;
+    /** Quantity-weighted over the rows that have a value; null when none does. */
+    readonly vsArrivalBps: number | null;
+    readonly vsVwapBps: number | null;
+    readonly spreadPaid: number | null;
+    /** Passive share of all filled quantity, 0 to 100. */
+    readonly passivePct: number;
+}
+
+/** sum(value * filledQty) / sum(filledQty) over rows with a value, else null. */
+function weighted(rows: readonly ExecutionQualityRow[], pick: (r: ExecutionQualityRow) => number | null): number | null {
+    let num = 0;
+    let den = 0;
+    for (const r of rows) {
+        const v = pick(r);
+        if (v === null || !Number.isFinite(v)) continue;
+        num += v * r.filledQty;
+        den += r.filledQty;
+    }
+    return den > 0 ? num / den : null;
+}
+
+/**
+ * The pinned ALL row (P18 D11): total filled quantity, and the quantity-weighted
+ * average of each metric across the orders that have a value. An order without a
+ * value for a metric (no arrival mid, no aggressive fill) is left out of that
+ * metric's average only. Weights are filled quantity for every metric.
+ */
+export function summarizeExecutionQuality(rows: readonly ExecutionQualityRow[]): ExecutionQualitySummary {
+    let filledQty = 0;
+    let originalQty = 0;
+    let passiveQty = 0;
+    for (const r of rows) {
+        filledQty += r.filledQty;
+        originalQty += r.originalQty;
+        passiveQty += (r.passivePct / 100) * r.filledQty;
+    }
+    return {
+        filledQty,
+        filledFrac: originalQty > 0 ? filledQty / originalQty : 0,
+        vsArrivalBps: weighted(rows, (r) => r.vsArrivalBps),
+        vsVwapBps: weighted(rows, (r) => r.vsVwapBps),
+        spreadPaid: weighted(rows, (r) => r.spreadPaid),
+        passivePct: filledQty > 0 ? (passiveQty / filledQty) * 100 : 0,
+    };
+}

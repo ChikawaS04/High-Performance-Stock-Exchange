@@ -122,3 +122,26 @@ describe("Executions table (P18-10)", () => {
         expect(screen.getAllByTestId("executions-row")[0].className).toContain("open-orders__row--sell");
     });
 });
+
+describe("Executions summary row (P18-11)", () => {
+    it("is one ALL row in the table foot, after every order row, with the weighted values", () => {
+        render(<ExecutionsTable rows={ROWS} />);
+        const sum = screen.getByTestId("executions-summary");
+        expect(sum.parentElement?.tagName).toBe("TFOOT");
+        expect(sum.querySelector(".exec-q__summary-label")!.textContent).toBe("ALL");
+        expect(screen.getByTestId("exq-sum-qty").textContent).toBe("200");
+        expect(screen.getByTestId("exq-sum-filled").textContent).toBe("100%");
+        expect(screen.getByTestId("exq-sum-passive").textContent).toBe("50%");
+        // The cost and the improvement are equal and opposite: they net to zero.
+        expect(screen.getByTestId("exq-sum-arrival").textContent).toBe("0.0");
+        // Only the aggressive order has a spread paid, so the average is its 1.00.
+        expect(screen.getByTestId("exq-sum-spread").textContent).toBe("1.00");
+        const body = document.querySelector("tbody")!;
+        expect(body.compareDocumentPosition(sum) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("is absent in the empty state", () => {
+        render(<ExecutionsTable rows={[]} />);
+        expect(screen.queryByTestId("executions-summary")).toBeNull();
+    });
+});

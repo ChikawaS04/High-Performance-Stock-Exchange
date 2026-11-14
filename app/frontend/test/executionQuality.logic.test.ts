@@ -11,7 +11,9 @@ import {
     formatSpreadPaid,
     qualityRow,
     spreadPaid,
+    summarizeExecutionQuality,
 } from "../src/executionQuality";
+import type { ExecutionQualityRow } from "../src/executionQuality";
 import { arrivalFrom } from "../src/arrival";
 import { foldExec } from "../src/state/reducer";
 import type { ExecAggregate, FillRole, MyOrder } from "../src/state/reducer";
@@ -160,5 +162,54 @@ describe("display", () => {
         expect(costClass(-0.2)).toBe("improve");
         expect(costClass(0.001)).toBe("flat");
         expect(costClass(null)).toBe("none");
+    });
+});
+
+describe("summarizeExecutionQuality (P18 D11)", () => {
+    function row(over: Partial<ExecutionQualityRow> & Pick<ExecutionQualityRow, "clOrdId" | "filledQty">): ExecutionQualityRow {
+        return {
+            side: "BUY",
+            originalQty: over.filledQty,
+            avgPx: 1_000_000,
+            filledFrac: 1,
+            vsArrivalBps: 0,
+            vsVwapBps: 0,
+            spreadPaid: 0,
+            passivePct: 0,
+            ...over,
+        };
+    }
+
+    it("totals the filled quantity and weights each metric by it", () => {
+        const s = summarizeExecutionQuality([
+            row({ clOrdId: 1, filledQty: 100, originalQty: 200, vsArrivalBps: 2, vsVwapBps: -1, spreadPaid: 1, passivePct: 0 }),
+            row({ clOrdId: 2, filledQty: 300, vsArrivalBps: -2, vsVwapBps: 3, spreadPaid: 0.5, passivePct: 100 }),
+        ]);
+        expect(s.filledQty).toBe(400);
+        expect(s.filledFrac).toBe(400 / 500);
+        expect(s.vsArrivalBps).toBeCloseTo((2 * 100 - 2 * 300) / 400, 9);
+        expect(s.vsVwapBps).toBeCloseTo((-1 * 100 + 3 * 300) / 400, 9);
+        expect(s.spreadPaid).toBeCloseTo((1 * 100 + 0.5 * 300) / 400, 9);
+        expect(s.passivePct).toBeCloseTo(75, 9);
+    });
+
+    it("leaves an order without a value out of that metric's average only", () => {
+        const s = summarizeExecutionQuality([
+            row({ clOrdId: 1, filledQty: 100, vsArrivalBps: 4, spreadPaid: null, passivePct: 100 }),
+            row({ clOrdId: 2, filledQty: 300, vsArrivalBps: null, spreadPaid: 0.8 }),
+        ]);
+        expect(s.vsArrivalBps).toBe(4);
+        expect(s.spreadPaid).toBeCloseTo(0.8, 9);
+        expect(s.filledQty).toBe(400);
+        expect(s.passivePct).toBeCloseTo(25, 9);
+    });
+
+    it("has no averages with no values, and zeros with no rows", () => {
+        expect(summarizeExecutionQuality([row({ clOrdId: 1, filledQty: 10, vsArrivalBps: null, vsVwapBps: null, spreadPaid: null })])).toMatchObject({
+            vsArrivalBps: null,
+            vsVwapBps: null,
+            spreadPaid: null,
+        });
+        expect(summarizeExecutionQuality([])).toEqual({ filledQty: 0, filledFrac: 0, vsArrivalBps: null, vsVwapBps: null, spreadPaid: null, passivePct: 0 });
     });
 });

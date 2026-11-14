@@ -4663,3 +4663,16 @@ body {
 .exec-q__metric--improve {
     color: var(--tick-up);
 }
+
+/* Executions summary row (P18 D11): pinned to the bottom of the scroll area on the
+   header-row ground, so it reads as a total and stays in view while the body scrolls. */
+.exec-q__summary td {
+    position: sticky;
+    bottom: 0;
+    background: var(--body);
+    border-top: 1px solid var(--line);
+    font-weight: 600;
+}
+.exec-q__summary-dash {
+    color: var(--dim, #8f8f8f);
+}
