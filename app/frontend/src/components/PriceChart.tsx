@@ -114,6 +114,8 @@ import { ModifyOrderPopup } from "./ModifyOrderPopup";
 import type { ModifyRequest } from "./ModifyOrderPopup";
 import { ChartBand } from "./ChartBand";
 import { ChartSettingsPopup } from "./ChartSettingsPopup";
+import { readoutBacking } from "../readoutBacking";
+import type { ReadoutPart } from "../readoutBacking";
 import { VolumeProfileLayer } from "./VolumeProfileLayer";
 import { CvdPane } from "./CvdPane";
 import { FootprintLayer } from "./FootprintLayer";
@@ -195,6 +197,8 @@ interface Ink {
     readonly sep: string;
     readonly dim: string;
     readonly text: string;
+    /** The readout strip's backing (P19-10): the ground at about 85%, so text under it recedes. */
+    readonly backing: string;
 }
 
 export function inkFor(bg: ChartBg): Ink {
@@ -208,6 +212,7 @@ export function inkFor(bg: ChartBg): Ink {
               sep: "rgba(0,0,0,0.25)",
               dim: "#6b6b6b",
               text: "#111111",
+              backing: "rgba(255,255,255,0.85)",
           }
         : {
               bg: "#000000",
@@ -218,6 +223,7 @@ export function inkFor(bg: ChartBg): Ink {
               sep: "rgba(255,255,255,0.25)",
               dim: "#8f8f8f",
               text: "#d8d8d8",
+              backing: "rgba(0,0,0,0.85)",
           };
 }
 
@@ -1131,7 +1137,7 @@ export function PriceChart({
 
     // Readout strip: the hovered bar or print, else the newest in view, so it always reads something.
     // An indicator's key may take its own colour (P19-8); every other key takes the dim ink.
-    type Part = readonly [key: string, value: string, keyFill?: string];
+    type Part = ReadoutPart;
     let readout: readonly Part[];
     if (candle !== null) {
         const b = hoverBar ?? candle.lastVisible;
@@ -1177,6 +1183,8 @@ export function PriceChart({
     // A hovered own fill marker extends the readout (P18 D2): "BUY 200 @ 1446.66".
     if (hoverMarker !== null) readout = [...readout, [hoverMarker.side, markerReadout(hoverMarker, formatPrice, formatQty)]];
 
+    // The readout's backing, sized to its text by character count (readoutBacking.ts).
+    const backing = readoutBacking(readout, PLOT_LEFT + 4, priceTop + 10);
     const crossTagFill = ink.dim;
     const crossTagInk = inkOn(ink.dim);
     const clip = `url(#${clipId})`;
@@ -1541,7 +1549,18 @@ export function PriceChart({
                         </g>
                     ) : null}
 
-                    {/* Readout strip, top left of the price area: keys dim, values in the text ink. */}
+                    {/* Readout strip, top left of the price area: keys dim, values in the text ink,
+                        over a quiet ground-aware backing that never takes the pointer. */}
+                    <rect
+                        className="price-chart__readout-backing"
+                        data-testid="price-chart-readout-backing"
+                        x={backing.x}
+                        y={backing.y}
+                        width={backing.width}
+                        height={backing.height}
+                        fill={ink.backing}
+                        pointerEvents="none"
+                    />
                     <text
                         className="price-chart__readout"
                         data-testid="price-chart-readout"

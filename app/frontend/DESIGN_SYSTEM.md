@@ -927,6 +927,10 @@ are shared.
   candles `O H L C V` plus `VWAP` when on; line `price x size @ HH:MM:SS`. Keys take the
   dim ink, values the text ink. With no pointer it shows the newest bar or print, so
   it always reads something.
+- **Readout backing (P19).** On every chart type the strip sits on a quiet backing of
+  the chart ground at about 85% (near-black on black, white on white; no border, no
+  shadow), sized to the text with 4px by 2px of padding, so footprint cells, candles,
+  the profile and indicator lines under it recede. It never takes the pointer.
 - **Indicator values (P19).** Each enabled average adds its value at the bar, keyed
   with its kind and length (`SMA20`, `EMA50`), and Bollinger adds `BB20` (middle),
   `UB` and `LB`. These keys take the indicator's colour (`--ind-sma`, `--ind-ema`,

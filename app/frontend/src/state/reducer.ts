@@ -507,14 +507,15 @@ export type Action =
     | LocalAction;
 
 /**
- * Aggressor side for a fill, at the only fidelity the wire supports (P7-6).
+ * Aggressor side for a fill derived from this client's own orders (P7-6), now only the
+ * fallback for a fill frame without aggressorSide.
  *
- * No EXEC frame carries a side, so the aggressor's side is knowable only when one
- * of this client's own orders is in the trade: if we are the aggressor it is our
- * order's side; if we are the passive side it is the opposite, since a trade
- * always crosses a buy against a sell. Foreign-vs-foreign trades return undefined.
- * The derivable set is exactly the `mine` set, so a side tag appears precisely on
- * the own-trade rows and nowhere else. Pure and exported for direct unit testing.
+ * Fill frames have carried the aggressor's side on the wire (aggressorSide) since
+ * 9aa7375, and the reducer reads that first. This derivation covers a frame without
+ * it: the side is knowable only when one of this client's own orders is in the trade.
+ * If we are the aggressor it is our order's side; if we are the passive side it is the
+ * opposite, since a trade always crosses a buy against a sell. A foreign-vs-foreign
+ * trade returns undefined. Pure and exported for direct unit testing.
  */
 export function aggressorSideFor(
     myOrders: readonly MyOrder[],
