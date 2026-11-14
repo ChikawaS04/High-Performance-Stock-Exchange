@@ -51,8 +51,20 @@ export function isDrag(dx: number, dy: number): boolean {
     return Math.abs(dx) >= PAN_THRESHOLD_PX || Math.abs(dy) >= PAN_THRESHOLD_PX;
 }
 
-export function clampSlotW(w: number): number {
-    return Math.max(ZOOM_MIN_SLOT, Math.min(ZOOM_MAX_SLOT, w));
+/**
+ * The slot widths a chart type may zoom between. Candles use [ZOOM_MIN_SLOT,
+ * ZOOM_MAX_SLOT]; footprint has its own, wider range (footprint.FOOTPRINT_SLOT, P19-5),
+ * since a column must fit its "sell x buy" text.
+ */
+export interface SlotBounds {
+    readonly min: number;
+    readonly max: number;
+}
+
+export const CANDLE_SLOT: SlotBounds = { min: ZOOM_MIN_SLOT, max: ZOOM_MAX_SLOT };
+
+export function clampSlotW(w: number, bounds: SlotBounds = CANDLE_SLOT): number {
+    return Math.max(bounds.min, Math.min(bounds.max, w));
 }
 
 // ---- Candles ----------------------------------------------------------------
@@ -95,8 +107,9 @@ export function zoomCandles(
     notches: number,
     plotW: number,
     extent: BucketExtent,
+    bounds: SlotBounds = CANDLE_SLOT,
 ): CandleWindow {
-    const slotW = clampSlotW(onScreenSlotW * Math.pow(ZOOM_STEP, -notches));
+    const slotW = clampSlotW(onScreenSlotW * Math.pow(ZOOM_STEP, -notches), bounds);
     if (win.rightBucket === null) return { slotW, rightBucket: null };
     return { slotW, rightBucket: clampRightBucket(win.rightBucket, extent, slotsThatFit(plotW, slotW)) };
 }

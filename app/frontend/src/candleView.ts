@@ -28,8 +28,8 @@
 import type { Bar, BarSeries } from "./bars";
 import { bucketStart, seriesBars } from "./bars";
 import { priceAxis } from "./priceSeries";
-import { clampRightBucket, clampSlotW, slotsThatFit } from "./chartViewport";
-import type { CandleWindow } from "./chartViewport";
+import { CANDLE_SLOT, clampRightBucket, clampSlotW, slotsThatFit } from "./chartViewport";
+import type { CandleWindow, SlotBounds } from "./chartViewport";
 import { pickTickStep } from "./timeTicks";
 
 export const MIN_SLOT = 5;
@@ -71,6 +71,7 @@ export function buildCandleView(
     plotW: number,
     yTarget = 6,
     win: CandleWindow = { slotW: null, rightBucket: null },
+    bounds: SlotBounds = CANDLE_SLOT,
 ): CandleView | null {
     const all = seriesBars(series);
     if (all.length === 0 || !(plotW > 0)) return null;
@@ -78,7 +79,7 @@ export function buildCandleView(
     const oldestBucket = all[0].bucket;
     const newestBucket = all[all.length - 1].bucket;
     const extent = { oldest: oldestBucket, newest: newestBucket };
-    const fixedW = win.slotW === null ? null : clampSlotW(win.slotW);
+    const fixedW = win.slotW === null ? null : clampSlotW(win.slotW, bounds);
     const maxSlots = fixedW === null ? Math.max(1, Math.floor(plotW / MIN_SLOT)) : slotsThatFit(plotW, fixedW);
     const lastBucket =
         win.rightBucket === null ? newestBucket : (clampRightBucket(win.rightBucket, extent, maxSlots) ?? newestBucket);
