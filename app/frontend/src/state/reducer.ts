@@ -387,6 +387,15 @@ export interface AppState {
      */
     readonly sessionDelta: number;
     /**
+     * Session volume at price (P19-2, P19 D3): total shares traded at each exact price
+     * in units since the tab loaded, sided or not. Feeds the volume profile, which must
+     * not age out with the bars. Its size is bounded by the prices traded, not by the
+     * fill count (P19-0 F14: about 75 keys after 17 minutes of bots). A half-cent print
+     * keeps its exact key; grouping into rows is the read's job. Replaced, never
+     * mutated: a fill copies the map.
+     */
+    readonly volumeAtPrice: ReadonlyMap<number, number>;
+    /**
      * Client-assigned outbound message counter. Incremented once per SENT frame,
      * NEW and CANCEL alike. NOT the FIX 34= MsgSeqNum (the produced subset carries
      * no tag 34, P7-0/Q7-4) and NOT the P7-2 server per-channel echo seqNum. It is
@@ -450,6 +459,7 @@ export const initialState: AppState = {
     sessionNotional: 0n,
     bars: emptyBars(),
     sessionDelta: 0,
+    volumeAtPrice: new Map<number, number>(),
     msgSeqNum: 0,
     lastFrameNanos: 0,
     inspectorLog: [],
@@ -732,6 +742,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     let sessionNotional = state.sessionNotional;
     let bars = state.bars;
     let sessionDelta = state.sessionDelta;
+    let volumeAtPrice = state.volumeAtPrice;
     // Session VWAP after this fill (P18-1 stamps it on own fills); unset off fills.
     let fillVwap = SESSION_OPEN_UNSET;
 
@@ -785,6 +796,11 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         // last fill. Prices and quantities are integers on the wire, so BigInt() is exact.
         sessionNotional = state.sessionNotional + BigInt(frame.price) * BigInt(frame.filledQuantity);
         fillVwap = vwapUnits(sessionNotional, sessionVolume);
+        // Volume at price (P19-2): every fill, sided or not, at its exact price.
+        const vap = new Map(state.volumeAtPrice);
+        vap.set(frame.price, (vap.get(frame.price) ?? 0) + frame.filledQuantity);
+        volumeAtPrice = vap;
+
         // Order flow (P19-1): the signed aggressor quantity, none when the side is unknown.
         if (side === "BUY") sessionDelta = state.sessionDelta + frame.filledQuantity;
         else if (side === "SELL") sessionDelta = state.sessionDelta - frame.filledQuantity;
@@ -918,6 +934,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         sessionNotional,
         bars,
         sessionDelta,
+        volumeAtPrice,
         lastFrameNanos: frame.timestamp,
         inspectorLog,
         orderNotices,
