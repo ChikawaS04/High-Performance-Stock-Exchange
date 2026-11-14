@@ -152,7 +152,9 @@ export function ChartSettingsPopup({
                                 </span>
                             </div>
 
-                            <div className="settings-pop__row" data-testid="pc-type-row">
+                            {/* Three types do not fit beside the name in the popup's width, so the
+                                page's row stacks its radios under the name (P19-10 visual check). */}
+                            <div className={settingsRowClass(false, chartTypesFor(surface).length > 2)} data-testid="pc-type-row">
                                 <span className="settings-pop__name">Chart type</span>
                                 <span className="settings-radio" role="radiogroup" aria-label="Chart type">
                                     {chartTypesFor(surface).map((t) => (
@@ -171,7 +173,7 @@ export function ChartSettingsPopup({
                             </div>
 
                             {bars ? (
-                                <div className="settings-pop__row" data-testid="pc-size-row">
+                                <div className={settingsRowClass(false, footprint)} data-testid="pc-size-row">
                                     <span className="settings-pop__name">
                                         Bar size
                                         {footprint ? (

@@ -115,6 +115,19 @@ describe("footprint chart type (P19-6)", () => {
         expect(screen.getByTestId("pc-size-note").textContent).toBe("1m and 5m only");
     });
 
+    it("stacks the three-type chart type row and the footprint bar size row so they fit the popup", () => {
+        setPage("footprint");
+        chart(session());
+        fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        expect(screen.getByTestId("pc-type-row").className).toContain("settings-pop__row--stack");
+        expect(screen.getByTestId("pc-size-row").className).toContain("settings-pop__row--stack");
+        cleanup();
+        chart(session(), "window");
+        fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        expect(screen.getByTestId("pc-type-row").className).not.toContain("settings-pop__row--stack");
+        expect(screen.getByTestId("pc-size-row").className).not.toContain("settings-pop__row--stack");
+    });
+
     it("draws cells, the imbalance tint and the open-close outline", () => {
         setPage("footprint");
         chart(session());
