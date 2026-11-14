@@ -108,6 +108,7 @@ import type { ModifyRequest } from "./ModifyOrderPopup";
 import { ChartBand } from "./ChartBand";
 import { ChartSettingsPopup } from "./ChartSettingsPopup";
 import { VolumeProfileLayer } from "./VolumeProfileLayer";
+import { CvdPane } from "./CvdPane";
 import { profileStats } from "../indicators/volumeProfile";
 
 /** The nominal drawing size, used until the plot is measured. */
@@ -577,6 +578,26 @@ export function PriceChart({
         );
     }, [candle, volumePane, volTop, volMaxY, volWordY, PLOT_LEFT, PLOT_RIGHT, ink.sep, ink.dim]);
 
+    // CVD pane (P19-4): each visible bar's recorded session delta.
+    const cvdPane = panes.panes.find((p) => p.id === "cvd") ?? null;
+    const cvdTop = cvdPane !== null ? PLOT_TOP + cvdPane.top : null;
+    const cvdMarks = useMemo(() => {
+        if (candle === null || cvdPane === null || cvdTop === null) return null;
+        return (
+            <CvdPane
+                bars={candle.view.bars}
+                xOfSlot={candle.xOfSlot}
+                top={cvdTop}
+                height={cvdPane.height}
+                plotLeft={PLOT_LEFT}
+                plotRight={PLOT_RIGHT}
+                sep={ink.sep}
+                dim={ink.dim}
+                text={ink.text}
+            />
+        );
+    }, [candle, cvdPane, cvdTop, PLOT_LEFT, PLOT_RIGHT, ink.sep, ink.dim, ink.text]);
+
     // Own fill markers (P18-2), placed by the pure chartOverlays module and memoised so
     // a pointer move re-renders only the crosshair, the readout and the hover pick.
     const markerPts: readonly MarkerPoint[] = useMemo(() => {
@@ -944,6 +965,7 @@ export function PriceChart({
     if (volTop !== null) blockers.push(volTop);
     if (volMaxY !== null) blockers.push(volMaxY);
     if (volWordY !== null) blockers.push(volWordY);
+    if (cvdTop !== null) blockers.push(cvdTop, cvdTop + 10);
 
     // VWAP overlay (P17-8): session-anchored, from the bars' recorded VWAP.
     const fiveS = bars["5s"];
@@ -1216,6 +1238,7 @@ export function PriceChart({
 
                     {candleMarks}
                     {volumeMarks}
+                    {cvdMarks}
 
                     {line !== null && line.drawn.length >= 2 ? (
                         <polyline

@@ -61,6 +61,9 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
     // P19-3: session volume at price as a horizontal histogram (P19 D4), Charts page only,
     // off by default. Session-wide, so it needs no bars and draws in line mode too.
     { id: "volprofile", label: "Volume profile", placement: "overlay", surfaces: ["page"], chartTypes: ["line", "candles"] },
+    // P19-4: cumulative volume delta as a lower pane (P19 D5), Charts page only, off by
+    // default. It reads each bar's cvd, so it needs bars; it counts toward PANE_CAP.
+    { id: "cvd", label: "CVD", placement: "pane", surfaces: ["page"], chartTypes: ["candles"] },
 ];
 
 /** The ids a fresh install starts with: every descriptor marked defaultOn, in registry order. */
