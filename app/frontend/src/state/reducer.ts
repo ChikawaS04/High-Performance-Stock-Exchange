@@ -84,6 +84,11 @@
  * ring's newest point, so an unchanged quote keeps both references. The CONNECTION
  * transition from open to a non-open status appends one empty point, so the lines
  * break across the outage rather than bridging it (the book itself is kept, F3).
+ *
+ * P18-8 adds the arrival stamp (arrival.ts): the market when each own order was
+ * sent, carried on SENT meta and stored on the new row (MyOrder.arrival). A
+ * repriced order's replacement inherits its original's arrival, so execution
+ * quality is measured from the trader's first decision, not the reprice.
  */
 
 import { isFill } from "../protocol/messages";
@@ -93,6 +98,7 @@ import { beginReprice, completeReprice, sendFailedReprice, stepReprices, timeout
 import type { Reprice } from "../reprice";
 import { appendQuote, emptyQuoteSet, foldQuoteBreak, foldQuotes, lastQuote, NO_QUOTE, quoteChanged } from "../quotes";
 import type { QuotePoint, QuoteSet } from "../quotes";
+import type { Arrival } from "../arrival";
 import type { BarSet } from "../bars";
 import type { NoticeDraft, OrderNotice } from "../notices";
 import type {
@@ -231,6 +237,12 @@ export interface MyOrder {
      * reads exact values however long the session runs.
      */
     readonly exec?: ExecAggregate;
+    /**
+     * The market when this order was sent (P18-8): best bid, ask, mid and session
+     * VWAP. Absent on rows sent without one (test fixtures). A reprice's replacement
+     * inherits its original's.
+     */
+    readonly arrival?: Arrival;
 }
 
 /** Which side of a trade an own fill was on (P18-1). */
@@ -452,6 +464,8 @@ export function sessionVwap(state: Pick<AppState, "sessionNotional" | "sessionVo
 export interface SendMeta {
     readonly reprice?: { readonly newPx: number };
     readonly repriceOf?: number;
+    /** The market at submit (P18-8), stored on the new order's row. */
+    readonly arrival?: Arrival;
 }
 
 /**
@@ -937,6 +951,15 @@ function sentReprices(state: AppState, frame: ClientFrame, meta: SendMeta | unde
     return reprices;
 }
 
+/** A NEW's arrival: the original's for a reprice replacement, else the meta's own. */
+function arrivalFor(state: AppState, meta: SendMeta | undefined): Arrival | undefined {
+    if (meta?.repriceOf !== undefined) {
+        const orig = state.myOrders.find((o) => o.clOrdId === meta.repriceOf);
+        if (orig?.arrival !== undefined) return orig.arrival;
+    }
+    return meta?.arrival;
+}
+
 function applySent(state: AppState, frame: ClientFrame, sentAtNanos?: number, meta?: SendMeta): AppState {
     // MsgSeqNum counts every outbound frame that actually went on the wire, NEW and
     // CANCEL alike: both are real FIX messages (35=D / 35=F) and each consumes a
@@ -966,7 +989,8 @@ function applySent(state: AppState, frame: ClientFrame, sentAtNanos?: number, me
             // it, so a row built without one is byte-identical to the pre-P7-8 shape.
             ...(sentAtNanos !== undefined ? { sentAtNanos } : {}),
         };
-        myOrders = [order, ...state.myOrders];
+        const arrival = arrivalFor(state, meta);
+        myOrders = [arrival !== undefined ? { ...order, arrival } : order, ...state.myOrders];
     }
 
     return { ...state, myOrders, msgSeqNum, reprices: sentReprices(state, frame, meta) };

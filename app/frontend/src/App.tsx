@@ -64,7 +64,8 @@ import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useOrderBook } from "./state/useOrderBook";
 import { useIgnitionPrice } from "./state/useIgnitionPrice";
 import { useRepriceTimer } from "./state/useRepriceTimer";
-import { isCancellable } from "./state/reducer";
+import { isCancellable, sessionVwap } from "./state/reducer";
+import { arrivalFrom } from "./arrival";
 import { replacementIntent } from "./reprice";
 import { cancelOrderFrame, newOrderFrame, nextClOrdId } from "./protocol/encode";
 import type { OrderIntent } from "./protocol/messages";
@@ -93,7 +94,11 @@ export default function App() {
     };
 
     const handleSubmit = (intent: OrderIntent): void => {
-        send(newOrderFrame(nextClOrdId(), intent));
+        // Arrival stamp (P18-8): the market as this render last saw it, at most one
+        // render stale, which is what the trader saw when deciding: a fair
+        // decision-time benchmark.
+        const arrival = arrivalFrom(state.book.bestBid, state.book.bestAsk, sessionVwap(state), state.book.timestamp);
+        send(newOrderFrame(nextClOrdId(), intent), { arrival });
     };
 
     const handleCancel = (origClOrdId: number): void => {

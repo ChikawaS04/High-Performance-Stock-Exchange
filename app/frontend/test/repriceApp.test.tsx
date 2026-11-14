@@ -220,3 +220,24 @@ describe("drag to reprice in App (P18-5)", () => {
         expect(replacements()).toHaveLength(0);
     });
 });
+
+describe("arrival stamping in App (P18-8)", () => {
+    it("a ticket submit sends the market as the render saw it with the new order", () => {
+        renderApp();
+        act(() =>
+            ctl.dispatch({
+                type: "FRAME",
+                frame: { type: "BOOK", bestBid: 999_900, bestAsk: 1_000_100, bids: [[999_900, 5]], asks: [[1_000_100, 5]], timestamp: ts + 5 },
+            }),
+        );
+        fireEvent.change(screen.getByTestId("price-input"), { target: { value: "99.99" } });
+        fireEvent.change(screen.getByTestId("qty-input"), { target: { value: "10" } });
+        fireEvent.click(screen.getByTestId("order-submit"));
+        const confirm = screen.queryByTestId("order-confirm-send");
+        if (confirm !== null) fireEvent.click(confirm);
+        const news = ctl.sends.filter((s) => s.frame.type === "NEW");
+        expect(news).toHaveLength(1);
+        // Session VWAP of the seeded prints: 15 at 999_000 and 15 at 1_001_000.
+        expect(news[0].meta?.arrival).toEqual({ bid: 999_900, ask: 1_000_100, mid: 1_000_000, vwap: 1_000_000, t: ts + 5 });
+    });
+});

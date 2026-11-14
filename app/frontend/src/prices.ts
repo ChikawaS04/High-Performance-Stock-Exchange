@@ -21,6 +21,17 @@ export function snapToTick(pointerPx: number): number {
     return Math.max(TICK_PX, Math.round(pointerPx / TICK_PX) * TICK_PX);
 }
 
+/**
+ * The venue mid in units, or null when either side of the lit book is empty. The
+ * exact integer mean, as MatchingEngine.mid() computes it: both tops are on the
+ * tick, so it is a multiple of 50 units and may sit on a half cent. Never rounded
+ * to the tick: it is a reference price, not an order price.
+ */
+export function venueMid(bestBid: number, bestAsk: number): number | null {
+    if (bestBid <= 0 || bestAsk <= 0) return null;
+    return Math.floor((bestBid + bestAsk) / 2);
+}
+
 /** True when a price is a positive whole number of ticks. */
 export function isOnTick(px: number): boolean {
     return Number.isSafeInteger(px) && px > 0 && px % TICK_PX === 0;

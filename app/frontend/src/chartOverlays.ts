@@ -183,12 +183,8 @@ export interface OrderLine {
     readonly draggable: boolean;
 }
 
-/** The venue mid in units, or null when either side of the lit book is empty. */
-export function venueMid(bestBid: number, bestAsk: number): number | null {
-    if (bestBid <= 0 || bestAsk <= 0) return null;
-    // Integer mean, as MatchingEngine.mid() computes it: exact for on-tick tops.
-    return Math.floor((bestBid + bestAsk) / 2);
-}
+// The venue mid lives in prices.ts since P18-8 (the arrival stamp uses it too).
+export { venueMid } from "./prices";
 
 /** The tag text for a working order (see OrderLine.label). */
 export function orderLabel(w: WorkingOrder): string {
