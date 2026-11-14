@@ -149,7 +149,7 @@ export function ChartSettingsPopup({
 
                     {displayOpen && (
                         <div className="settings-pop__panel" id={`pc-settings-display-${surface}`}>
-                            <div className={settingsRowClass(heatmapMode)} data-testid="pc-bg-row">
+                            <div className={settingsRowClass(heatmapMode, heatmapMode)} data-testid="pc-bg-row">
                                 <span className="settings-pop__name">
                                     Background
                                     {heatmapMode ? (
@@ -183,7 +183,9 @@ export function ChartSettingsPopup({
                             </div>
 
                             {/* Three types do not fit beside the name in the popup's width, so the
-                                page's row stacks its radios under the name (P19-10 visual check). */}
+                                page's row stacks its radios under the name (P19-10 visual check); with
+                                the heatmap's fourth they wrap to a second line (P20-7 visual check).
+                                In heatmap mode the Background row stacks too, for its note. */}
                             <div className={settingsRowClass(false, chartTypesFor(surface).length > 2)} data-testid="pc-type-row">
                                 <span className="settings-pop__name">Chart type</span>
                                 <span className="settings-radio" role="radiogroup" aria-label="Chart type">

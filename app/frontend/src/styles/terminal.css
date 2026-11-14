@@ -4765,3 +4765,18 @@ body {
     stroke-width: 3;
     paint-order: stroke;
 }
+
+/* P20-7 visual check: the page's four chart types wrap inside a stacked row, and a
+   row's name (with a long "Not in this chart type" note) shrinks and wraps rather
+   than pushing its control past the popup's edge. */
+.settings-pop__row--stack .settings-radio {
+    flex-wrap: wrap;
+    row-gap: 6px;
+}
+.settings-pop__row > .settings-pop__name {
+    min-width: 0;
+}
+.settings-pop__row > .settings-toggle,
+.settings-pop__row > .settings-radio {
+    flex-shrink: 0;
+}

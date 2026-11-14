@@ -45,7 +45,7 @@ pages does not reconnect the socket, reset the book, or lose a single print.
 | Route | Page | Contents |
 |---|---|---|
 | `/trading` | Trading terminal | Depth ladder, depth curve, trade tape, order-entry ticket, open-orders blotter, cancel-by-ID, FIX inspector |
-| `/charts` | Charts | Candlestick or line price chart with volume and VWAP (left region), session stats and a second order-entry ticket (right region). The pre-rename `/chart` redirects here. |
+| `/charts` | Charts | Candlestick, line, footprint or liquidity heatmap chart with volume and VWAP (left region), session stats and a second order-entry ticket (right region). The pre-rename `/chart` redirects here. |
 
 What does *not* survive navigation is page-local UI state, because leaving a route unmounts
 the page: the FIX inspector's open flag, and anything held inside a panel, including a
@@ -395,6 +395,16 @@ These are real properties of the running system, documented rather than glossed:
   price is the browser session's, not the venue's trading day. Footprint keeps per-price
   detail only for the newest 120 bars at 1m and 5m; an older bar draws as a plain outline
   marked `no detail`.
+- **The liquidity heatmap records the book from when the tab connects (Phase 20).** The
+  Charts page's Heatmap chart type draws the L2 book over time: each 250 ms column is the
+  book at that moment, each cell's brightness its resting size (log scale, the visible
+  window's 98th percentile as white, Low/Normal/High contrast), with trades as bubbles
+  outlined in the aggressor's side colour and the best bid and ask as lines. It keeps the
+  last 10 minutes. The venue sends only the top 20 populated levels a side, so past a full
+  side's 20th level the size is unknown and the readout says `beyond depth`; midpoint pegs
+  never appear in depth. The history is recorded at the socket edge (not in the reducer),
+  on the venue's timestamps, so a background tab loses nothing; a reload starts it empty,
+  and a dropped connection shows as a gap. It always draws on black.
 - **Moving averages and Bollinger bands are on both chart surfaces, with editable
   parameters (Phase 19).** SMA, SMA 2, EMA, EMA 2 and Bollinger draw on bar closes in the
   bar chart types. Their lengths (and the Bollinger width, shown as a standard deviation)
@@ -511,6 +521,9 @@ If every step behaves as above, the round-trip is proven end to end and Phase 5 
   high and low can legitimately disagree. Candle mode reads the bars slice, which is
   independent of the tape and holds 500 closed bars per size, which bounds how far a pan
   can go back.
+- **The heatmap holds 10 minutes and the top 20 levels.** Older columns drop off, a side
+  deeper than 20 populated levels is cut at its 20th (`beyond depth`), and levels more than
+  200 ticks from the mid are not kept.
 - **No bar backfill.** Bars and VWAP start when the tab connects. The Phase 15 RESEND
   replay is the future route to backfilling them and is not wired into the terminal.
 - **Session stats are connect-anchored.** High, low, trade count, volume and the first-trade
@@ -556,6 +569,15 @@ app/frontend/
 │   ├── executionQuality.ts       # pure execution quality metrics and summary (P18-9)
 │   ├── timeTicks.ts              # pure clock tick steps and axis labels (Charts follow-up)
 │   ├── menuPlacement.ts          # pure placement of the white pick-list (Charts follow-up)
+│   ├── heatmap/
+│   │   ├── depthRing.ts          # pure depth history ring: columns, breaks, late frames (P20-1)
+│   │   ├── depthRecorder.ts      # the session's recorder at the socket edge (P20-1)
+│   │   ├── ramp.ts               # the heat ramp and its lookup table (P20-2)
+│   │   ├── layout.ts             # pure grid, domain, intensity, clip and blits (P20-2)
+│   │   ├── renderer.ts           # canvas renderer over a ring-addressed data image (P20-3)
+│   │   ├── overlay.ts            # trade bubbles and quote lines (P20-4)
+│   │   ├── heatmapSettings.ts    # Contrast and Trades (P20-5)
+│   │   └── perfStats.ts          # dev-only paint, long task and commit timings (P20-6)
 │   ├── indicators/
 │   │   ├── registry.ts           # indicator descriptors, params and pane caps (P17, P19)
 │   │   ├── layoutPanes.ts        # pure price-area and lower-pane layout (P17)
@@ -578,7 +600,8 @@ app/frontend/
 │   │   ├── OpenOrders.tsx
 │   │   ├── CancelTicket.tsx
 │   │   ├── FixInspector.tsx
-│   │   ├── PriceChart.tsx        # candles, line or footprint; composes the layers (P12, P17, P19)
+│   │   ├── PriceChart.tsx        # candles, line, footprint or heatmap; composes the layers (P12, P17, P19, P20)
+│   │   ├── HeatmapLayer.tsx      # the heatmap canvas and its paint scheduling (P20-3)
 │   │   ├── ChartBand.tsx         # the chart's header toolbar (Charts follow-up)
 │   │   ├── ChartSettingsPopup.tsx # the chart's settings popup (P17)
 │   │   ├── ColorPalette.tsx      # colour chip rows and the palette popup

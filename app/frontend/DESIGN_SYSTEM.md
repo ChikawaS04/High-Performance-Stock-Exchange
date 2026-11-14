@@ -97,6 +97,7 @@ green and still feeds the header's "up" change colour, so a bid must never use i
 | `--ind-sma` | `#1fd6e8` | `#00808a` | SMA and SMA 2 lines and readout keys (§16.13) |
 | `--ind-ema` | `#f14fe6` | `#a8329b` | EMA and EMA 2 lines and readout keys (§16.13) |
 | `--ind-boll` | `#a9b4c4` | `#5b6778` | Bollinger bands, fill and readout keys (§16.13) |
+| `--heat-0` .. `--heat-4` | `#0d0d0d`, `#1a2430`, `#3b4652`, `#8a9097`, `#ebebeb` | (black only) | The liquidity heatmap's ramp stops at 0, 0.25, 0.5, 0.75 and 1 (§16.14) |
 
 The black-ground values are the trade tape's `--tick-up` / `--tick-down`, so direction
 reads as one colour family across the terminal. `#00ff00` cannot be read on white, so
@@ -600,7 +601,7 @@ storage module (`src/settings/persist.ts`) and one hook
   | Header | label colour (`header.labelMode`) |
   | Trade tape | levels, time units |
   | Price chart | background, line colour, gradient, fill, up candle, down candle, wicks, recent colours (`priceChart.background`, `.lineColor`, `.gradient`, `.fill`, `.candleUp`, `.candleDown`, `.wicks`, `.recentColors`; shared by the page and the floating window) |
-  | Charts page chart | chart type (`line`, `candles`, `footprint`), bar size, indicators, indicators already offered, indicator parameters (`priceChart.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`, `.indicatorParams`) |
+  | Charts page chart | chart type (`line`, `candles`, `footprint`, `heatmap`), bar size, indicators, indicators already offered, indicator parameters, heatmap contrast and trades (`priceChart.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`, `.indicatorParams`, `.heatmapContrast`: `low`, `normal` or `high`, `.heatmapTrades`: a boolean) |
   | Floating chart window | chart type (`line`, `candles`), bar size, indicators, indicators already offered, indicator parameters (`priceWindow.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`, `.indicatorParams`) |
   | Depth chart | background |
   | Book reader | depth |
@@ -619,8 +620,8 @@ storage module (`src/settings/persist.ts`) and one hook
   dropped, but an id only unavailable for the current chart type is kept. An id
   registered later and marked on by default (Executions, Orders) is switched on once
   for a stored set that has never offered it, tracked by `indicatorsSeen`, so a user
-  who then turns it off keeps it off. A stored `footprint` on the floating window is
-  invalid there and falls back to Candles. Indicator parameters are one JSON object,
+  who then turns it off keeps it off. A stored `footprint` or `heatmap` on the floating
+  window is invalid there and falls back to Candles. Indicator parameters are one JSON object,
   indicator id then parameter id then an integer (`{"sma":{"length":50}}`), read
   leniently (any object) and then cleaned per value: an unknown indicator or
   parameter, a non-integer or an out-of-range value is dropped on its own and reads
@@ -845,8 +846,8 @@ are shared.
 ### 16.2 Chart types and bar sizes
 
 - **Candles** (default) and **Line** (the trade-print line, as built in P12), and on
-  the Charts page only **Footprint** (Phase 19, §16.12). Phase 20 adds a heatmap type
-  on the page only.
+  the Charts page only **Footprint** (Phase 19, §16.12) and **Heatmap** (Phase 20,
+  §16.14). Bar size applies to candles and footprint only.
 - **Bar sizes:** 5s, 15s (default), 1m, 5m. The reducer folds every fill into all four,
   so switching size is instant and each keeps its own history (500 closed bars each).
 - **Bucketing is clock-aligned:** `bucket = floor(t / size)` on the epoch-nanosecond
@@ -1125,3 +1126,49 @@ there is no backfill, so the profile and CVD start empty on page load.
   white-ground teal exactly, so a user who picks one of those as a candle or line
   colour makes it match an indicator. The Bollinger blue-grey sits nearest the VWAP
   violet among the defaults; the dashed middle line and the fill keep them apart.
+
+### 16.14 Liquidity heatmap (Phase 20, Charts page only)
+
+A chart type showing the order book over time: x is clock time, y is price, and each
+cell's brightness is the resting size at that price at that moment. Trades draw on
+top as bubbles, the best bid and ask as lines.
+
+- **Sampling.** The venue's BOOK frames (the top 20 populated levels a side, sent
+  after every command) are recorded into columns of 250 ms on the venue's own
+  timestamps, 2,400 columns (10 minutes), kept from the moment the tab connects. A
+  quiet stretch repeats the held book, which is exact; a disconnect leaves an empty
+  gap until the next frame. A level more than 200 ticks from the mid is not kept.
+  Where a side carries all 20 levels, the price beyond its deepest level is unknown
+  and reads "beyond depth"; otherwise an unlisted price has no liquidity.
+- **Ground and ramp.** Always the black ground, whatever the Background setting (its
+  row shows disabled with "Heatmap draws on black"). One neutral ramp, `--heat-0` to
+  `--heat-4` (§2), from the well colour through a dark blue-grey to near white; blue
+  and red stay for side. An empty cell is the ground.
+- **Brightness.** `log(1 + size) / log(1 + clip)`, clamped to 1, and at least 0.15 for
+  any non-zero size, so a 1-share level shows. The clip is the visible window's 98th
+  percentile divided by the contrast factor (**Low** 0.5, **Normal** 1, **High** 2), so
+  one huge order does not black out the rest.
+- **Price range.** Fitted to the visible best bid and ask, padded 10 ticks, at least 40
+  ticks, snapped to 10, and held until a best leaves it or it could shrink by a
+  quarter. Past 512 ticks each row covers several ticks and shows their summed size.
+- **Time.** The line chart's window: wheel zoom, drag to pan, Latest. It opens on the
+  newest 3 minutes. Zoomed out past one column per device pixel the columns are
+  averaged, not dropped.
+- **Trades (Trades On/Off).** A bubble per trade at its time and price, area
+  proportional to quantity, radius 2 to 12 px, outlined in `--quote-bid` when the buyer
+  was the aggressor and `--quote-ask` when the seller was, filled with the same colour
+  at 25%; grey when the side is unknown. Off hides the bubbles only.
+- **Best bid and ask.** 1px step lines in `--quote-bid` / `--quote-ask`, always on in
+  this chart type (the Bid/Ask indicator does not apply), breaking on an empty side or
+  a dropped connection.
+- **Casing.** Every line over the cells sits on a 3px casing of black at 70%: the
+  quote lines and bubble outlines, and in this chart type the own order lines, own
+  fill markers and VWAP. A side colour over the ramp's bright stops is otherwise near
+  1:1.
+- **Indicators.** VWAP, Executions and Orders (with drag to reprice) draw as on the
+  line chart. Volume, CVD, the averages and Bollinger need bars; the volume profile
+  would cover the cells.
+- **Readout.** The hovered cell's time, price (a multi-tick row's range) and resting
+  size (`beyond depth` where unknown), plus a hovered trade (`SELL 400 @ 149.81`).
+  Without a pointer, the newest column's best bid and ask with their sizes.
+
