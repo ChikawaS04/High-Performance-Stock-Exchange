@@ -30,7 +30,7 @@ function seriesOf(fills: readonly [number, number][]): BarSeries {
 }
 
 function bar(partial: Partial<Bar>): Bar {
-    return { bucket: B0, open: 100, high: 100, low: 100, close: 100, volume: 1, trades: 1, vwap: 100, ...partial };
+    return { bucket: B0, open: 100, high: 100, low: 100, close: 100, volume: 1, trades: 1, vwap: 100, buyVolume: 0, sellVolume: 0, cvd: 0, ...partial };
 }
 
 describe("buildCandleView (P17-6)", () => {

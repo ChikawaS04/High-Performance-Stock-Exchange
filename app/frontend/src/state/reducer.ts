@@ -63,6 +63,13 @@
  * other accumulators do: the tape is capped. A frame that is not a fill keeps the
  * bars reference. Nothing serializes AppState (P17-0 F4), so a bigint here is safe.
  *
+ * P19-1 adds order flow in the same guard. The fill's aggressor side (the frame's
+ * aggressorSide, else aggressorSideFor for our own trades, exactly as the tape reads
+ * it) splits each bar's volume into buy and sell, and sessionDelta is the running sum
+ * of signed aggressor quantity (buy positive), which each bar records as cvd. A fill
+ * whose side is still unknown changes neither. Like the bars, it starts when the tab
+ * loads: "session" is the browser session (P19-0 F2).
+ *
  * P18-1 adds this terminal's own executions, for the chart overlays and the
  * Executions tab. isOwnOrder is the one ownership test. Every fill that moves one of
  * our rows (aggressor or passive) appends an OwnFill to myFills (capped, newest
@@ -375,6 +382,11 @@ export interface AppState {
      */
     readonly bars: BarSet;
     /**
+     * Session delta (P19-1, P19 D5): buyer-initiated minus seller-initiated shares over
+     * every sided fill since the tab loaded. Each bar stamps it as cvd.
+     */
+    readonly sessionDelta: number;
+    /**
      * Client-assigned outbound message counter. Incremented once per SENT frame,
      * NEW and CANCEL alike. NOT the FIX 34= MsgSeqNum (the produced subset carries
      * no tag 34, P7-0/Q7-4) and NOT the P7-2 server per-channel echo seqNum. It is
@@ -437,6 +449,7 @@ export const initialState: AppState = {
     sessionTradeCount: 0,
     sessionNotional: 0n,
     bars: emptyBars(),
+    sessionDelta: 0,
     msgSeqNum: 0,
     lastFrameNanos: 0,
     inspectorLog: [],
@@ -718,10 +731,13 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     let sessionTradeCount = state.sessionTradeCount;
     let sessionNotional = state.sessionNotional;
     let bars = state.bars;
+    let sessionDelta = state.sessionDelta;
     // Session VWAP after this fill (P18-1 stamps it on own fills); unset off fills.
     let fillVwap = SESSION_OPEN_UNSET;
 
     if (isFill(frame)) {
+        const side =
+            frame.aggressorSide ?? aggressorSideFor(state.myOrders, frame.aggressorOrderId, frame.passiveOrderId);
         const entry: TapeEntry = {
             tradeId: frame.tradeId,
             pricePx: frame.price,
@@ -730,9 +746,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
             passiveOrderId: frame.passiveOrderId,
             timestamp: frame.timestamp,
             mine: knows(frame.aggressorOrderId) || knows(frame.passiveOrderId),
-            aggressorSide:
-                frame.aggressorSide ??
-                aggressorSideFor(state.myOrders, frame.aggressorOrderId, frame.passiveOrderId),
+            aggressorSide: side,
         };
         tape = [entry, ...state.tape].slice(0, TAPE_CAP);
 
@@ -771,7 +785,18 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         // last fill. Prices and quantities are integers on the wire, so BigInt() is exact.
         sessionNotional = state.sessionNotional + BigInt(frame.price) * BigInt(frame.filledQuantity);
         fillVwap = vwapUnits(sessionNotional, sessionVolume);
-        bars = foldBars(state.bars, frame.timestamp, frame.price, frame.filledQuantity, fillVwap);
+        // Order flow (P19-1): the signed aggressor quantity, none when the side is unknown.
+        if (side === "BUY") sessionDelta = state.sessionDelta + frame.filledQuantity;
+        else if (side === "SELL") sessionDelta = state.sessionDelta - frame.filledQuantity;
+        bars = foldBars(
+            state.bars,
+            frame.timestamp,
+            frame.price,
+            frame.filledQuantity,
+            fillVwap,
+            side ?? null,
+            sessionDelta,
+        );
     }
 
     // Aggressor path: EXEC orderId names the aggressor on fills, and the
@@ -892,6 +917,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         sessionTradeCount,
         sessionNotional,
         bars,
+        sessionDelta,
         lastFrameNanos: frame.timestamp,
         inspectorLog,
         orderNotices,

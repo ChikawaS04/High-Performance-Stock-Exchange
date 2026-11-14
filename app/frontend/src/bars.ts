@@ -20,7 +20,26 @@
  * venue restart while the tab stays open, F2) is folded into the open bar rather
  * than reopening a closed one, so the fold never throws. No synthetic bars are made
  * for empty buckets: a quiet stretch is an honest gap.
+ *
+ * Order flow (P19-1, Phase 19 D1 and D2). Every fill carries the aggressor's side, so
+ * each bar splits its volume into buyVolume (buyer-initiated, offers lifted) and
+ * sellVolume (seller-initiated, bids hit). A fill whose side is unknown (a frame
+ * without aggressorSide, P19-0 F3) still counts in volume but in neither side, so
+ * buyVolume + sellVolume <= volume, with equality whenever every fill is sided, as
+ * every live fill is. Each bar also records cvd, the session delta (signed aggressor
+ * quantity) after its last fill, stamped exactly as vwap is, so a CVD line is right at
+ * any pan offset and after bars age out.
+ *
+ * The 1m and 5m series also keep per-price detail for the footprint chart: levels,
+ * one { price, buy, sell } per exact traded price in units, sorted by price
+ * ascending. A half-cent print (a midpoint peg, P19-0 F13) keeps its exact key;
+ * grouping into rows happens only at the read. To bound memory only the newest
+ * FOOTPRINT_CAP bars of a series, the open bar included, keep levels; when a bar
+ * closes, the one that passes the cap is replaced by a copy without them and keeps
+ * its totals.
  */
+
+import type { Side } from "./protocol/messages";
 
 export type BarSizeId = "5s" | "15s" | "1m" | "5m";
 
@@ -54,6 +73,31 @@ export function barSizeNs(id: BarSizeId): number {
 export const BAR_CAP = 500;
 
 /**
+ * Bars per footprint-capable series that keep per-price levels, the open bar included
+ * (P19 D2). Two hours at 1m, ten at 5m. P19-0 F14 measured about 0.3 MiB for both
+ * series at the bots' fill rate and 8 MiB at about 25 times the price density
+ * (indicative Node heap figures).
+ */
+export const FOOTPRINT_CAP = 120;
+
+/** The bar sizes that keep per-price levels, and so the only footprint sizes (P19 D2, D6). */
+export const FOOTPRINT_SIZES: readonly BarSizeId[] = ["1m", "5m"];
+
+export function hasFootprint(id: BarSizeId): boolean {
+    return FOOTPRINT_SIZES.includes(id);
+}
+
+/** Aggressor volume at one exact price in a bar (P19 D2). */
+export interface PriceLevel {
+    /** Integer units of $0.0001, exactly as printed. */
+    readonly price: number;
+    /** Buyer-initiated shares (offers lifted). */
+    readonly buy: number;
+    /** Seller-initiated shares (bids hit). */
+    readonly sell: number;
+}
+
+/**
  * "No VWAP yet": no volume has traded. Matches the reducer's SESSION_OPEN_UNSET (-1)
  * so formatPrice renders it as the dash; declared here so this module imports
  * nothing from the reducer.
@@ -74,6 +118,17 @@ export interface Bar {
     readonly trades: number;
     /** Session VWAP after this bar's last fill, in units, rounded half up. */
     readonly vwap: number;
+    /** Buyer-initiated shares: fills whose aggressor bought (P19 D2). */
+    readonly buyVolume: number;
+    /** Seller-initiated shares: fills whose aggressor sold. */
+    readonly sellVolume: number;
+    /** Session delta (buy minus sell aggressor shares) after this bar's last fill (P19 D5). */
+    readonly cvd: number;
+    /**
+     * Per-price aggressor volume, sorted by price ascending. Present only on the 1m and
+     * 5m series and only on their newest FOOTPRINT_CAP bars; absent means no detail.
+     */
+    readonly levels?: readonly PriceLevel[];
 }
 
 export interface BarSeries {
@@ -104,8 +159,81 @@ export function bucketStart(bucket: number, sizeNs: number): number {
 }
 
 /**
+ * Add one fill to a sorted level list and return a new list. Pure: the input is never
+ * mutated. Binary search for the exact price; a new price is inserted in order.
+ */
+export function foldLevel(levels: readonly PriceLevel[], price: number, qty: number, side: Side): readonly PriceLevel[] {
+    let lo = 0;
+    let hi = levels.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (levels[mid].price < price) lo = mid + 1;
+        else hi = mid;
+    }
+    const out = levels.slice();
+    const buy = side === "BUY" ? qty : 0;
+    const sell = side === "SELL" ? qty : 0;
+    if (lo < levels.length && levels[lo].price === price) {
+        const l = levels[lo];
+        out[lo] = { price, buy: l.buy + buy, sell: l.sell + sell };
+    } else {
+        out.splice(lo, 0, { price, buy, sell });
+    }
+    return out;
+}
+
+/** A bar without its per-price detail, totals kept (the bar has aged past FOOTPRINT_CAP). */
+export function withoutLevels(bar: Bar): Bar {
+    if (bar.levels === undefined) return bar;
+    return {
+        bucket: bar.bucket,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+        trades: bar.trades,
+        vwap: bar.vwap,
+        buyVolume: bar.buyVolume,
+        sellVolume: bar.sellVolume,
+        cvd: bar.cvd,
+    };
+}
+
+const NO_LEVELS: readonly PriceLevel[] = [];
+
+/** The first bar of a bucket. */
+function openBar(
+    bucket: number,
+    price: number,
+    qty: number,
+    vwap: number,
+    side: Side | null,
+    cvd: number,
+    withLevels: boolean,
+): Bar {
+    const bar: Bar = {
+        bucket,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: qty,
+        trades: 1,
+        vwap,
+        buyVolume: side === "BUY" ? qty : 0,
+        sellVolume: side === "SELL" ? qty : 0,
+        cvd,
+    };
+    if (!withLevels) return bar;
+    return { ...bar, levels: side === null ? NO_LEVELS : foldLevel(NO_LEVELS, price, qty, side) };
+}
+
+/**
  * Fold one fill into a series and return the new series. Pure. `vwap` is the
- * session VWAP after this fill, which the open bar records.
+ * session VWAP after this fill and `cvd` the session delta after it, both of which
+ * the open bar records. `side` is the aggressor's side, null when unknown (counted
+ * in volume only). `withLevels` keeps per-price levels (the 1m and 5m series).
  */
 export function foldFill(
     series: BarSeries,
@@ -114,31 +242,37 @@ export function foldFill(
     price: number,
     qty: number,
     vwap: number,
+    side: Side | null = null,
+    cvd = 0,
+    withLevels = false,
 ): BarSeries {
     const bucket = bucketOf(t, sizeNs);
     const open = series.open;
 
     if (open === null) {
-        return {
-            open: { bucket, open: price, high: price, low: price, close: price, volume: qty, trades: 1, vwap },
-            closed: series.closed,
-        };
+        return { open: openBar(bucket, price, qty, vwap, side, cvd, withLevels), closed: series.closed };
     }
 
     // Same bucket, or an out-of-order older one (F2): fold into the open bar, which
     // keeps its own bucket. Only the open object is replaced.
     if (bucket <= open.bucket) {
+        const next: Bar = {
+            bucket: open.bucket,
+            open: open.open,
+            high: Math.max(open.high, price),
+            low: Math.min(open.low, price),
+            close: price,
+            volume: open.volume + qty,
+            trades: open.trades + 1,
+            vwap,
+            buyVolume: open.buyVolume + (side === "BUY" ? qty : 0),
+            sellVolume: open.sellVolume + (side === "SELL" ? qty : 0),
+            cvd,
+        };
+        if (!withLevels) return { open: next, closed: series.closed };
+        const levels = open.levels ?? NO_LEVELS;
         return {
-            open: {
-                bucket: open.bucket,
-                open: open.open,
-                high: Math.max(open.high, price),
-                low: Math.min(open.low, price),
-                close: price,
-                volume: open.volume + qty,
-                trades: open.trades + 1,
-                vwap,
-            },
+            open: { ...next, levels: side === null ? levels : foldLevel(levels, price, qty, side) },
             closed: series.closed,
         };
     }
@@ -148,19 +282,32 @@ export function foldFill(
         series.closed.length >= BAR_CAP
             ? [...series.closed.slice(series.closed.length - BAR_CAP + 1), open]
             : [...series.closed, open];
-    return {
-        open: { bucket, open: price, high: price, low: price, close: price, volume: qty, trades: 1, vwap },
-        closed,
-    };
+    // The new open bar takes one of the FOOTPRINT_CAP places with detail, so the closed
+    // bar FOOTPRINT_CAP from the end passes the cap and drops its levels. One bar
+    // closes per fold, so every older bar is already without levels.
+    const passing = closed.length - FOOTPRINT_CAP;
+    if (passing >= 0 && closed[passing].levels !== undefined) closed[passing] = withoutLevels(closed[passing]);
+    return { open: openBar(bucket, price, qty, vwap, side, cvd, withLevels), closed };
 }
 
-/** Fold one fill into all four sizes. */
-export function foldBars(set: BarSet, t: number, price: number, qty: number, vwap: number): BarSet {
+/**
+ * Fold one fill into all four sizes. The 1m and 5m series keep per-price levels
+ * (FOOTPRINT_SIZES). `side` and `cvd` as foldFill.
+ */
+export function foldBars(
+    set: BarSet,
+    t: number,
+    price: number,
+    qty: number,
+    vwap: number,
+    side: Side | null = null,
+    cvd = 0,
+): BarSet {
     return {
-        "5s": foldFill(set["5s"], barSizeNs("5s"), t, price, qty, vwap),
-        "15s": foldFill(set["15s"], barSizeNs("15s"), t, price, qty, vwap),
-        "1m": foldFill(set["1m"], barSizeNs("1m"), t, price, qty, vwap),
-        "5m": foldFill(set["5m"], barSizeNs("5m"), t, price, qty, vwap),
+        "5s": foldFill(set["5s"], barSizeNs("5s"), t, price, qty, vwap, side, cvd, false),
+        "15s": foldFill(set["15s"], barSizeNs("15s"), t, price, qty, vwap, side, cvd, false),
+        "1m": foldFill(set["1m"], barSizeNs("1m"), t, price, qty, vwap, side, cvd, true),
+        "5m": foldFill(set["5m"], barSizeNs("5m"), t, price, qty, vwap, side, cvd, true),
     };
 }
 

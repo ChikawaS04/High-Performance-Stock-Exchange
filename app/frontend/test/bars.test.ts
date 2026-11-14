@@ -35,6 +35,9 @@ describe("foldFill (P17-2)", () => {
             volume: 20,
             trades: 1,
             vwap: 1_000_000,
+            buyVolume: 0,
+            sellVolume: 0,
+            cvd: 0,
         });
         expect(s.closed).toEqual([]);
     });
