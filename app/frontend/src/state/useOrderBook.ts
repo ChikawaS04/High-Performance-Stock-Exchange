@@ -23,6 +23,7 @@ import type { ClientFrame } from "../protocol/messages";
 import { serializeClientFrame } from "../protocol/encode";
 import { initialState, reducer } from "./reducer";
 import { DepthRecorder, HEATMAP_TICK_MS } from "../heatmap/depthRecorder";
+import { attachDepth } from "../heatmap/perfStats";
 import type { AppState, LocalAction, SendMeta } from "./reducer";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/ws";
@@ -51,7 +52,10 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
     const [state, dispatch] = useReducer(reducer, initialState);
     const socketRef = useRef<WebSocket | null>(null);
     const depthRef = useRef<DepthRecorder | null>(null);
-    if (depthRef.current === null) depthRef.current = new DepthRecorder();
+    if (depthRef.current === null) {
+        depthRef.current = new DepthRecorder();
+        attachDepth(depthRef.current); // dev-only: P20-6 reads its dropped counter
+    }
     const depth = depthRef.current;
 
     useEffect(() => {

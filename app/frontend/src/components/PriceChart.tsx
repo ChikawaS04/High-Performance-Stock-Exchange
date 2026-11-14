@@ -155,6 +155,7 @@ import type { HeatView, PriceDomain, RowGrid } from "../heatmap/layout";
 import { bubbleMarks, drawOverlay, hitBubble, quotePaths } from "../heatmap/overlay";
 import type { BubbleMark } from "../heatmap/overlay";
 import { useHeatmapSettings } from "../heatmap/heatmapSettings";
+import { recordPaint } from "../heatmap/perfStats";
 
 /** The nominal drawing size, used until the plot is measured. */
 const NOMINAL_W = 720;
@@ -1341,6 +1342,7 @@ export function PriceChart({
                         grid={heat.grid}
                         contrast={heatSettings.contrast}
                         overlay={heatOverlay}
+                        onPaint={recordPaint}
                         style={{
                             left: `${(PLOT_LEFT / VIEW_W) * 100}%`,
                             top: `${(priceTop / VIEW_H) * 100}%`,

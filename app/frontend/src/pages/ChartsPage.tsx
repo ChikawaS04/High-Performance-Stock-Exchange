@@ -58,7 +58,10 @@ import type { AppState } from "../state/reducer";
 import type { DepthRecorder } from "../heatmap/depthRecorder";
 import type { OrderIntent } from "../protocol/messages";
 
+import { Profiler } from "react";
+
 import { PriceChart } from "../components/PriceChart";
+import { recordCommit } from "../heatmap/perfStats";
 import { buildOwnExecutions } from "../ownExecutions";
 import { SessionStats } from "../components/SessionStats";
 import { OrderEntry } from "../components/OrderEntry";
@@ -93,29 +96,40 @@ export function ChartsPage({
     // P18-2: the one own-execution model (P18 D1) feeds the chart's overlays.
     const own = buildOwnExecutions(state);
 
+    const chart = (
+        <PriceChart
+            tape={state.tape}
+            bars={state.bars}
+            surface="page"
+            fills={own.fills}
+            working={own.working}
+            bestBid={state.book.bestBid}
+            bestAsk={state.book.bestAsk}
+            onReprice={onReprice}
+            quotes={state.quotes}
+            quoteBars={state.quoteBars}
+            volumeAtPrice={state.volumeAtPrice}
+            depth={depth}
+            heatTrades={state.heatTrades}
+            repricing={repricing}
+            sessionOpenPx={state.sessionOpenPx}
+            openPx={openPx}
+            onViewInTrading={onViewInTrading}
+            fit
+        />
+    );
+
     return (
         <main className="chart-page" aria-label="Price chart">
             <section tabIndex={-1} className="chart-page__region chart-page__region--chart" aria-label="Chart">
-                <PriceChart
-                    tape={state.tape}
-                    bars={state.bars}
-                    surface="page"
-                    fills={own.fills}
-                    working={own.working}
-                    bestBid={state.book.bestBid}
-                    bestAsk={state.book.bestAsk}
-                    onReprice={onReprice}
-                    quotes={state.quotes}
-                    quoteBars={state.quoteBars}
-                    volumeAtPrice={state.volumeAtPrice}
-                    depth={depth}
-                    heatTrades={state.heatTrades}
-                    repricing={repricing}
-                    sessionOpenPx={state.sessionOpenPx}
-                    openPx={openPx}
-                    onViewInTrading={onViewInTrading}
-                    fit
-                />
+                {/* P20-6: PriceChart's commit time, development builds only. */}
+                {recordCommit !== undefined ? (
+                    <Profiler id="PriceChart" onRender={recordCommit}>
+                        {chart}
+                    </Profiler>
+                ) : (
+                    chart
+                )}
             </section>
 
             <section tabIndex={-1} className="chart-page__region chart-page__region--panel" aria-label="Side panel">
