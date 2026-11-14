@@ -54,6 +54,7 @@ import { forwardRef, useImperativeHandle, useState } from "react";
 
 import { formatPrice, parsePrice, EMPTY_PRICE } from "../format";
 import { NA } from "../protocol/messages";
+import { TICK_PX } from "../prices";
 import { FieldMenu } from "./FieldMenu";
 import type { MenuOption } from "./FieldMenu";
 import type { OrderIntent, OrdType, Side, TimeInForce } from "../protocol/messages";
@@ -137,8 +138,11 @@ export function validateDisplayQty(displayInput: string, qty: number): DisplayRe
     return { ok: true, displayQty: display === qty ? 0 : display };
 }
 
-/** One cent, in units of $0.0001. The integer-units primitive is the unit end to end. */
-export const TICK_PX = 100;
+/**
+ * One cent, in units of $0.0001. The integer-units primitive is the unit end to end.
+ * Owned by the pure prices module since P18-4 and re-exported here for the ticket.
+ */
+export { TICK_PX };
 
 /** Round-lot quantity presets. */
 export const QTY_PRESETS = [10, 50, 100, 500] as const;

@@ -61,6 +61,10 @@ export interface TradingPageProps {
     readonly onCancelOrder: (origClOrdId: number) => void;
     readonly priceOverlayOpen: boolean;
     readonly onClosePriceOverlay: () => void;
+    /** Drag to reprice in the floating chart (P18-4); absent, order lines are not draggable. */
+    readonly onReprice?: (origClOrdId: number, newPx: number) => void;
+    /** Orders with a reprice in flight, which cannot be dragged (P18-5). */
+    readonly repricing?: readonly number[];
 }
 
 export function TradingPage({
@@ -70,6 +74,8 @@ export function TradingPage({
     onCancelOrder,
     priceOverlayOpen,
     onClosePriceOverlay,
+    onReprice,
+    repricing,
 }: TradingPageProps) {
     useDocumentTitle(PAGE_NAMES.trading);
     const connected = state.connection === "open";
@@ -184,6 +190,8 @@ export function TradingPage({
                 working={own.working}
                 bestBid={state.book.bestBid}
                 bestAsk={state.book.bestAsk}
+                onReprice={onReprice}
+                repricing={repricing}
                 sessionOpenPx={state.sessionOpenPx}
                 openPx={openPx}
             />

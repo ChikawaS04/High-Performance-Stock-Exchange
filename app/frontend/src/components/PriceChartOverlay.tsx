@@ -47,6 +47,9 @@ export interface PriceChartOverlayProps {
     readonly working?: readonly WorkingOrder[];
     readonly bestBid?: number;
     readonly bestAsk?: number;
+    /** Drag to reprice (P18-4) and the orders with one in flight (P18-5). */
+    readonly onReprice?: (origClOrdId: number, newPx: number) => void;
+    readonly repricing?: readonly number[];
     readonly sessionOpenPx: number;
     readonly openPx?: number;
 }
@@ -64,6 +67,8 @@ export function PriceChartOverlay({
     working,
     bestBid,
     bestAsk,
+    onReprice,
+    repricing,
     sessionOpenPx,
     openPx,
 }: PriceChartOverlayProps) {
@@ -102,6 +107,8 @@ export function PriceChartOverlay({
                 working={working}
                 bestBid={bestBid}
                 bestAsk={bestAsk}
+                onReprice={onReprice}
+                repricing={repricing}
                 sessionOpenPx={sessionOpenPx}
                 openPx={openPx}
                 onClose={onClose}

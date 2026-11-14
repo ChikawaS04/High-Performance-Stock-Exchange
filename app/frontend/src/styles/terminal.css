@@ -4332,6 +4332,32 @@ body {
     font-size: 10px;
     fill: #0b0b0b;
 }
+/* Drag to reprice (P18 D4): a limit tag is the handle; the ghost line follows the
+   pointer at the snapped price, solid and half strength, above the original line. */
+.price-chart__order-tag--draggable {
+    cursor: ns-resize;
+}
+.price-chart__order--ghost {
+    stroke-dasharray: none;
+    stroke-opacity: 0.6;
+}
+
+/* Modify order popup (P18 D4, §10 chrome): the queue line and the marketable warning. */
+.modify-order__side--buy {
+    color: var(--quote-bid);
+}
+.modify-order__side--sell {
+    color: var(--quote-ask);
+}
+.modify-order__note {
+    margin: 10px 0 0;
+    max-width: 300px;
+    font-size: 11px;
+    color: #ffffff;
+}
+.modify-order__note--warn {
+    color: var(--warn, #e0a13c);
+}
 
 /* Date tile on the time axis (Charts follow-up): the §2 head tile, --head ground,
    --hair-strong border, white sans. */

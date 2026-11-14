@@ -46,9 +46,9 @@ import { usePersistentSetting } from "../settings/usePersistentSetting";
 import { isTerminal } from "../state/reducer";
 import type { BookState, MyOrder, TapeEntry } from "../state/reducer";
 import { SYMBOL } from "../protocol/messages";
+// One cent, in units of $0.0001: the on-tick spacing the spread is counted in.
+import { TICK_PX } from "../prices";
 
-/** One cent, in units of $0.0001: the on-tick spacing the spread is counted in. */
-const TICK_PX = 100;
 
 /**
  * Header label appearance, chosen in the settings popup and persisted per browser

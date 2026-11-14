@@ -95,8 +95,12 @@ import {
     placeOrderLines,
     venueMid,
 } from "../chartOverlays";
-import type { FillMarker } from "../chartOverlays";
+import type { FillMarker, OrderLine } from "../chartOverlays";
 import type { WorkingOrder } from "../ownExecutions";
+import { dropDrag, isMarketable, moveDrag, startDrag } from "../repriceGesture";
+import type { RepriceDrag } from "../repriceGesture";
+import { ModifyOrderPopup } from "./ModifyOrderPopup";
+import type { ModifyRequest } from "./ModifyOrderPopup";
 import { ChartBand } from "./ChartBand";
 import { ChartSettingsPopup } from "./ChartSettingsPopup";
 
@@ -244,10 +248,18 @@ export interface PriceChartProps {
     /** Lit best bid and ask in units (state.book), for a peg's line at the mid; -1 when a side is empty. */
     readonly bestBid?: number;
     readonly bestAsk?: number;
+    /**
+     * Drag to reprice (P18-4): called once per Confirm Modify with the order and its
+     * new on-tick price. Absent, order tags are not draggable.
+     */
+    readonly onReprice?: (origClOrdId: number, newPx: number) => void;
+    /** Orders with a reprice in flight (P18-5); their tags cannot be dragged. */
+    readonly repricing?: readonly number[];
 }
 
 const NO_FILLS: readonly OwnFill[] = [];
 const NO_WORKING: readonly WorkingOrder[] = [];
+const NO_IDS: readonly number[] = [];
 /** Order tag height, and the gap kept between a tag and the price axis. */
 const ORDER_TAG_H = 14;
 
@@ -302,6 +314,8 @@ export function PriceChart({
     working = NO_WORKING,
     bestBid = -1,
     bestAsk = -1,
+    onReprice,
+    repricing = NO_IDS,
 }: PriceChartProps) {
     // Display settings persist, shared by the page and the floating window (§13).
     const colors = useChartColors();
@@ -322,6 +336,11 @@ export function PriceChart({
     const setCwin = (win: CandleWindow): void => setCwinState({ size: barSize, win });
     const [lwin, setLwin] = useState<LineWindow>(LINE_FULL);
     const dragRef = useRef<DragState | null>(null);
+    // Drag to reprice (P18-4): the order-tag gesture, separate from the plot pan.
+    const [orderDrag, setOrderDrag] = useState<RepriceDrag | null>(null);
+    const orderDragRef = useRef<{ readonly pointerId: number; drag: RepriceDrag } | null>(null);
+    const [modify, setModify] = useState<ModifyRequest | null>(null);
+    const confirmedRef = useRef<ModifyRequest | null>(null);
 
     const [svgEl, setSvgEl] = useState<SVGSVGElement | null>(null);
     const clipId = `pc-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -648,7 +667,62 @@ export function PriceChart({
         }
     };
 
+    const releaseCapture = (pointerId: number): void => {
+        if (svgEl !== null && typeof svgEl.hasPointerCapture === "function" && svgEl.hasPointerCapture(pointerId)) {
+            svgEl.releasePointerCapture(pointerId);
+        }
+    };
+
+    // An order tag press starts a reprice drag and stops the plot pan from starting.
+    const onTagDown = (e: ReactPointerEvent<SVGGElement>, o: OrderLine): void => {
+        if (e.button !== 0 || onReprice === undefined) return;
+        const drag = startDrag({ clOrdId: o.clOrdId, side: o.side, pricePx: o.pricePx, draggable: o.draggable }, repricing);
+        if (drag === null) return;
+        e.stopPropagation();
+        orderDragRef.current = { pointerId: e.pointerId, drag };
+        setOrderDrag(drag);
+        setHover(null);
+        if (svgEl !== null && typeof svgEl.setPointerCapture === "function") {
+            try {
+                svgEl.setPointerCapture(e.pointerId);
+            } catch {
+                // A synthetic pointer cannot be captured; the drag still works.
+            }
+        }
+    };
+
+    /** The pointer's y read as a price on the current scene, clamped to the price area. */
+    const pointerPrice = (sy: number): number | null => {
+        const sc = candles ? candle : line;
+        if (sc === null) return null;
+        const y = Math.max(priceTop, Math.min(priceBottom, sy));
+        return priceAt(y, priceTop, priceH, sc.dMin, sc.dMax);
+    };
+
+    const endOrderDrag = (e: ReactPointerEvent<SVGSVGElement>, commit: boolean): boolean => {
+        const od = orderDragRef.current;
+        if (od === null || od.pointerId !== e.pointerId) return false;
+        orderDragRef.current = null;
+        setOrderDrag(null);
+        releaseCapture(e.pointerId);
+        if (!commit) return true;
+        const drop = dropDrag(od.drag);
+        if (drop.kind === "confirm") {
+            const w = working.find((x) => x.clOrdId === drop.clOrdId);
+            setModify({
+                clOrdId: drop.clOrdId,
+                side: drop.side,
+                remainingQty: w !== undefined ? w.remainingQty : 0,
+                oldPx: drop.oldPx,
+                newPx: drop.newPx,
+                marketable: false,
+            });
+        }
+        return true;
+    };
+
     const endDrag = (e: ReactPointerEvent<SVGSVGElement>): void => {
+        if (endOrderDrag(e, true)) return;
         const d = dragRef.current;
         if (d === null || d.pointerId !== e.pointerId) return;
         dragRef.current = null;
@@ -658,7 +732,25 @@ export function PriceChart({
         }
     };
 
+    const cancelDrag = (e: ReactPointerEvent<SVGSVGElement>): void => {
+        if (endOrderDrag(e, false)) return;
+        endDrag(e);
+    };
+
     const onMove = (e: ReactPointerEvent<SVGSVGElement>): void => {
+        const od = orderDragRef.current;
+        if (od !== null && od.pointerId === e.pointerId) {
+            const p = toView(e.clientX, e.clientY);
+            const px = p !== null ? pointerPrice(p.sy) : null;
+            if (px !== null) {
+                const next = moveDrag(od.drag, px);
+                if (next !== od.drag) {
+                    od.drag = next;
+                    setOrderDrag(next);
+                }
+            }
+            return;
+        }
         const d = dragRef.current;
         if (d !== null && d.pointerId === e.pointerId) {
             const dxCss = e.clientX - d.x0;
@@ -821,13 +913,29 @@ export function PriceChart({
     // an off-domain order pinned to the edge as a tag with an arrow. Never widen the domain.
     const orderLines = ordersOn ? placeOrderLines(working, venueMid(bestBid, bestAsk), dMin, dMax) : [];
     const orderYs = orderTagYs(orderLines, yOf, priceTop, priceBottom, ORDER_TAG_H);
+    const canDrag = (o: OrderLine): boolean => o.draggable && onReprice !== undefined && !repricing.includes(o.clOrdId);
+    // The ghost line of a drag in progress, at its snapped price, clamped to the price area.
+    const ghostY = orderDrag !== null ? Math.max(priceTop, Math.min(priceBottom, yOf(orderDrag.ghostPx))) : null;
+    const ghostLabel = orderDrag !== null ? formatPrice(orderDrag.ghostPx) : "";
+    const ghostW = orderTagWidth(ghostLabel, false);
+    // The popup reads the live book and working list, so a crossing or a fill while it is open shows at once.
+    const modifyView: ModifyRequest | null =
+        modify !== null ? { ...modify, marketable: isMarketable(modify.side, modify.newPx, bestBid, bestAsk) } : null;
+    const modifyActive = modify !== null && working.some((w) => w.clOrdId === modify.clOrdId) && !repricing.includes(modify.clOrdId);
+    const confirmModify = (): void => {
+        // Exactly once per popup: a second click before the re-render is ignored.
+        if (modify === null || confirmedRef.current === modify || onReprice === undefined) return;
+        confirmedRef.current = modify;
+        setModify(null);
+        onReprice(modify.clOrdId, modify.newPx);
+    };
 
     // Crosshair (P17-10), hidden while panning.
     let cross: { readonly x: number; readonly t: number; readonly py: number | null; readonly price: number | null } | null = null;
     let hoverBar: Bar | null = null;
     let hoverPrint: PlotPoint | null = null;
     let hoverMarker: FillMarker | null = null;
-    if (hover !== null && !panning) {
+    if (hover !== null && !panning && orderDrag === null) {
         const mi = nearestPoint(markerPts, hover.sx, hover.sy);
         if (mi >= 0) hoverMarker = markerPts[mi].m;
         const price = priceAt(hover.sy, priceTop, priceH, dMin, dMax);
@@ -894,7 +1002,7 @@ export function PriceChart({
                     onPointerDown={onDown}
                     onPointerMove={onMove}
                     onPointerUp={endDrag}
-                    onPointerCancel={endDrag}
+                    onPointerCancel={cancelDrag}
                     onPointerLeave={onLeave}
                 >
                     <defs>
@@ -1087,10 +1195,14 @@ export function PriceChart({
                                             />
                                         ) : null}
                                         <g
-                                            className={`price-chart__order-tag price-chart__order-tag--${side}`}
+                                            className={`price-chart__order-tag price-chart__order-tag--${side}${
+                                                canDrag(o) ? " price-chart__order-tag--draggable" : ""
+                                            }`}
                                             data-testid="price-chart-order-tag"
                                             data-pin={o.pin ?? ""}
                                             data-draggable={o.draggable ? "true" : "false"}
+                                            data-repricing={repricing.includes(o.clOrdId) ? "true" : "false"}
+                                            onPointerDown={canDrag(o) ? (e) => onTagDown(e, o) : undefined}
                                         >
                                             <rect
                                                 className={`price-chart__order-tagbg price-chart__order-tagbg--${side}`}
@@ -1175,6 +1287,36 @@ export function PriceChart({
                                 textAnchor="middle"
                             >
                                 {formatPrice(vwapNow)}
+                            </text>
+                        </g>
+                    ) : null}
+
+                    {orderDrag !== null && ghostY !== null ? (
+                        <g className="price-chart__order-ghost" data-testid="price-chart-order-ghost" pointerEvents="none">
+                            <line
+                                className={`price-chart__order price-chart__order--${orderDrag.side === "BUY" ? "buy" : "sell"} price-chart__order--ghost`}
+                                x1={PLOT_LEFT}
+                                y1={ghostY}
+                                x2={PLOT_RIGHT}
+                                y2={ghostY}
+                            />
+                            <rect
+                                className={`price-chart__order-tagbg price-chart__order-tagbg--${orderDrag.side === "BUY" ? "buy" : "sell"}`}
+                                x={PLOT_RIGHT - 2 - ghostW}
+                                y={ghostY - ORDER_TAG_H / 2}
+                                width={ghostW}
+                                height={ORDER_TAG_H}
+                                rx="2"
+                            />
+                            <text
+                                className="price-chart__order-text"
+                                data-testid="price-chart-order-ghost-text"
+                                x={PLOT_RIGHT - 2 - ghostW / 2}
+                                y={ghostY}
+                                dominantBaseline="middle"
+                                textAnchor="middle"
+                            >
+                                {ghostLabel}
                             </text>
                         </g>
                     ) : null}
@@ -1289,6 +1431,9 @@ export function PriceChart({
                     </button>
                 ) : null}
             </div>
+            {modifyView !== null ? (
+                <ModifyOrderPopup request={modifyView} active={modifyActive} onConfirm={confirmModify} onClose={() => setModify(null)} />
+            ) : null}
         </div>
     );
 }

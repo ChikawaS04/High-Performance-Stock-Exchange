@@ -67,6 +67,10 @@ export interface ChartsPageProps {
     readonly onSubmitOrder: (intent: OrderIntent) => void;
     /** Opens the floating chart on the trading page (wired by App). */
     readonly onViewInTrading?: () => void;
+    /** Drag to reprice (P18-4): App's one reprice seam; absent, order lines are not draggable. */
+    readonly onReprice?: (origClOrdId: number, newPx: number) => void;
+    /** Orders with a reprice in flight, which cannot be dragged (P18-5). */
+    readonly repricing?: readonly number[];
 }
 
 export function ChartsPage({
@@ -74,6 +78,8 @@ export function ChartsPage({
                                    openPx,
                                    onSubmitOrder,
                                    onViewInTrading,
+                                   onReprice,
+                                   repricing,
                                }: ChartsPageProps) {
     useDocumentTitle(PAGE_NAMES.charts);
     const connected = state.connection === "open";
@@ -91,6 +97,8 @@ export function ChartsPage({
                     working={own.working}
                     bestBid={state.book.bestBid}
                     bestAsk={state.book.bestAsk}
+                    onReprice={onReprice}
+                    repricing={repricing}
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
                     onViewInTrading={onViewInTrading}
