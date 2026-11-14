@@ -787,7 +787,7 @@ lives above the router, so navigation never drops the connection.
 | Route | Contents |
 |---|---|
 | `/trading` | Depth ladder, cumulative depth curve, trade tape, order entry ticket, open orders blotter, cancel-by-ID ticket, FIX stream inspector |
-| `/chart` | Session price line with reference lines, plus session high, low, trade count, last print and a second order ticket |
+| `/charts` | Price chart (candles, line, or footprint) with volume, VWAP, your fills and working orders, bid/ask lines, and the order-flow tools: volume profile, cumulative volume delta and footprint, plus SMA, EMA and Bollinger bands with editable parameters; session high, low, VWAP, trade count, last print and a second order ticket |
 
 The order ticket carries side, time in force, order type (limit or midpoint peg), price on the
 one-cent tick, quantity and an optional iceberg display quantity. The depth views are fed only by
@@ -796,7 +796,9 @@ restart shows the recovered book at once. The FIX inspector shows the real bytes
 consumed. An optional reference market-open line comes from the Alpaca market data API through the
 Vite dev proxy only (credentials in `app/frontend/.env.local`, never committed, never `VITE_`
 prefixed). The terminal does not use RESEND or SESSION frames (see
-[Known limitations](#known-limitations)).
+[Known limitations](#known-limitations)), so its bars, volume profile and CVD cover the
+browser session since the tab loaded. Order flow reads each fill's `aggressorSide` from the
+wire, never inferring side from price.
 
 Point it at a venue on another port with `VITE_WS_URL`, for example
 `VITE_WS_URL=ws://localhost:18080/ws`. Frontend details (wire contract, pure-helper conventions,

@@ -94,6 +94,9 @@ green and still feeds the header's "up" change colour, so a bid must never use i
 | `--candle-up` | `#00ff00` | `#1f9d3a` | Up candle (close >= open), its volume column, and the candle-mode last-price level and tag |
 | `--candle-down` | `#ff0000` | `#d40000` | Down candle, its volume column, and the candle-mode last-price level and tag |
 | `--vwap` | `#b4a7d6` | `#6a5a9a` | Session VWAP line and its axis tag |
+| `--ind-sma` | `#1fd6e8` | `#00808a` | SMA and SMA 2 lines and readout keys (§16.13) |
+| `--ind-ema` | `#f14fe6` | `#a8329b` | EMA and EMA 2 lines and readout keys (§16.13) |
+| `--ind-boll` | `#a9b4c4` | `#5b6778` | Bollinger bands, fill and readout keys (§16.13) |
 
 The black-ground values are the trade tape's `--tick-up` / `--tick-down`, so direction
 reads as one colour family across the terminal. `#00ff00` cannot be read on white, so
@@ -438,22 +441,38 @@ A gear-opened settings popup is the §10 popup chrome filled with these parts:
 - Every control in a settings popup persists (§13).
 
 **Price chart popup, Display category (Charts follow-up).** In order: Background,
-Chart type, Bar size (candles only), then the **Candles** sub-label with Up candle,
-Down candle and Wicks (Match body or Grey), then the **Line** sub-label with Line
-color, Area fill and Fill color. Rows that draw nothing in the current chart type
-show disabled (the candle rows in line mode, the line rows in candle mode, with the
-dim line "Line rows apply in line mode"). Reset colors restores up, down, line, fill
-and wicks to their defaults; Recent stays.
+Chart type (Line, Candles, and Footprint on the Charts page), Bar size (the bar chart
+types, candles and footprint), then the **Candles** sub-label with Up candle, Down
+candle and Wicks (Match body or Grey), then the **Line** sub-label with Line color,
+Area fill and Fill color. Rows that draw nothing in the current chart type show
+disabled (the candle rows in line mode, the line rows in the bar chart types, with
+the dim line "Line rows apply in line mode"; Wicks in footprint, where Up and Down
+still colour the imbalance tints and outlines). In footprint the 5s and 15s radios
+show disabled with the dim note "1m and 5m only" (§16.12). Reset colors restores up,
+down, line, fill and wicks to their defaults; Recent stays.
 
 **Indicators category (P17, the price chart popup).** One row per indicator the
 surface offers (§16.4), the indicator name on the left and the standard §11.3 toggle
 (`On`, `Off`) on the right. An indicator the current chart type cannot draw (Volume
-in line mode) shows disabled with the inline note "Candles only" and keeps its stored
-state. Lower panes are capped per surface; once the enabled panes reach the cap, the
+in line mode) shows disabled with an inline note naming where it draws ("Bar charts
+only" for candles and footprint) and keeps its stored state. Lower panes are capped
+per surface; once the enabled panes reach the cap, the
 toggles of panes that are off are disabled and the category shows one dim line,
 "Pane limit reached (N)", only while the cap is actually holding a pane off.
 Overlays are never disabled by the cap. The band's Indicators popup (§16.7) renders
 the same rows (one shared component), so the two always agree.
+
+**Parameter disclosure rows (P19).** In the gear popup's Indicators category only, an
+indicator with parameters (the moving averages, Bollinger) gets a small `▸`
+disclosure after its name, in the dim text ink. Expanded (`▾`), each parameter is a
+row of its own, its label indented and dim on the left and an §11.5 **editable
+combobox** on the right (the sunken well with its preset list, mono, right-aligned
+options). A typed value is stored only once it is valid: a whole number in range, or
+for the Bollinger width a value with at most one decimal place (`2.5`), shown as a
+standard deviation ("Std dev", presets 1.0, 1.5, 2.0, 2.5, 3.0) though stored in
+tenths. An invalid draft stays in the well unstored and the well shows the stored
+value again on blur. Which rows are expanded is local and never persisted (§13). The
+band's Indicators popup has no disclosures: it stays a list of toggles.
 
 ### 11.5 Dropdown / pick-list: the standard picker
 
@@ -581,8 +600,8 @@ storage module (`src/settings/persist.ts`) and one hook
   | Header | label colour (`header.labelMode`) |
   | Trade tape | levels, time units |
   | Price chart | background, line colour, gradient, fill, up candle, down candle, wicks, recent colours (`priceChart.background`, `.lineColor`, `.gradient`, `.fill`, `.candleUp`, `.candleDown`, `.wicks`, `.recentColors`; shared by the page and the floating window) |
-  | Charts page chart | chart type, bar size, indicators, indicators already offered (`priceChart.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`) |
-  | Floating chart window | chart type, bar size, indicators, indicators already offered (`priceWindow.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`) |
+  | Charts page chart | chart type (`line`, `candles`, `footprint`), bar size, indicators, indicators already offered, indicator parameters (`priceChart.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`, `.indicatorParams`) |
+  | Floating chart window | chart type (`line`, `candles`), bar size, indicators, indicators already offered, indicator parameters (`priceWindow.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`, `.indicatorParams`) |
   | Depth chart | background |
   | Book reader | depth |
   | Blotter | status filter, owner filter, view (`blotter.statusFilter`, `.ownerFilter`, `.tab`: `orders` or `executions`) |
@@ -600,7 +619,12 @@ storage module (`src/settings/persist.ts`) and one hook
   dropped, but an id only unavailable for the current chart type is kept. An id
   registered later and marked on by default (Executions, Orders) is switched on once
   for a stored set that has never offered it, tracked by `indicatorsSeen`, so a user
-  who then turns it off keeps it off. The chart's
+  who then turns it off keeps it off. A stored `footprint` on the floating window is
+  invalid there and falls back to Candles. Indicator parameters are one JSON object,
+  indicator id then parameter id then an integer (`{"sma":{"length":50}}`), read
+  leniently (any object) and then cleaned per value: an unknown indicator or
+  parameter, a non-integer or an out-of-range value is dropped on its own and reads
+  as that parameter's default, so one bad value never costs the others. The chart's
   colours are any `#rrggbb` (the line colour and fill too; fill also takes `"line"`,
   the candle colours `"default"`); the recent colours are read leniently and cleaned to
   at most four valid colours. At start-up, `hpse.` keys from any other version are removed and the
@@ -820,8 +844,9 @@ are shared.
 
 ### 16.2 Chart types and bar sizes
 
-- **Candles** (default) and **Line** (the trade-print line, as built in P12). Phase 20
-  adds a heatmap type on the page only.
+- **Candles** (default) and **Line** (the trade-print line, as built in P12), and on
+  the Charts page only **Footprint** (Phase 19, §16.12). Phase 20 adds a heatmap type
+  on the page only.
 - **Bar sizes:** 5s, 15s (default), 1m, 5m. The reducer folds every fill into all four,
   so switching size is instant and each keeps its own history (500 closed bars each).
 - **Bucketing is clock-aligned:** `bucket = floor(t / size)` on the epoch-nanosecond
@@ -862,10 +887,17 @@ are shared.
 
 - An indicator registry (`src/indicators/registry.ts`) describes each indicator: id,
   label, placement (`overlay` on the price area or a lower `pane`), the surfaces that
-  offer it, the chart types that can draw it, and whether it is on by default. Phase
-  17 registers Volume (pane, candles only) and VWAP (overlay, both types); Phase 18
-  adds three overlays on both surfaces and both types: **Executions** and **Orders**
-  (on by default) and **Bid/Ask** (off).
+  offer it, the chart types that can draw it, whether it is on by default, and its
+  editable parameters (§11.4). Phase 17 registers Volume (pane, the bar chart types)
+  and VWAP (overlay, every type); Phase 18 adds three overlays on both surfaces and
+  every type: **Executions** and **Orders** (on by default) and **Bid/Ask** (off).
+  Phase 19 adds, all off by default: **Volume profile** (overlay, Charts page, every
+  type) and **CVD** (pane, Charts page, the bar chart types), §16.12; **SMA**,
+  **SMA 2**, **EMA**, **EMA 2** and **Bollinger** (overlays, both surfaces, the bar
+  chart types), §16.13.
+- **Footprint** draws every earlier indicator as candles do: Volume, VWAP, Executions,
+  Orders and Bid/Ask all draw per bar slot or on the price scale, which footprint
+  shares with candles.
 - **Overlays** are unlimited. **Lower panes** are capped: 1 on the window, 3 on the
   Charts page. The popup enforces the cap (§11.4).
 - **Pane layout.** For k panes each takes `min(20%, 40% / k)` of the plot height and the
@@ -895,6 +927,14 @@ are shared.
   candles `O H L C V` plus `VWAP` when on; line `price x size @ HH:MM:SS`. Keys take the
   dim ink, values the text ink. With no pointer it shows the newest bar or print, so
   it always reads something.
+- **Indicator values (P19).** Each enabled average adds its value at the bar, keyed
+  with its kind and length (`SMA20`, `EMA50`), and Bollinger adds `BB20` (middle),
+  `UB` and `LB`. These keys take the indicator's colour (`--ind-sma`, `--ind-ema`,
+  `--ind-boll`); values keep the text ink, as VWAP's do. A bar before an indicator's
+  window fills shows nothing for it.
+- **Footprint row (P19).** In footprint the readout adds the hovered row: `ROW` with
+  its price or price range, then `S` (shares sold into bids) and `B` (shares bought
+  from offers).
 - Pointer state is local and never persisted. The plot never starts a floating-window
   drag: the band is the only drag handle (§14).
 
@@ -907,8 +947,8 @@ right, in order:
 |---|---|---|
 | **View ▾** (Charts page only) | §4 raised charcoal button | Opens the §11.5 menu with View in trading (§11.7) |
 | divider | 1px `--hair-strong`, 16px tall | |
-| **Chart type** | compact white single-select (§11.5), the current type's icon and name | Candles (two candles, one filled, one hollow, each with a wick) or Line (a polyline) |
-| **Bar size** | compact white single-select, mono options right-aligned | 5s, 15s, 1m, 5m; hidden in line mode |
+| **Chart type** | compact white single-select (§11.5), the current type's icon and name | Candles (two candles, one filled, one hollow, each with a wick), Line (a polyline), and on the Charts page Footprint (two columns of stacked cells, one cell filled) |
+| **Bar size** | compact white single-select, mono options right-aligned | 5s, 15s, 1m, 5m; only 1m and 5m in footprint (the list has no disabled options, so the others are left out); hidden in line mode |
 | **Indicators** | raised charcoal button with the indicator icon | A §10 popup anchored under it with the same rows as the gear's Indicators category |
 | divider, then the **gear** | §11.1 | The settings popup, unchanged in what it holds |
 
@@ -963,8 +1003,11 @@ shared by both surfaces (§13).
 - **Line mode** zooms and pans a time window over the tape (still the last 200
   prints): the span scales by the same factor per notch, from the whole tape down to
   10 seconds, and a drag moves the window by the dragged fraction of its span.
+- **Footprint** zooms and pans exactly as candles do, between its own slot widths of
+  **64px to 160px** (a column must fit `sell x buy`). It has no auto fit: entering
+  footprint starts following at 64px.
 - Zoom and pan state is per surface, local to the component, and never persisted. A
-  bar size change returns the chart to following.
+  bar size change, or a chart type change, returns the chart to following.
 
 ### 16.11 Trading overlays (Phase 18)
 
@@ -1003,3 +1046,79 @@ test is the reducer's (an id that names an order this terminal sent).
   changes, carried across quiet stretches; only an empty side or a dropped connection
   breaks a line. Candle mode steps per slot from the last quote in each bucket; line
   mode steps on the time axis. They never widen the price domain.
+
+### 16.12 Order flow (Phase 19, Charts page only)
+
+Order flow reads who traded aggressively, and where volume sits. Every fill frame
+names its aggressor's side (`aggressorSide`), so a buy fill is buyer-initiated
+volume (offers lifted) and a sell fill seller-initiated (bids hit); nothing is
+inferred from price against the quote. A fill without a side counts in volume only.
+**"Session" means the browser session since the tab loaded,** as for bars and VWAP:
+there is no backfill, so the profile and CVD start empty on page load.
+
+- **Volume profile.** A horizontal histogram of the session's volume at each price,
+  against the right-hand side of the price area, its longest row a quarter of the plot
+  width. Rows follow the price axis, grouped into the smallest step of 1, 2, 5, 10, 20,
+  50 ... ticks that keeps a row at least 2px tall; a half-cent print falls into the
+  cent row below it. Widths scale to the largest row of the whole session, never to
+  the visible slice. Neutral greys only, since the profile is volume, not direction:
+  rows outside the value area at 22%, value-area rows at 45%, and the **point of
+  control** (the most-traded cent, ties going to the one nearest the middle of the
+  range, then the lower) in the text ink at 60%. The **value area** holds 70% of the
+  volume, grown from the POC by the standard two-row method (the larger pair of rows
+  above or below first, a tie going up). POC and value area are computed per cent on
+  the whole session, so zoom never moves them. Every chart type.
+- **CVD.** A lower pane: the session's cumulative delta (buy minus sell aggressor
+  shares) as a 1.2px line in the text ink through each visible bar's value, which the
+  bar records after its last fill, so the line is right at any pan offset. It holds
+  flat across a gap. The scale runs from the lower of zero and the visible minimum to
+  the higher of zero and the visible maximum, so zero is always in the pane but a
+  one-way session uses all of it; a dashed zero baseline, and the top and bottom
+  values (`+1,200`, `0`) on the right axis with the dim word `CVD`. It counts toward
+  the page's three-pane cap; with Volume the two take 20% each. Bar chart types.
+- **Footprint** (a chart type). Each bar is a column of price rows in its slot, each
+  row `sell x buy` in IBM Plex Mono tabular 9px in the text ink (quantities without
+  separators below 10,000, then `12K`, `1.2M`). Rows are grouped into the smallest
+  step of 1, 2, 5, 10 ... ticks that keeps a row at least 13px tall, and run
+  contiguously from the bar's lowest to its highest traded row. A **diagonal
+  imbalance** compares buyers at a row with sellers one row below, and sellers at a
+  row with buyers one row above: at least 3x is an imbalance, and when the diagonal
+  opposite is empty the row is flagged only at 200 shares or more (two typical bot
+  prints), so a sweep through thin prices shows without flagging every sparse row.
+  An imbalanced row takes a 28% tint of the dominant side's direction colour (Up for
+  buyers, Down for sellers, the chosen colours when picked). The bar's open-close
+  range is outlined in its direction colour. Only the 1m and 5m bars keep per-price
+  detail, for the newest 120 bars of each; an older bar draws as a plain candle
+  outline (wick and an unfilled body) with a dim `no detail` above it. Footprint is
+  offered at 1m and 5m only: choosing it on 5s or 15s switches to 1m, which stays
+  after leaving footprint.
+
+### 16.13 Moving averages and Bollinger bands (Phase 19, both surfaces)
+
+- **SMA / SMA 2 / EMA / EMA 2.** Averages of bar closes at the selected size, each with
+  a length of 2 to 200 bars (defaults 20, 50, 20, 50), over the bars present (a gap is
+  not a bar). A 1px line through each bar's value at the slot centre; the second
+  instance of each is dashed (4 3). SMA is exact in integer units; EMA is seeded with
+  the first window's SMA and computed in float (alpha = 2 / (length + 1)), recomputed
+  over the retained 500 bars, so near that length its values shift slightly as old
+  bars age out. Nothing draws before a window fills. Bar chart types only.
+- **Bollinger.** The SMA of the closes with bands a chosen number of population
+  standard deviations either side (length 20, width 2.0, from 0.5 to 5.0), the SD in
+  float at the render edge. A dashed middle line, 1px bands at 80%, and an 8% fill
+  between them. A flat series has zero width. Bar chart types only.
+- Every value is a statistic, never an order price, and rounds half up only for the
+  readout.
+- **Display colours.** A small fixed set, chosen to stay apart in hue from the VWAP
+  violet (about 255°), the amber price line and brand amber, the default candle green
+  and red, and the quote blue and red:
+
+  | Indicator | Black ground | White ground |
+  |---|---|---|
+  | SMA, SMA 2 | `#1fd6e8` cyan | `#00808a` teal |
+  | EMA, EMA 2 | `#f14fe6` magenta | `#a8329b` plum |
+  | Bollinger | `#a9b4c4` blue-grey | `#5b6778` slate |
+
+  The palette (§16.8) holds the black-ground cyan, magenta and blue-grey and the
+  white-ground teal exactly, so a user who picks one of those as a candle or line
+  colour makes it match an indicator. The Bollinger blue-grey sits nearest the VWAP
+  violet among the defaults; the dashed middle line and the fill keep them apart.

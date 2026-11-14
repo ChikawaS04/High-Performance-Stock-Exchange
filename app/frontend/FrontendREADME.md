@@ -381,6 +381,28 @@ These are real properties of the running system, documented rather than glossed:
   reducer when they arrive (`myFills`, capped at 1,000 for the markers) and folded into exact
   per-order totals that are never capped.
 
+- **Order flow reads the aggressor's side from the wire, and "session" means since the tab
+  loaded (Phase 19).** Every fill frame carries `aggressorSide`, so each bar splits its volume
+  into buyer-initiated (offers lifted) and seller-initiated (bids hit) shares; nothing is
+  inferred from price against the quote, and a fill without a side counts in volume only.
+  The Charts page adds three tools, all off by default: **Volume profile** (the session's
+  volume at each price as a grey histogram on the right of the price area, with the point of
+  control and the 70% value area), **CVD** (a lower pane of the cumulative buy-minus-sell
+  delta, which each bar records after its last fill) and **Footprint** (a chart type at 1m
+  and 5m: each bar a column of `sell x buy` rows, a diagonal imbalance tinted in the
+  dominant side's direction colour). The profile, CVD and bars all start when the tab
+  loads: there is no backfill, so a reload starts them empty, and the volume at each
+  price is the browser session's, not the venue's trading day. Footprint keeps per-price
+  detail only for the newest 120 bars at 1m and 5m; an older bar draws as a plain outline
+  marked `no detail`.
+- **Moving averages and Bollinger bands are on both chart surfaces, with editable
+  parameters (Phase 19).** SMA, SMA 2, EMA, EMA 2 and Bollinger draw on bar closes in the
+  bar chart types. Their lengths (and the Bollinger width, shown as a standard deviation)
+  are edited in the gear popup's Indicators category and persist per surface; a bad stored
+  value falls back to that parameter's default alone. The EMA is recomputed over the
+  retained 500 bars, so with a length near 500 its values shift slightly as old bars age
+  out.
+
 - **Drag an order line to reprice it, and it is sent as a cancel then a new order.** The engine
   accepts new and cancel only (no 35=G), so Confirm Modify in the Modify order popup cancels
   the order, waits for `ORDER_CANCELLED`, then sends a new order at the dropped price for the
@@ -522,6 +544,8 @@ app/frontend/
 │   ├── chartSettings.ts          # per-surface chart type, bar size, indicators (P17)
 │   ├── chartColors.ts            # palette, candle colours, wicks, recent picks (Charts follow-up)
 │   ├── chartViewport.ts          # pure wheel zoom and drag pan maths (Charts follow-up)
+│   ├── footprint.ts              # pure footprint rows, imbalance and slot range (P19-5)
+│   ├── indicatorParams.ts        # pure indicator parameter cleaning, parse and format (P19-7)
 │   ├── ownExecutions.ts          # own fills and working orders for the chart (P18-1)
 │   ├── chartOverlays.ts          # pure fill markers, order lines, bid/ask steps (P18)
 │   ├── prices.ts                 # TICK_PX, the drag snap and the venue mid (P18-4)
@@ -533,8 +557,12 @@ app/frontend/
 │   ├── timeTicks.ts              # pure clock tick steps and axis labels (Charts follow-up)
 │   ├── menuPlacement.ts          # pure placement of the white pick-list (Charts follow-up)
 │   ├── indicators/
-│   │   ├── registry.ts           # indicator descriptors and pane caps (P17)
-│   │   └── layoutPanes.ts        # pure price-area and lower-pane layout (P17)
+│   │   ├── registry.ts           # indicator descriptors, params and pane caps (P17, P19)
+│   │   ├── layoutPanes.ts        # pure price-area and lower-pane layout (P17)
+│   │   ├── volumeProfile.ts      # pure POC, value area and profile rows (P19-3)
+│   │   ├── cvd.ts                # pure CVD vertices and scale (P19-4)
+│   │   ├── movingAverages.ts     # pure SMA and EMA, memoised on the series (P19-8)
+│   │   └── bollinger.ts          # pure Bollinger bands (P19-9)
 │   ├── sessionStats.ts           # pure session-stat display strings for the panel (P13, P17)
 │   ├── pages/
 │   │   ├── TradingPage.tsx       # depth, tape, ticket, blotter, FIX inspector
@@ -550,7 +578,7 @@ app/frontend/
 │   │   ├── OpenOrders.tsx
 │   │   ├── CancelTicket.tsx
 │   │   ├── FixInspector.tsx
-│   │   ├── PriceChart.tsx        # candles or line, volume, VWAP, crosshair (P12, P17)
+│   │   ├── PriceChart.tsx        # candles, line or footprint; composes the layers (P12, P17, P19)
 │   │   ├── ChartBand.tsx         # the chart's header toolbar (Charts follow-up)
 │   │   ├── ChartSettingsPopup.tsx # the chart's settings popup (P17)
 │   │   ├── ColorPalette.tsx      # colour chip rows and the palette popup
@@ -559,6 +587,11 @@ app/frontend/
 │   │   ├── PriceChartOverlay.tsx # the floating chart window on the Trading page
 │   │   ├── ModifyOrderPopup.tsx  # the drag-to-reprice confirmation (P18-4)
 │   │   ├── ExecutionsTable.tsx   # the blotter's Executions tab (P18-10)
+│   │   ├── VolumeProfileLayer.tsx # the volume profile overlay (P19-3)
+│   │   ├── CvdPane.tsx           # the CVD lower pane (P19-4)
+│   │   ├── FootprintLayer.tsx    # footprint columns (P19-6)
+│   │   ├── MovingAverageLayer.tsx # SMA and EMA lines (P19-8)
+│   │   ├── BollingerLayer.tsx    # Bollinger bands (P19-9)
 │   │   └── SessionStats.tsx      # session block, five rows with VWAP (P13, P17)
 │   ├── protocol/
 │   │   ├── messages.ts           # the one place raw frames are narrowed
