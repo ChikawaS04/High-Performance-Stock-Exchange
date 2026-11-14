@@ -45,14 +45,27 @@
  *
  * UI polish D4: the OrderToasts stack also renders here, outside <Routes>, so an
  * order notification shows whichever page is open.
+ *
+ * P18-5: drag to reprice. handleReprice is the one seam both chart surfaces call
+ * after Confirm Modify. It sends the CANCEL with reprice meta, which starts the
+ * sequence in the reducer (reprice.ts). When the reducer marks a sequence ready
+ * (ORDER_CANCELLED for the original arrived), the effect below mints the
+ * replacement's id and sends the NEW here, so App stays the sole encoder call site
+ * (P10 D3). A ref set of originals whose replacement was already sent makes that
+ * exactly once whatever the render timing (StrictMode included), and a failed write
+ * aborts the sequence through REPRICE_SEND_FAILED rather than leaving it ready. The
+ * timeout timer lives here too, at the component edge (useRepriceTimer).
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import { useOrderBook } from "./state/useOrderBook";
 import { useIgnitionPrice } from "./state/useIgnitionPrice";
+import { useRepriceTimer } from "./state/useRepriceTimer";
+import { isCancellable } from "./state/reducer";
+import { replacementIntent } from "./reprice";
 import { cancelOrderFrame, newOrderFrame, nextClOrdId } from "./protocol/encode";
 import type { OrderIntent } from "./protocol/messages";
 
@@ -66,7 +79,7 @@ import { ChartsPage } from "./pages/ChartsPage";
 import "./styles/terminal.css";
 
 export default function App() {
-    const { state, send } = useOrderBook();
+    const { state, send, dispatchLocal } = useOrderBook();
     const { openPx } = useIgnitionPrice();
     const navigate = useNavigate();
     const [priceOverlayOpen, setPriceOverlayOpen] = useState(false);
@@ -86,6 +99,30 @@ export default function App() {
     const handleCancel = (origClOrdId: number): void => {
         send(cancelOrderFrame(nextClOrdId(), origClOrdId));
     };
+
+    // Drag to reprice (P18-5): a working limit order with no reprice in flight.
+    const handleReprice = (origClOrdId: number, newPx: number): void => {
+        const row = state.myOrders.find((o) => o.clOrdId === origClOrdId);
+        if (row === undefined || !isCancellable(row.status) || row.ordType !== "LIMIT") return;
+        if (state.reprices.some((r) => r.origClOrdId === origClOrdId)) return;
+        send(cancelOrderFrame(nextClOrdId(), origClOrdId), { reprice: { newPx } });
+    };
+
+    // The replacement NEW, once per original, after its cancel is confirmed.
+    const replaced = useRef(new Set<number>());
+    useEffect(() => {
+        for (const r of state.reprices) {
+            if (r.status !== "ready" || replaced.current.has(r.origClOrdId)) continue;
+            const row = state.myOrders.find((o) => o.clOrdId === r.origClOrdId);
+            if (row === undefined) continue;
+            replaced.current.add(r.origClOrdId);
+            const ok = send(newOrderFrame(nextClOrdId(), replacementIntent(row, r)), { repriceOf: r.origClOrdId });
+            if (!ok) dispatchLocal({ type: "REPRICE_SEND_FAILED", origClOrdId: r.origClOrdId });
+        }
+    }, [state.reprices, state.myOrders, send, dispatchLocal]);
+
+    useRepriceTimer(state.reprices, (origClOrdId) => dispatchLocal({ type: "REPRICE_TIMEOUT", origClOrdId }));
+    const repricing = state.reprices.map((r) => r.origClOrdId);
 
     return (
         <div className="app">
@@ -116,6 +153,8 @@ export default function App() {
                             onCancelOrder={handleCancel}
                             priceOverlayOpen={priceOverlayOpen}
                             onClosePriceOverlay={() => setPriceOverlayOpen(false)}
+                            onReprice={handleReprice}
+                            repricing={repricing}
                         />
                     }
                 />
@@ -127,6 +166,8 @@ export default function App() {
                             openPx={openPx}
                             onSubmitOrder={handleSubmit}
                             onViewInTrading={handleViewInTrading}
+                            onReprice={handleReprice}
+                            repricing={repricing}
                         />
                     }
                 />

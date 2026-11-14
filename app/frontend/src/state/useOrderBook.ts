@@ -14,7 +14,7 @@ import { parseServerFrame } from "../protocol/messages";
 import type { ClientFrame } from "../protocol/messages";
 import { serializeClientFrame } from "../protocol/encode";
 import { initialState, reducer } from "./reducer";
-import type { AppState } from "./reducer";
+import type { AppState, LocalAction, SendMeta } from "./reducer";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/ws";
 const BASE_BACKOFF_MS = 250;
@@ -22,8 +22,13 @@ const MAX_BACKOFF_MS = 4000;
 
 export interface OrderBookApi {
     readonly state: AppState;
-    /** Serializes and sends; returns false if the socket isn't open. */
-    readonly send: (frame: ClientFrame) => boolean;
+    /**
+     * Serializes and sends; returns false if the socket isn't open. `meta` (P18) is
+     * client data the reducer records with the frame, only on a real write.
+     */
+    readonly send: (frame: ClientFrame, meta?: SendMeta) => boolean;
+    /** Dispatches a local action (P18-5). Typed to LocalAction, so no wire frame can pass. */
+    readonly dispatchLocal: (action: LocalAction) => void;
 }
 
 export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAULT_WS_URL): OrderBookApi {
@@ -102,7 +107,7 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
         };
     }, [url]);
 
-    const send = useCallback((frame: ClientFrame): boolean => {
+    const send = useCallback((frame: ClientFrame, meta?: SendMeta): boolean => {
         const ws = socketRef.current;
         if (ws === null || ws.readyState !== WebSocket.OPEN) return false;
         ws.send(serializeClientFrame(frame));
@@ -113,9 +118,16 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
         // sits exactly on a millisecond boundary, where floor(nanos/1e6) at this
         // magnitude can round down by one; the cushion makes the displayed millisecond
         // the true send millisecond (the same device format.test.ts uses).
-        dispatch({ type: "SENT", frame, sentAtNanos: Date.now() * 1_000_000 + 500_000 });
+        dispatch({
+            type: "SENT",
+            frame,
+            sentAtNanos: Date.now() * 1_000_000 + 500_000,
+            ...(meta !== undefined ? { meta } : {}),
+        });
         return true;
     }, []);
 
-    return { state, send };
+    const dispatchLocal = useCallback((action: LocalAction): void => dispatch(action), []);
+
+    return { state, send, dispatchLocal };
 }

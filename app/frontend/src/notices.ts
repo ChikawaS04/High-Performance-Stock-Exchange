@@ -21,7 +21,20 @@ import { formatPrice } from "./format";
 import type { ExecFrame, Side } from "./protocol/messages";
 import type { MyOrder } from "./state/reducer";
 
-export type NoticeKind = "submitted" | "partial" | "filled" | "cancelled" | "rejected" | "expired";
+/**
+ * modifyNotSent and modifyFailed (P18-5) are raised by the reprice sequence
+ * (reprice.ts), not by noticesForExec: a drag to reprice that ended without sending
+ * its replacement order.
+ */
+export type NoticeKind =
+    | "submitted"
+    | "partial"
+    | "filled"
+    | "cancelled"
+    | "rejected"
+    | "expired"
+    | "modifyNotSent"
+    | "modifyFailed";
 
 export interface OrderNotice {
     /** Client-assigned, increasing per notice (the reducer's noticeSeq). */
@@ -43,6 +56,8 @@ export const NOTICE_TITLES: Readonly<Record<NoticeKind, string>> = {
     cancelled: "Order cancelled",
     rejected: "Order rejected",
     expired: "Order expired",
+    modifyNotSent: "Modify not sent: order filled",
+    modifyFailed: "Modify failed",
 };
 
 /** Most toasts on screen at once; the oldest is dropped beyond it. */

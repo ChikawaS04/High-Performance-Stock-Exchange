@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 // fetch are replaced so the test opens no connection and no network request.
 vi.mock("../src/state/useOrderBook", async () => {
     const { initialState } = await import("../src/state/reducer");
-    return { useOrderBook: () => ({ state: initialState, send: () => false }) };
+    return { useOrderBook: () => ({ state: initialState, send: () => false, dispatchLocal: () => {} }) };
 });
 vi.mock("../src/state/useIgnitionPrice", () => ({ useIgnitionPrice: () => ({ openPx: undefined }) }));
 

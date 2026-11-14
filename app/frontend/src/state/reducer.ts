@@ -68,13 +68,24 @@
  * our rows (aggressor or passive) appends an OwnFill to myFills (capped, newest
  * first, for the markers) and folds into that row's exact ExecAggregate (uncapped,
  * for execution quality). Both carry the session VWAP after the fill.
+ *
+ * P18-5 adds reprice sequencing (reprice.ts): the reprices slice, stepped on every
+ * EXEC frame; the SENT meta that starts a reprice (its CANCEL) and completes one (its
+ * replacement NEW); and two local actions, REPRICE_TIMEOUT and REPRICE_SEND_FAILED,
+ * which the component edge dispatches and which carry no wire frame. An "Order
+ * cancelled" toast is not raised for an order whose reprice is in flight, because
+ * that cancel is an internal step. ORDER_REJECTED now changes only a PENDING row: a
+ * reject naming a row the venue already accepted is the venue refusing a CANCEL
+ * (the order had already filled), not a rejection of the order itself.
  */
 
 import { isFill } from "../protocol/messages";
 import { noticesForExec } from "../notices";
 import { emptyBars, foldBars, vwapUnits } from "../bars";
+import { beginReprice, completeReprice, sendFailedReprice, stepReprices, timeoutReprice } from "../reprice";
+import type { Reprice } from "../reprice";
 import type { BarSet } from "../bars";
-import type { OrderNotice } from "../notices";
+import type { NoticeDraft, OrderNotice } from "../notices";
 import type {
     ClientFrame,
     ExecFrame,
@@ -372,6 +383,11 @@ export interface AppState {
     readonly noticeSeq: number;
     /** Recently seen EXEC venue seqs (at most SEQ_MEMORY), for notice dedupe. */
     readonly recentExecSeqs: readonly number[];
+    /**
+     * Drag-to-reprice sequences in flight (P18-5), one per original order, cancelSent
+     * or ready only: an entry that ends is removed with its toast (reprice.ts).
+     */
+    readonly reprices: readonly Reprice[];
 }
 
 export const EMPTY_BOOK: BookState = {
@@ -402,6 +418,7 @@ export const initialState: AppState = {
     orderNotices: [],
     noticeSeq: 0,
     recentExecSeqs: [],
+    reprices: [],
 };
 
 /**
@@ -412,10 +429,30 @@ export function sessionVwap(state: Pick<AppState, "sessionNotional" | "sessionVo
     return vwapUnits(state.sessionNotional, state.sessionVolume);
 }
 
+/**
+ * Client data that rides with a frame actually written to the socket (P18). The
+ * CANCEL that starts a drag to reprice carries `reprice`; the replacement NEW
+ * carries `repriceOf`, the original order it replaces.
+ */
+export interface SendMeta {
+    readonly reprice?: { readonly newPx: number };
+    readonly repriceOf?: number;
+}
+
+/**
+ * Actions that carry no wire frame, dispatched by the component edge (P18-5). The
+ * hook's dispatchLocal is typed to this union only, so a wire frame can never be
+ * pushed through it.
+ */
+export type LocalAction =
+    | { readonly type: "REPRICE_TIMEOUT"; readonly origClOrdId: number }
+    | { readonly type: "REPRICE_SEND_FAILED"; readonly origClOrdId: number };
+
 export type Action =
     | { readonly type: "CONNECTION"; readonly status: ConnectionStatus }
     | { readonly type: "FRAME"; readonly frame: ServerFrame }
-    | { readonly type: "SENT"; readonly frame: ClientFrame; readonly sentAtNanos?: number };
+    | { readonly type: "SENT"; readonly frame: ClientFrame; readonly sentAtNanos?: number; readonly meta?: SendMeta }
+    | LocalAction;
 
 /**
  * Aggressor side for a fill, at the only fidelity the wire supports (P7-6).
@@ -609,7 +646,10 @@ function nextOrder(order: MyOrder, frame: ExecFrame): MyOrder {
             // Remaining is left at its last known value; the row is terminal either way.
             return { ...order, status: "CANCELLED" };
         case "ORDER_REJECTED":
-            return { ...order, status: "REJECTED" };
+            // Only a PENDING row's own NEW can be rejected: the venue rejects instead of
+            // accepting. A reject naming an accepted row is a refused CANCEL (the order
+            // had already filled), which leaves the order itself unchanged (P18-0 F3).
+            return order.status === "PENDING" ? { ...order, status: "REJECTED" } : order;
         case "ORDER_EXPIRED":
             // IOC/FOK terminal (SRS §3.4): remainingQuantity is the quantity that
             // expired unexecuted, which is exactly this row's current remaining, so
@@ -767,6 +807,9 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         if (changed) myOrders = next;
     }
 
+    // Reprice sequences (P18-5), stepped on the rows as this frame left them.
+    const repriceStep = stepReprices(state.reprices, frame, myOrders);
+
     // Newest first; a frame with no own fill keeps the slice reference.
     const myFills =
         ownFills.length === 0 ? state.myFills : [...ownFills, ...state.myFills].slice(0, OWN_FILLS_CAP);
@@ -785,13 +828,17 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     let recentExecSeqs = state.recentExecSeqs;
     const seenBefore = frame.seq !== undefined && state.recentExecSeqs.includes(frame.seq);
     if (!seenBefore) {
-        const drafts = noticesForExec(state.myOrders, myOrders, frame);
+        // A cancel that is a step of a reprice in flight raises no "Order cancelled"
+        // toast; once the reprice has ended (a timeout), a late cancel raises it as usual.
+        const inFlight = (id: number): boolean => state.reprices.some((r) => r.origClOrdId === id);
+        const drafts = [
+            ...noticesForExec(state.myOrders, myOrders, frame).filter((d) => !(d.kind === "cancelled" && inFlight(d.clOrdId))),
+            ...repriceStep.drafts,
+        ];
         if (drafts.length > 0) {
-            const raised = drafts.map((d) => {
-                noticeSeq += 1;
-                return { ...d, id: noticeSeq };
-            });
-            orderNotices = [...state.orderNotices, ...raised].slice(-NOTICE_CAP);
+            const raised = raiseNotices(state.orderNotices, noticeSeq, drafts);
+            orderNotices = raised.orderNotices;
+            noticeSeq = raised.noticeSeq;
         }
         if (frame.seq !== undefined) {
             recentExecSeqs = [...state.recentExecSeqs, frame.seq].slice(-SEQ_MEMORY);
@@ -821,10 +868,61 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         orderNotices,
         noticeSeq,
         recentExecSeqs,
+        reprices: repriceStep.reprices,
     };
 }
 
-function applySent(state: AppState, frame: ClientFrame, sentAtNanos?: number): AppState {
+/** Append drafts to the notice list with increasing client ids, capped. */
+function raiseNotices(
+    notices: readonly OrderNotice[],
+    seq: number,
+    drafts: readonly NoticeDraft[],
+): { readonly orderNotices: readonly OrderNotice[]; readonly noticeSeq: number } {
+    let noticeSeq = seq;
+    const raised = drafts.map((d) => {
+        noticeSeq += 1;
+        return { ...d, id: noticeSeq };
+    });
+    return { orderNotices: [...notices, ...raised].slice(-NOTICE_CAP), noticeSeq };
+}
+
+/** A local reprice step (timeout, failed send): the new slice plus its toast. */
+function applyRepriceStep(state: AppState, step: { readonly reprices: readonly Reprice[]; readonly drafts: readonly NoticeDraft[] }): AppState {
+    if (step.reprices === state.reprices && step.drafts.length === 0) return state;
+    const raised = step.drafts.length > 0 ? raiseNotices(state.orderNotices, state.noticeSeq, step.drafts) : null;
+    return {
+        ...state,
+        reprices: step.reprices,
+        ...(raised !== null ? { orderNotices: raised.orderNotices, noticeSeq: raised.noticeSeq } : {}),
+    };
+}
+
+/**
+ * Reprice bookkeeping for a frame that went on the wire (P18-5). A CANCEL with
+ * reprice meta starts a sequence for a cancellable order that has none; a plain
+ * CANCEL for an order whose reprice is still waiting on its cancel ends that reprice
+ * silently (the trader asked to cancel, so no replacement may follow); the
+ * replacement NEW completes its sequence.
+ */
+function sentReprices(state: AppState, frame: ClientFrame, meta: SendMeta | undefined): readonly Reprice[] {
+    const reprices = state.reprices;
+    if (frame.type === "CANCEL") {
+        const id = frame.origClOrdId;
+        const existing = reprices.find((r) => r.origClOrdId === id);
+        if (meta?.reprice !== undefined) {
+            if (existing !== undefined) return reprices;
+            const row = state.myOrders.find((o) => o.clOrdId === id);
+            if (row === undefined || !isCancellable(row.status)) return reprices;
+            return [...reprices, beginReprice(row, meta.reprice.newPx)];
+        }
+        if (existing !== undefined && existing.status === "cancelSent") return reprices.filter((r) => r !== existing);
+        return reprices;
+    }
+    if (meta?.repriceOf !== undefined) return completeReprice(reprices, meta.repriceOf);
+    return reprices;
+}
+
+function applySent(state: AppState, frame: ClientFrame, sentAtNanos?: number, meta?: SendMeta): AppState {
     // MsgSeqNum counts every outbound frame that actually went on the wire, NEW and
     // CANCEL alike: both are real FIX messages (35=D / 35=F) and each consumes a
     // sequence number. `send` dispatches SENT only on a real socket write, so a
@@ -856,7 +954,7 @@ function applySent(state: AppState, frame: ClientFrame, sentAtNanos?: number): A
         myOrders = [order, ...state.myOrders];
     }
 
-    return { ...state, myOrders, msgSeqNum };
+    return { ...state, myOrders, msgSeqNum, reprices: sentReprices(state, frame, meta) };
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -906,6 +1004,10 @@ export function reducer(state: AppState, action: Action): AppState {
             return applyExec(state, frame);
         }
         case "SENT":
-            return applySent(state, action.frame, action.sentAtNanos);
+            return applySent(state, action.frame, action.sentAtNanos, action.meta);
+        case "REPRICE_TIMEOUT":
+            return applyRepriceStep(state, timeoutReprice(state.reprices, action.origClOrdId));
+        case "REPRICE_SEND_FAILED":
+            return applyRepriceStep(state, sendFailedReprice(state.reprices, action.origClOrdId));
     }
 }
