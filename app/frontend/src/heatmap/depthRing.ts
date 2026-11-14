@@ -95,6 +95,12 @@ export interface DepthRing {
     hasBook: boolean;
     /** Late frames dropped (amendment 2); read only by dev tooling. */
     dropped: number;
+    /**
+     * Column writes so far (P20-3). A painter that knows the head it last painted can
+     * tell new columns from a rewrite of that head: more writes than new columns means
+     * the old head changed too.
+     */
+    writes: number;
 }
 
 export function createDepthRing(cols: number = HEATMAP_COLS): DepthRing {
@@ -119,6 +125,7 @@ export function createDepthRing(cols: number = HEATMAP_COLS): DepthRing {
         count: 0,
         hasBook: false,
         dropped: 0,
+        writes: 0,
     };
 }
 
@@ -181,6 +188,7 @@ function slotOf(ring: DepthRing, bucket: number): number {
 /** Write one column at `bucket`: the staging book, or an empty column (flags given). */
 function writeColumn(ring: DepthRing, bucket: number, fromStage: boolean, emptyFlags = 0): void {
     const slot = slotOf(ring, bucket);
+    ring.writes++;
     ring.bucket[slot] = bucket;
     if (fromStage && ring.hasBook) {
         const s = ring.stage;
