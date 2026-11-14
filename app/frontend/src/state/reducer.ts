@@ -77,6 +77,13 @@
  * that cancel is an internal step. ORDER_REJECTED now changes only a PENDING row: a
  * reject naming a row the venue already accepted is the venue refusing a CANCEL
  * (the order had already filled), not a rejection of the order itself.
+ *
+ * P18-6 adds the best-quote history for the bid/ask lines (quotes.ts): a raw ring
+ * of every change for line mode and clock-bucketed series per bar size for candle
+ * mode. A BOOK frame appends only when the best bid or best ask differs from the
+ * ring's newest point, so an unchanged quote keeps both references. The CONNECTION
+ * transition from open to a non-open status appends one empty point, so the lines
+ * break across the outage rather than bridging it (the book itself is kept, F3).
  */
 
 import { isFill } from "../protocol/messages";
@@ -84,6 +91,8 @@ import { noticesForExec } from "../notices";
 import { emptyBars, foldBars, vwapUnits } from "../bars";
 import { beginReprice, completeReprice, sendFailedReprice, stepReprices, timeoutReprice } from "../reprice";
 import type { Reprice } from "../reprice";
+import { appendQuote, emptyQuoteSet, foldQuoteBreak, foldQuotes, lastQuote, NO_QUOTE, quoteChanged } from "../quotes";
+import type { QuotePoint, QuoteSet } from "../quotes";
 import type { BarSet } from "../bars";
 import type { NoticeDraft, OrderNotice } from "../notices";
 import type {
@@ -388,6 +397,10 @@ export interface AppState {
      * or ready only: an entry that ends is removed with its toast (reprice.ts).
      */
     readonly reprices: readonly Reprice[];
+    /** Every change of the best bid or ask (P18-6), oldest first, capped at QUOTE_CAP. */
+    readonly quotes: readonly QuotePoint[];
+    /** The last best quote per clock-aligned bucket, at the four bar sizes (P18-6). */
+    readonly quoteBars: QuoteSet;
 }
 
 export const EMPTY_BOOK: BookState = {
@@ -419,6 +432,8 @@ export const initialState: AppState = {
     noticeSeq: 0,
     recentExecSeqs: [],
     reprices: [],
+    quotes: [],
+    quoteBars: emptyQuoteSet(),
 };
 
 /**
@@ -961,6 +976,18 @@ export function reducer(state: AppState, action: Action): AppState {
     switch (action.type) {
         case "CONNECTION": {
             if (action.status === state.connection) return state;
+            // P18-6: a drop from open breaks the quote lines with one empty point at the
+            // last frame's time, unless there is no quote yet or it is already broken.
+            const last = lastQuote(state.quotes);
+            if (state.connection === "open" && last !== null && (last.bid !== NO_QUOTE || last.ask !== NO_QUOTE)) {
+                const t = Math.max(state.lastFrameNanos, last.t);
+                return {
+                    ...state,
+                    connection: action.status,
+                    quotes: appendQuote(state.quotes, { t, bid: NO_QUOTE, ask: NO_QUOTE }),
+                    quoteBars: foldQuoteBreak(state.quoteBars, t),
+                };
+            }
             // The book SURVIVES a drop rather than being cleared. A frozen ladder marked
             // stale (TradingPage dims the depth panel while connection !== "open", and the
             // ConnectionBadge shows the state) is more useful than a blank one: those levels
@@ -977,6 +1004,9 @@ export function reducer(state: AppState, action: Action): AppState {
                 // Wholesale replacement. Never merged with anything. BOOK frames are not
                 // inspector material (P7-9): the filter set is FIX NEW, FIX CANCEL, and
                 // EXEC only, so no log entry is appended here.
+                // P18-6: only a change of the best quote is history; an unchanged one keeps
+                // both quote references.
+                const changed = quoteChanged(state.quotes, frame.bestBid, frame.bestAsk);
                 return {
                     ...state,
                     book: {
@@ -987,6 +1017,12 @@ export function reducer(state: AppState, action: Action): AppState {
                         timestamp: frame.timestamp,
                     },
                     lastFrameNanos: frame.timestamp,
+                    ...(changed
+                        ? {
+                              quotes: appendQuote(state.quotes, { t: frame.timestamp, bid: frame.bestBid, ask: frame.bestAsk }),
+                              quoteBars: foldQuotes(state.quoteBars, frame.timestamp, frame.bestBid, frame.bestAsk),
+                          }
+                        : {}),
                 };
             }
             if (frame.type === "FIX") {

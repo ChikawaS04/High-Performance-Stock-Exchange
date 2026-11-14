@@ -83,9 +83,9 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
                 if (socketRef.current === ws) socketRef.current = null;
                 socket = null;
 
-                // Clears the book (a stale ladder is worse than an empty one). Note the
-                // server only pushes BOOK per inbound event, so a reconnected client
-                // sees an empty ladder until the next order flows anywhere on the book.
+                // The reducer keeps the book, frozen and dimmed as stale, and breaks the
+                // bid/ask lines with one empty quote point (P18-6). The next BOOK frame
+                // (the snapshot on reconnect, or the next order flow) replaces it.
                 dispatch({ type: "CONNECTION", status: "reconnecting" });
 
                 const delay = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
