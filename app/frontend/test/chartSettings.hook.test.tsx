@@ -83,6 +83,7 @@ describe("useChartSettings indicator migration (P18-2)", () => {
             "sma2",
             "ema",
             "ema2",
+            "bollinger",
         ]);
         act(() => first.result.current.setIndicators(["volume"]));
         first.unmount();

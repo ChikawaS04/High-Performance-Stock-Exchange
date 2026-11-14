@@ -133,6 +133,28 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
             params: [lengthParam(id.endsWith("2") ? 50 : 20)],
         }),
     ),
+    // P19-9: Bollinger bands (P19 D9), length and width in tenths of a standard deviation
+    // (shown as "Std dev", 2.0 by default). Both surfaces, bar chart types, off by default.
+    {
+        id: "bollinger",
+        label: "Bollinger",
+        placement: "overlay",
+        surfaces: ["page", "window"],
+        chartTypes: ["candles", "footprint"],
+        params: [
+            lengthParam(20),
+            {
+                id: "width",
+                label: "Std dev",
+                kind: "int",
+                min: 5,
+                max: 50,
+                default: 20,
+                presets: [10, 15, 20, 25, 30],
+                display: "tenths",
+            },
+        ],
+    },
 ];
 
 /** The ids a fresh install starts with: every descriptor marked defaultOn, in registry order. */

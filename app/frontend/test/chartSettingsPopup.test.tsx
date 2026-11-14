@@ -102,6 +102,7 @@ describe("Indicators category (P17-9)", () => {
             "SMA 2",
             "EMA",
             "EMA 2",
+            "Bollinger",
         ]);
         const opts = screen.getByTestId("pc-ind-vwap-row").querySelectorAll(".settings-toggle__opt");
         expect(Array.from(opts).map((o) => o.textContent)).toEqual(["On", "Off"]);

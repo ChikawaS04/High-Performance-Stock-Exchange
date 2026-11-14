@@ -15,7 +15,7 @@ const FIXTURE: IndicatorDescriptor[] = [
 
 describe("indicator registry (P17-5)", () => {
     it("registers volume (pane, candles only) and VWAP (overlay, both types) on both surfaces", () => {
-        const MAS = ["sma", "sma2", "ema", "ema2"];
+        const MAS = ["sma", "sma2", "ema", "ema2", "bollinger"];
         expect(INDICATORS.map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", "volprofile", "cvd", ...MAS]);
         expect(onSurface("page").map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", "volprofile", "cvd", ...MAS]);
         expect(onSurface("window").map((d) => d.id)).toEqual(["volume", "vwap", "executions", "orders", "bidask", ...MAS]);
@@ -33,6 +33,7 @@ describe("indicator registry (P17-5)", () => {
             "sma2",
             "ema",
             "ema2",
+            "bollinger",
         ]);
     });
 

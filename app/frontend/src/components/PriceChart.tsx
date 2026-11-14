@@ -118,6 +118,8 @@ import { VolumeProfileLayer } from "./VolumeProfileLayer";
 import { CvdPane } from "./CvdPane";
 import { FootprintLayer } from "./FootprintLayer";
 import { MovingAverageLayer } from "./MovingAverageLayer";
+import { BollingerLayer } from "./BollingerLayer";
+import { bollinger, roundUnits } from "../indicators/bollinger";
 import type { MaLine } from "./MovingAverageLayer";
 import { movingAverage } from "../indicators/movingAverages";
 import type { MaKind } from "../indicators/movingAverages";
@@ -648,6 +650,24 @@ export function PriceChart({
         [candle, maLines],
     );
 
+    // Bollinger bands (P19-9) at the persisted length and width, memoised likewise.
+    const boll = useMemo(() => {
+        if (!candles || !drawable.includes("bollinger")) return null;
+        const d = registry.find((x) => x.id === "bollinger");
+        if (d === undefined || d.params === undefined) return null;
+        const length = paramValue(settings.params, d, "length");
+        const width = paramValue(settings.params, d, "width");
+        return { length, values: bollinger(series, length, width) };
+        // drawableKey stands in for drawable, which is a fresh array each render.
+    }, [candles, drawableKey, registry, settings.params, series]);
+    const bollMarks = useMemo(
+        () =>
+            candle === null || boll === null ? null : (
+                <BollingerLayer values={boll.values} bars={candle.view.bars} xOfSlot={candle.xOfSlot} yOf={candle.yOf} />
+            ),
+        [candle, boll],
+    );
+
     // CVD pane (P19-4): each visible bar's recorded session delta.
     const cvdPane = panes.panes.find((p) => p.id === "cvd") ?? null;
     const cvdTop = cvdPane !== null ? PLOT_TOP + cvdPane.top : null;
@@ -1128,6 +1148,13 @@ export function PriceChart({
             const v = l.values.get(b.bucket);
             if (v !== undefined) parts.push([`${l.kind.toUpperCase()}${l.length}`, formatPrice(v.units), `var(--ind-${l.kind})`]);
         }
+        // Bollinger at this bar: the middle line, then the upper and lower bands.
+        const bb = boll?.values.get(b.bucket);
+        if (boll !== null && bb !== undefined) {
+            parts.push([`BB${boll.length}`, formatPrice(roundUnits(bb.mid)), "var(--ind-boll)"]);
+            parts.push(["UB", formatPrice(roundUnits(bb.upper)), "var(--ind-boll)"]);
+            parts.push(["LB", formatPrice(roundUnits(bb.lower)), "var(--ind-boll)"]);
+        }
         // Footprint: the hovered row's range and its sell and buy shares (P19-6).
         if (footprintMode && hoverBar !== null && hoverPrice !== null) {
             const row = rowAt(footprintBar(hoverBar, candle.fpStep), hoverPrice);
@@ -1356,6 +1383,7 @@ export function PriceChart({
                         />
                     ) : null}
 
+                    {bollMarks !== null ? <g clipPath={clip}>{bollMarks}</g> : null}
                     {maMarks !== null ? <g clipPath={clip}>{maMarks}</g> : null}
 
                     {vwapPts !== null ? (

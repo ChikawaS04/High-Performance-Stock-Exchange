@@ -4251,6 +4251,11 @@ body {
 .price-chart__ma--sma { stroke: var(--ind-sma); }
 .price-chart__ma--ema { stroke: var(--ind-ema); }
 .price-chart__ma--second { stroke-dasharray: 4 3; }
+
+/* Bollinger bands (P19-9): a faint fill between the bands, 1px bands, the middle line. */
+.price-chart__boll-fill { fill: var(--ind-boll); fill-opacity: 0.08; stroke: none; }
+.price-chart__boll-band { fill: none; stroke: var(--ind-boll); stroke-width: 1; stroke-opacity: 0.8; }
+.price-chart__boll-mid { fill: none; stroke: var(--ind-boll); stroke-width: 1; stroke-dasharray: 3 3; }
 .price-chart__candle { shape-rendering: crispEdges; }
 .price-chart__candle--up { fill: var(--candle-up); stroke: var(--candle-up); }
 .price-chart__candle--down { fill: var(--candle-down); stroke: var(--candle-down); }
