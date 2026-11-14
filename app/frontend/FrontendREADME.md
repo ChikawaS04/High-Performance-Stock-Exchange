@@ -370,6 +370,40 @@ These are real properties of the running system, documented rather than glossed:
   sits near $1740, so the market-open line is usually out of domain and correctly absent. An
   empty tape (or no bars, in candle mode) plots a quiet "No trades yet" frame and a single
   print plots its marker with no line, so no degenerate case produces a NaN path.
+- **Your own activity is on the chart (Phase 18).** Three overlays sit on both chart
+  surfaces. **Executions** marks each of your fills (a blue up triangle under a buy, a red
+  down triangle over a sell) at its bar, stacking up to three per bar and then showing a
+  count. **Orders** draws each working order as a dashed line at its price (a peg dotted at
+  the live mid, which can be a half cent) with a tag such as `BUY 100/500 LMT`; an order off
+  screen is a pinned arrow tag. **Bid/Ask** (off by default) draws the best bid and ask over
+  time as step lines. Ownership is one test, made in the reducer: an order is yours when this
+  terminal sent it. Bots' and other terminals' orders never show. Fills are recorded in the
+  reducer when they arrive (`myFills`, capped at 1,000 for the markers) and folded into exact
+  per-order totals that are never capped.
+
+- **Drag an order line to reprice it, and it is sent as a cancel then a new order.** The engine
+  accepts new and cancel only (no 35=G), so Confirm Modify in the Modify order popup cancels
+  the order, waits for `ORDER_CANCELLED`, then sends a new order at the dropped price for the
+  quantity still remaining at that moment, with the original TIF and iceberg display. The new
+  order joins the back of the queue. The race is handled in a pure state machine in the
+  reducer (`reprice.ts`): a fill that completes the order first sends nothing ("Modify not
+  sent: order filled"); a refused cancel (the venue answers a cancel on a filled order with
+  `ORDER_REJECTED` under that order's id), no answer within 2 seconds, or a failed socket
+  write gives "Modify failed". The 2-second timeout is about 60 times the worst cancel round
+  trip measured with the bots running (about 33 ms). A plain cancel from the blotter while a
+  modify is waiting cancels the modify too. `ORDER_REJECTED` now changes only an order that was
+  never accepted.
+
+- **The Executions tab measures how well your orders executed.** The blotter panel switches
+  between Orders and Executions. For every order of yours with a fill: average price, filled
+  share, cost against the arrival mid and against the session VWAP after the last fill (bps,
+  positive is cost for either side, red; negative is improvement, green), spread paid on
+  aggressive fills (1.00 is the full half-spread, 0 the mid, negative an improvement), and the
+  passive share, with a pinned ALL row of quantity-weighted averages. The arrival is stamped at
+  submit from the book the terminal was showing; a repriced order keeps its original's arrival,
+  so a reprice cannot hide drift. Everything is integer units and BigInt, converted only for
+  display. Metrics start when the tab connects, like the session stats.
+
 - **Side panel session stats are connect-anchored, and are not bounded by the tape cap the
   line chart is.** The Charts page's side panel shows session high, session low, session
   VWAP, trade count, and the last print (price and size). High, low, VWAP and the count are
@@ -486,6 +520,14 @@ app/frontend/
 │   ├── chartSettings.ts          # per-surface chart type, bar size, indicators (P17)
 │   ├── chartColors.ts            # palette, candle colours, wicks, recent picks (Charts follow-up)
 │   ├── chartViewport.ts          # pure wheel zoom and drag pan maths (Charts follow-up)
+│   ├── ownExecutions.ts          # own fills and working orders for the chart (P18-1)
+│   ├── chartOverlays.ts          # pure fill markers, order lines, bid/ask steps (P18)
+│   ├── prices.ts                 # TICK_PX, the drag snap and the venue mid (P18-4)
+│   ├── repriceGesture.ts         # pure drag-to-reprice gesture (P18-4)
+│   ├── reprice.ts                # pure reprice sequence: cancel, wait, new (P18-5)
+│   ├── quotes.ts                 # best-quote history, raw and bucketed (P18-6)
+│   ├── arrival.ts                # the market at submit (P18-8)
+│   ├── executionQuality.ts       # pure execution quality metrics and summary (P18-9)
 │   ├── timeTicks.ts              # pure clock tick steps and axis labels (Charts follow-up)
 │   ├── menuPlacement.ts          # pure placement of the white pick-list (Charts follow-up)
 │   ├── indicators/
@@ -513,6 +555,8 @@ app/frontend/
 │   │   ├── IndicatorRows.tsx     # indicator toggles shared by the gear and the band
 │   │   ├── FieldMenu.tsx         # the one standard dropdown (§11.5)
 │   │   ├── PriceChartOverlay.tsx # the floating chart window on the Trading page
+│   │   ├── ModifyOrderPopup.tsx  # the drag-to-reprice confirmation (P18-4)
+│   │   ├── ExecutionsTable.tsx   # the blotter's Executions tab (P18-10)
 │   │   └── SessionStats.tsx      # session block, five rows with VWAP (P13, P17)
 │   ├── protocol/
 │   │   ├── messages.ts           # the one place raw frames are narrowed
@@ -521,6 +565,7 @@ app/frontend/
 │   ├── state/
 │   │   ├── reducer.ts            # pure reducer, AppState, session aggregates
 │   │   ├── useOrderBook.ts       # socket lifecycle, capped-backoff reconnect
+│   │   ├── useRepriceTimer.ts    # the reprice timeout at the component edge (P18-5)
 │   │   └── useIgnitionPrice.ts   # one-shot Alpaca market-open fetch (P11)
 │   ├── market/
 │   │   ├── alpacaClient.ts

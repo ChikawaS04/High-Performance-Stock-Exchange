@@ -4649,10 +4649,13 @@ body {
    in the title's place, left of the filters. Labels are sans (they are words, not units). */
 .open-orders__tabs {
     flex: none;
+    padding: 1px;
 }
+/* Compact in the band: the switch is no taller than the compact filters beside it. */
 .open-orders__tab {
     font-family: var(--sans);
     font-size: 11px;
+    padding: 2px 9px;
 }
 
 /* Executions tab (P18 D10): cost reads red and improvement green, the direction

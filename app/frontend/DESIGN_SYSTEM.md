@@ -234,8 +234,23 @@ this exact colour scheme**, so tables read as one family across the terminal.
 
 - **Panel header band:** `--head` (`#2c2c2c`). Same as every panel, globally. The
   panel header carries no status counters or badges. It holds the title, an optional
-  menu caret at the right edge, and at most **one filter single-select** (§11.5,
-  compact) just left of the caret (UI polish D6; the blotter's status filter).
+  menu caret at the right edge, and at most the filter single-selects the panel needs
+  (§11.5, compact) just left of the caret: the blotter has two, owner and status (UI
+  polish D6 and the bots pass).
+- **View switch (P18-10).** A panel with two views of its rows puts them on the §11.3
+  two-state toggle in the title's place, at the left of the band: the blotter reads
+  **Orders / Executions**. The labels are sans words, ~11px. A filter or menu that
+  only applies to one view shows on that view only (the blotter's filters and Cancel
+  by ID menu show on Orders). The selected view persists (§13).
+- **Executions (P18-10, P18-11).** The blotter's second view is a table of this
+  terminal's orders with at least one fill, newest submit first: Order ID, Side, Qty
+  (filled / original), Filled (%), Avg price, vs Arrival (bps), vs VWAP (bps), Spread
+  paid, Passive %. It uses the blotter's own table classes, so it is the same family.
+  A cost reads red and an improvement green (the direction colours `--tick-down` /
+  `--tick-up`, §2), never the bid blue or ask red; a missing value is the dash. A
+  pinned **ALL** row in the table foot, sticky to the bottom of the scroll area on the
+  `--body` ground, totals the filled quantity and gives the quantity-weighted average
+  of each metric over the orders that have one. Empty state: "No executions yet".
 - **Column-header row** (the `thead`): sits on the **panel body** colour `--body`
   (`#1b1b1b`), with a 1px `--line` bottom hairline. Labels are uppercase, bright
   white `#ffffff`, **weight 600**, ~9px, letter-spacing ~0.08em. Sticky at the top
@@ -320,6 +335,14 @@ will do.
   longer active" and Confirm Cancel is disabled.
 - **Cancel by Order ID** takes a typed id and confirms with the same Confirm Cancel.
 - **Order Confirmation** (the ticket) shows the resolved order before it is sent.
+- **Modify order** (P18-4, a dragged order line dropped on a new price) shows the
+  order ID, side, remaining quantity, old price and new price, and the line "Sent as
+  cancel and new order; the new order joins the back of the queue." When the new
+  price crosses the opposite best it adds a warning line in `--warn`: "Marketable:
+  will execute against the book." The primary action is **Confirm Modify**. If the
+  order stops working while the popup is open, the popup says "Order is no longer
+  active" and Confirm Modify is disabled. It renders into the page body, so a chart
+  in a floating window cannot clip it, and its Escape closes only the popup.
 - A bulk cancel, if one is added, states how many orders it will cancel.
 
 ---
@@ -556,11 +579,11 @@ storage module (`src/settings/persist.ts`) and one hook
   | Header | label colour (`header.labelMode`) |
   | Trade tape | levels, time units |
   | Price chart | background, line colour, gradient, fill, up candle, down candle, wicks, recent colours (`priceChart.background`, `.lineColor`, `.gradient`, `.fill`, `.candleUp`, `.candleDown`, `.wicks`, `.recentColors`; shared by the page and the floating window) |
-  | Charts page chart | chart type, bar size, indicators (`priceChart.chartType`, `.barSize`, `.indicators`) |
-  | Floating chart window | chart type, bar size, indicators (`priceWindow.chartType`, `.barSize`, `.indicators`) |
+  | Charts page chart | chart type, bar size, indicators, indicators already offered (`priceChart.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`) |
+  | Floating chart window | chart type, bar size, indicators, indicators already offered (`priceWindow.chartType`, `.barSize`, `.indicators`, `.indicatorsSeen`) |
   | Depth chart | background |
   | Book reader | depth |
-  | Blotter | status filter |
+  | Blotter | status filter, owner filter, view (`blotter.statusFilter`, `.ownerFilter`, `.tab`: `orders` or `executions`) |
   | Floating windows | size and position of the depth chart and price chart windows (§14) |
 
 - **What never persists:** order-ticket values (side, price, quantity, TIF, type),
@@ -572,7 +595,10 @@ storage module (`src/settings/persist.ts`) and one hook
   anything invalid or unparsable falls back to the default and the bad key is
   removed. The chart's indicator set is a JSON array read leniently (any array of
   strings) and then cleaned: unknown ids and ids the surface does not offer are
-  dropped, but an id only unavailable for the current chart type is kept. The chart's
+  dropped, but an id only unavailable for the current chart type is kept. An id
+  registered later and marked on by default (Executions, Orders) is switched on once
+  for a stored set that has never offered it, tracked by `indicatorsSeen`, so a user
+  who then turns it off keeps it off. The chart's
   colours are any `#rrggbb` (the line colour and fill too; fill also takes `"line"`,
   the candle colours `"default"`); the recent colours are read leniently and cleaned to
   at most four valid colours. At start-up, `hpse.` keys from any other version are removed and the
@@ -834,8 +860,10 @@ are shared.
 
 - An indicator registry (`src/indicators/registry.ts`) describes each indicator: id,
   label, placement (`overlay` on the price area or a lower `pane`), the surfaces that
-  offer it, and the chart types that can draw it. Phase 17 registers Volume (pane,
-  candles only) and VWAP (overlay, both types).
+  offer it, the chart types that can draw it, and whether it is on by default. Phase
+  17 registers Volume (pane, candles only) and VWAP (overlay, both types); Phase 18
+  adds three overlays on both surfaces and both types: **Executions** and **Orders**
+  (on by default) and **Bid/Ask** (off).
 - **Overlays** are unlimited. **Lower panes** are capped: 1 on the window, 3 on the
   Charts page. The popup enforces the cap (§11.4).
 - **Pane layout.** For k panes each takes `min(20%, 40% / k)` of the plot height and the
@@ -935,3 +963,41 @@ shared by both surfaces (§13).
   10 seconds, and a drag moves the window by the dragged fraction of its span.
 - Zoom and pan state is per surface, local to the component, and never persisted. A
   bar size change returns the chart to following.
+
+### 16.11 Trading overlays (Phase 18)
+
+Everything here is this terminal's own activity; other participants' orders never
+appear on the chart (only the tape's anonymous prints are public). The one ownership
+test is the reducer's (an id that names an order this terminal sent).
+
+- **Fill markers (Executions).** A fill is a side, not a direction, so a buy is a
+  7 x 6 up triangle just below its price in `--quote-bid` and a sell a down triangle
+  just above it in `--quote-ask`, with a thin edge in the chart ground. In candle
+  mode a marker sits at its bar's slot centre; up to three fills of one side in one
+  bar stack outward 3px apart, past that one marker with a 9px count at the group's
+  quantity-weighted average. In line mode a marker sits on its fill's print. Hovering
+  a marker adds `BUY 200 @ 1446.66` (or `(4 fills)`) to the readout.
+- **Order lines (Orders).** A working limit order is a 1px dashed line (4 3) across
+  the plot at its price in the side colour; a midpoint peg is dotted (1 2) at the
+  exact venue mid, which can sit on a half cent and is never snapped, and has no line
+  when either side of the book is empty. Each has a side-coloured tag, 10px mono on
+  near-black, just inside the price axis: `BUY 200 LMT`, an iceberg `BUY 100/500 LMT`,
+  a peg `BUY 30 PEG`. An order outside the visible prices shows only its tag, pinned
+  to the nearer edge with an arrow (`▲` / `▼`), pinned tags stacking inward. Order
+  lines never widen the price domain.
+- **Drag to reprice.** A limit order's tag is its handle (cursor `ns-resize`). A press
+  on it starts a reprice drag, which takes precedence over the plot pan and never
+  moves a floating window. A ghost line, solid at 60%, follows the pointer snapped to
+  the cent, with the new price in its tag; the crosshair hides. Dropping on the old
+  price, or a pointer cancel, ends the gesture; anywhere else opens Modify order
+  (§10). A peg, and an order with a reprice in flight, cannot be dragged. The engine
+  takes no cancel/replace message, so a confirmed modify is a cancel, then a new
+  order for the quantity still remaining at cancel, sent only once the cancel is
+  confirmed. A fill that completes the order first sends nothing and toasts "Modify
+  not sent: order filled"; a refused cancel, no answer within 2 seconds, or a failed
+  write toasts "Modify failed". One toast per modify.
+- **Bid/ask lines (Bid/Ask).** Best bid and best ask as 1px step lines in
+  `--quote-bid` / `--quote-ask` at 70%, behind the candles. A quote holds until it
+  changes, carried across quiet stretches; only an empty side or a dropped connection
+  breaks a line. Candle mode steps per slot from the last quote in each bucket; line
+  mode steps on the time axis. They never widen the price domain.
