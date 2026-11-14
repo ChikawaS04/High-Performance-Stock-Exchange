@@ -26,6 +26,22 @@ export type ChartSurface = "page" | "window";
 export type ChartType = "line" | "candles" | "footprint";
 export type IndicatorPlacement = "overlay" | "pane";
 
+/**
+ * One editable parameter of an indicator (P19-7, P19 D7). Always an integer within
+ * [min, max]; `presets` are the combobox's quick picks, in stored units. A "tenths"
+ * param (the Bollinger width) is stored in tenths and shown with one decimal place.
+ */
+export interface IndicatorParam {
+    readonly id: string;
+    readonly label: string;
+    readonly kind: "int";
+    readonly min: number;
+    readonly max: number;
+    readonly default: number;
+    readonly presets: readonly number[];
+    readonly display?: "tenths";
+}
+
 export interface IndicatorDescriptor {
     readonly id: string;
     readonly label: string;
@@ -38,6 +54,8 @@ export interface IndicatorDescriptor {
      * (chartSettings.migrateIndicators).
      */
     readonly defaultOn?: boolean;
+    /** Editable parameters (P19-7), edited in the gear popup's Indicators category. */
+    readonly params?: readonly IndicatorParam[];
 }
 
 export const INDICATORS: readonly IndicatorDescriptor[] = [

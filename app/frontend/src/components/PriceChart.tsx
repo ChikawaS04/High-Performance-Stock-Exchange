@@ -908,6 +908,8 @@ export function PriceChart({
             indicators={indicators}
             setIndicators={settings.setIndicators}
             registry={registry}
+            params={settings.params}
+            setParam={settings.setParam}
         />
     );
 

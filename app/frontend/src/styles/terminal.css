@@ -4355,6 +4355,22 @@ body {
 .price-chart__fp-outline,
 .price-chart__fp-plain { shape-rendering: crispEdges; }
 
+/* Indicator parameters (P19-7, DESIGN_SYSTEM.md §11.4): the disclosure after an
+   indicator's name and its indented parameter rows, each with a §11.5 combobox. */
+.settings-pop__disc {
+    margin-left: 6px;
+    padding: 0 2px;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+}
+.settings-pop__disc:hover { color: var(--text); }
+.settings-pop__name--param { padding-left: 14px; color: var(--text-dim); }
+.settings-pop__param .field-menu { width: 76px; }
+
 /* A radio option that does not apply (5s and 15s in footprint, P19-6). */
 .settings-radio__opt--disabled { opacity: 0.45; cursor: default; }
 

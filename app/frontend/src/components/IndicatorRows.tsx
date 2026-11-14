@@ -11,11 +11,25 @@
  * are capped per surface (PANE_CAP): once the stored set holds the cap, the toggles
  * of panes that are off are disabled and one dim line reads "Pane limit reached (N)",
  * only while the cap actually holds a pane off. Overlays are never disabled by the cap.
+ *
+ * Parameters (P19-7, P19 D7). With showParams (the gear popup only; the band's
+ * Indicators popup stays a toggle list), an indicator with params gets a ▸ disclosure
+ * after its name. Expanded (▾), each param is a row with its label on the left and the
+ * §11.5 editable combobox (FieldMenu, the sunken well with presets) on the right. A
+ * typed value is stored only once it is valid (an integer in range, or one decimal
+ * place for a tenths param); an invalid draft is left unstored and the well shows the
+ * stored value again on blur. Which rows are expanded is local and never persisted
+ * (§13 excludes expanded sections).
  */
+
+import { useState } from "react";
 
 import type { ChartSurface, ChartType } from "../chartSettings";
 import { INDICATORS, PANE_CAP, enabledPaneIds, onSurface } from "../indicators/registry";
-import type { IndicatorDescriptor } from "../indicators/registry";
+import type { IndicatorDescriptor, IndicatorParam } from "../indicators/registry";
+import { NO_PARAMS, formatParam, paramValue, parseParam } from "../indicatorParams";
+import type { IndicatorParams } from "../indicatorParams";
+import { FieldMenu } from "./FieldMenu";
 
 export interface IndicatorRowsProps {
     readonly surface: ChartSurface;
@@ -23,6 +37,47 @@ export interface IndicatorRowsProps {
     readonly indicators: readonly string[];
     readonly setIndicators: (next: readonly string[]) => void;
     readonly registry?: readonly IndicatorDescriptor[];
+    /** Show the parameter disclosures (the gear popup's category only). */
+    readonly showParams?: boolean;
+    readonly params?: IndicatorParams;
+    readonly setParam?: (id: string, paramId: string, value: number) => void;
+}
+
+interface ParamFieldProps {
+    readonly d: IndicatorDescriptor;
+    readonly p: IndicatorParam;
+    readonly value: number;
+    readonly setParam: (id: string, paramId: string, value: number) => void;
+}
+
+/** One parameter's combobox: a draft while typing, stored only when valid. */
+function ParamField({ d, p, value, setParam }: ParamFieldProps) {
+    const [draft, setDraft] = useState<string | null>(null);
+    const commit = (text: string): void => {
+        const v = parseParam(p, text);
+        if (v !== null && v !== value) setParam(d.id, p.id, v);
+    };
+    return (
+        <span className="settings-pop__param" onBlur={() => setDraft(null)}>
+            <FieldMenu
+                testId={`pc-param-${d.id}-${p.id}`}
+                ariaLabel={`${d.label} ${p.label}`}
+                options={p.presets.map((v) => ({ value: formatParam(p, v), label: formatParam(p, v) }))}
+                value={draft ?? formatParam(p, value)}
+                editable
+                numeric
+                inputMode={p.display === "tenths" ? "decimal" : "numeric"}
+                onInput={(text) => {
+                    setDraft(text);
+                    commit(text);
+                }}
+                onSelect={(text) => {
+                    setDraft(null);
+                    commit(text);
+                }}
+            />
+        </span>
+    );
 }
 
 /** The dim note on an indicator the current chart type cannot draw. */
@@ -39,7 +94,19 @@ export function settingsRowClass(disabled: boolean, stack = false): string {
     return disabled ? `${base} settings-pop__row--disabled` : base;
 }
 
-export function IndicatorRows({ surface, chartType, indicators, setIndicators, registry = INDICATORS }: IndicatorRowsProps) {
+export function IndicatorRows({
+    surface,
+    chartType,
+    indicators,
+    setIndicators,
+    registry = INDICATORS,
+    showParams = false,
+    params = NO_PARAMS,
+    setParam,
+}: IndicatorRowsProps) {
+    const [expanded, setExpanded] = useState<readonly string[]>([]);
+    const toggleExpanded = (id: string): void =>
+        setExpanded((e) => (e.includes(id) ? e.filter((x) => x !== id) : [...e, id]));
     const offered = onSurface(surface, registry);
     const cap = PANE_CAP[surface];
     const atCap = enabledPaneIds(indicators, registry).length >= cap;
@@ -58,10 +125,24 @@ export function IndicatorRows({ surface, chartType, indicators, setIndicators, r
                 const typeBlocked = !d.chartTypes.includes(chartType);
                 const capBlocked = d.placement === "pane" && !on && atCap;
                 const disabled = typeBlocked || capBlocked;
-                return (
+                const hasParams = showParams && setParam !== undefined && d.params !== undefined && d.params.length > 0;
+                const open = hasParams && expanded.includes(d.id);
+                const row = (
                     <div key={d.id} className={settingsRowClass(disabled)} data-testid={`pc-ind-${d.id}-row`}>
                         <span className="settings-pop__name">
                             {d.label}
+                            {hasParams ? (
+                                <button
+                                    type="button"
+                                    className="settings-pop__disc"
+                                    aria-expanded={open}
+                                    aria-label={`${d.label} parameters`}
+                                    data-testid={`pc-ind-${d.id}-params`}
+                                    onClick={() => toggleExpanded(d.id)}
+                                >
+                                    {open ? "▾" : "▸"}
+                                </button>
+                            ) : null}
                             {typeBlocked ? (
                                 <span className="settings-pop__note" data-testid={`pc-ind-${d.id}-note`}>
                                     {typeNote(d)}
@@ -92,6 +173,20 @@ export function IndicatorRows({ surface, chartType, indicators, setIndicators, r
                         </span>
                     </div>
                 );
+                if (!open || d.params === undefined || setParam === undefined) return row;
+                return [
+                    row,
+                    ...d.params.map((p) => (
+                        <div
+                            key={`${d.id}.${p.id}`}
+                            className="settings-pop__row settings-pop__row--param"
+                            data-testid={`pc-param-${d.id}-${p.id}-row`}
+                        >
+                            <span className="settings-pop__name settings-pop__name--param">{p.label}</span>
+                            <ParamField d={d} p={p} value={paramValue(params, d, p.id)} setParam={setParam} />
+                        </div>
+                    )),
+                ];
             })}
             {capHoldsOne ? (
                 <div className="settings-pop__note settings-pop__note--line" data-testid="pc-pane-limit">

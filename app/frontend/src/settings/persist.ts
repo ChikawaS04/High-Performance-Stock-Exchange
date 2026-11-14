@@ -52,6 +52,9 @@ export const SETTING_KEYS = {
     // and marked defaultOn is switched on once for a user with a stored set.
     priceChartIndicatorsSeen: settingKey("priceChart", "indicatorsSeen"),
     priceWindowIndicatorsSeen: settingKey("priceWindow", "indicatorsSeen"),
+    // Indicator parameters per surface (P19-7): indicator id, then param id, then value.
+    priceChartIndicatorParams: settingKey("priceChart", "indicatorParams"),
+    priceWindowIndicatorParams: settingKey("priceWindow", "indicatorParams"),
     depthChartBackground: settingKey("depthChart", "background"),
     bookReaderDepth: settingKey("bookReader", "depth"),
     blotterStatusFilter: settingKey("blotter", "statusFilter"),

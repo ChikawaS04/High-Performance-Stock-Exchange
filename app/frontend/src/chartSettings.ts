@@ -36,6 +36,8 @@ import type { ChartSurface, ChartType, IndicatorDescriptor } from "./indicators/
 import { SETTING_KEYS, oneOf } from "./settings/persist";
 import type { Validator } from "./settings/persist";
 import { usePersistentSetting } from "./settings/usePersistentSetting";
+import { NO_PARAMS, cleanParams, isParamRecord, withParam } from "./indicatorParams";
+import type { IndicatorParams } from "./indicatorParams";
 
 export type { ChartSurface, ChartType } from "./indicators/registry";
 
@@ -89,6 +91,7 @@ export interface ChartSettingKeys {
     readonly barSize: string;
     readonly indicators: string;
     readonly indicatorsSeen: string;
+    readonly indicatorParams: string;
 }
 
 /** The persisted keys for a surface (the §13 inventory lives in SETTING_KEYS). */
@@ -99,12 +102,14 @@ export function chartSettingKeys(surface: ChartSurface): ChartSettingKeys {
               barSize: SETTING_KEYS.priceChartBarSize,
               indicators: SETTING_KEYS.priceChartIndicators,
               indicatorsSeen: SETTING_KEYS.priceChartIndicatorsSeen,
+              indicatorParams: SETTING_KEYS.priceChartIndicatorParams,
           }
         : {
               chartType: SETTING_KEYS.priceWindowChartType,
               barSize: SETTING_KEYS.priceWindowBarSize,
               indicators: SETTING_KEYS.priceWindowIndicators,
               indicatorsSeen: SETTING_KEYS.priceWindowIndicatorsSeen,
+              indicatorParams: SETTING_KEYS.priceWindowIndicatorParams,
           };
 }
 
@@ -161,9 +166,13 @@ export interface ChartSettings {
     readonly setBarSize: (next: BarSizeId) => void;
     readonly indicators: readonly string[];
     readonly setIndicators: (next: readonly string[]) => void;
+    /** Indicator parameters, cleaned per value (P19-7): only valid overrides. */
+    readonly params: IndicatorParams;
+    /** Store one validated parameter value. */
+    readonly setParam: (id: string, paramId: string, value: number) => void;
 }
 
-/** The three persisted chart settings for one surface. */
+/** The persisted chart settings for one surface. */
 export function useChartSettings(
     surface: ChartSurface,
     registry: readonly IndicatorDescriptor[] = INDICATORS,
@@ -203,5 +212,9 @@ export function useChartSettings(
         () => sanitizeIndicators(migration.indicators, surface, registry),
         [migration.indicators, surface, registry],
     );
-    return { chartType, setChartType, barSize, setBarSize, indicators, setIndicators };
+    const [storedParams, storeParams] = usePersistentSetting<IndicatorParams>(keys.indicatorParams, NO_PARAMS, isParamRecord);
+    const params = useMemo(() => cleanParams(storedParams, surface, registry), [storedParams, surface, registry]);
+    // Writes the cleaned object, so a bad stored value is replaced on the next edit.
+    const setParam = (id: string, paramId: string, value: number): void => storeParams(withParam(params, id, paramId, value));
+    return { chartType, setChartType, barSize, setBarSize, indicators, setIndicators, params, setParam };
 }

@@ -68,12 +68,14 @@ describe("per-surface keys (P17-4)", () => {
             barSize: "hpse.v1.priceChart.barSize",
             indicators: "hpse.v1.priceChart.indicators",
             indicatorsSeen: "hpse.v1.priceChart.indicatorsSeen",
+            indicatorParams: "hpse.v1.priceChart.indicatorParams",
         });
         expect(chartSettingKeys("window")).toEqual({
             chartType: "hpse.v1.priceWindow.chartType",
             barSize: "hpse.v1.priceWindow.barSize",
             indicators: "hpse.v1.priceWindow.indicators",
             indicatorsSeen: "hpse.v1.priceWindow.indicatorsSeen",
+            indicatorParams: "hpse.v1.priceWindow.indicatorParams",
         });
     });
 });

@@ -31,6 +31,7 @@ import { chartTypesFor } from "../chartSettings";
 import type { ChartSurface, ChartType } from "../chartSettings";
 import { INDICATORS } from "../indicators/registry";
 import type { IndicatorDescriptor } from "../indicators/registry";
+import type { IndicatorParams } from "../indicatorParams";
 import { ColorRow } from "./ColorPalette";
 import { IndicatorRows, settingsRowClass } from "./IndicatorRows";
 
@@ -49,6 +50,9 @@ export interface ChartSettingsPopupProps {
     readonly indicators: readonly string[];
     readonly setIndicators: (next: readonly string[]) => void;
     readonly registry?: readonly IndicatorDescriptor[];
+    /** Indicator parameters (P19-7), edited here only. */
+    readonly params?: IndicatorParams;
+    readonly setParam?: (id: string, paramId: string, value: number) => void;
 }
 
 export function ChartSettingsPopup({
@@ -62,6 +66,8 @@ export function ChartSettingsPopup({
     indicators,
     setIndicators,
     registry = INDICATORS,
+    params,
+    setParam,
 }: ChartSettingsPopupProps) {
     const [displayOpen, setDisplayOpen] = useState(true);
     const [indicatorsOpen, setIndicatorsOpen] = useState(true);
@@ -298,6 +304,9 @@ export function ChartSettingsPopup({
                                 indicators={indicators}
                                 setIndicators={setIndicators}
                                 registry={registry}
+                                showParams
+                                params={params}
+                                setParam={setParam}
                             />
                         </div>
                     )}
