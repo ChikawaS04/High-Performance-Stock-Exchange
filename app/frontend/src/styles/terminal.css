@@ -4739,3 +4739,29 @@ body {
 .exec-q__summary-dash {
     color: var(--dim, #8f8f8f);
 }
+
+/* Liquidity heatmap (P20-5, DESIGN_SYSTEM.md §16.14). The canvas sits under the SVG at
+   the plot rectangle; the SVG keeps the axes, crosshair, readout and overlays above it. */
+.heatmap__canvas {
+    position: absolute;
+    z-index: 0;
+    display: block;
+    pointer-events: none;
+}
+.price-chart--heatmap .price-chart__svg {
+    position: relative;
+    z-index: 1;
+}
+/* Every line over the cells gets a 3px casing of black at 70% (greenlight amendment 6):
+   a duplicate stroke under order lines and VWAP, and a stroke painted under the fill
+   markers' triangles. The other chart types are unchanged. */
+.price-chart__casing {
+    fill: none;
+    stroke: rgba(0, 0, 0, 0.7);
+    stroke-width: 3;
+}
+.price-chart--heatmap .price-chart__fill {
+    stroke: rgba(0, 0, 0, 0.7);
+    stroke-width: 3;
+    paint-order: stroke;
+}

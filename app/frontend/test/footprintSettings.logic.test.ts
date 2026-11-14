@@ -16,7 +16,8 @@ import { typeNote } from "../src/components/IndicatorRows";
 
 describe("footprint chart type settings (P19-6)", () => {
     it("is offered on the Charts page only", () => {
-        expect(chartTypesFor("page")).toEqual(["line", "candles", "footprint"]);
+        // P20-5 adds the heatmap, also page only.
+        expect(chartTypesFor("page")).toEqual(["line", "candles", "footprint", "heatmap"]);
         expect(chartTypesFor("window")).toEqual(["line", "candles"]);
         expect(PAGE_CHART_TYPES).toContain("footprint");
         expect(CHART_TYPES).not.toContain("footprint");

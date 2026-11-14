@@ -16,6 +16,11 @@
  * colour row is a chip that opens the shared palette (ColorPalette). One palette is
  * open at a time.
  *
+ * P20-5: in heatmap mode (Charts page only) the Background row shows disabled with the
+ * note "Heatmap draws on black" (P20-0 F6), the bar size row is hidden and the candle
+ * and line rows show disabled. A "Heatmap" sub-label adds Contrast (Low, Normal,
+ * High) and Trades (On, Off), on the page only and disabled outside heatmap mode.
+ *
  * Indicators: the shared IndicatorRows (the band's Indicators popup renders the same
  * component). Footer: a "Reset colors" text button left of Done restores up, down,
  * line, fill and wicks to their defaults.
@@ -27,17 +32,26 @@ import { BAR_SIZE_IDS, hasFootprint } from "../bars";
 import type { BarSizeId } from "../bars";
 import { effectiveCandleColors } from "../chartColors";
 import type { ChartColors, ColorSetting } from "../chartColors";
-import { chartTypesFor } from "../chartSettings";
+import { chartTypesFor, isBarChart } from "../chartSettings";
 import type { ChartSurface, ChartType } from "../chartSettings";
 import { INDICATORS } from "../indicators/registry";
 import type { IndicatorDescriptor } from "../indicators/registry";
 import type { IndicatorParams } from "../indicatorParams";
+import { HEAT_CONTRASTS } from "../heatmap/layout";
+import type { HeatContrast } from "../heatmap/layout";
+import type { HeatmapSettings } from "../heatmap/heatmapSettings";
 import { ColorRow } from "./ColorPalette";
 import { IndicatorRows, settingsRowClass } from "./IndicatorRows";
 
 export type { ChartBg, FillChoice } from "../chartColors";
 
-const CHART_TYPE_LABEL: Readonly<Record<ChartType, string>> = { line: "Line", candles: "Candles", footprint: "Footprint" };
+const CHART_TYPE_LABEL: Readonly<Record<ChartType, string>> = {
+    line: "Line",
+    candles: "Candles",
+    footprint: "Footprint",
+    heatmap: "Heatmap",
+};
+const CONTRAST_LABEL: Readonly<Record<HeatContrast, string>> = { low: "Low", normal: "Normal", high: "High" };
 
 export interface ChartSettingsPopupProps {
     readonly surface: ChartSurface;
@@ -53,6 +67,8 @@ export interface ChartSettingsPopupProps {
     /** Indicator parameters (P19-7), edited here only. */
     readonly params?: IndicatorParams;
     readonly setParam?: (id: string, paramId: string, value: number) => void;
+    /** The heatmap's Contrast and Trades (P20-5); absent, the Heatmap rows are not shown. */
+    readonly heatmap?: HeatmapSettings;
 }
 
 export function ChartSettingsPopup({
@@ -68,6 +84,7 @@ export function ChartSettingsPopup({
     registry = INDICATORS,
     params,
     setParam,
+    heatmap,
 }: ChartSettingsPopupProps) {
     const [displayOpen, setDisplayOpen] = useState(true);
     const [indicatorsOpen, setIndicatorsOpen] = useState(true);
@@ -76,8 +93,12 @@ export function ChartSettingsPopup({
     const { bg, setBg, lineColor, gradientOn, setGradientOn, fill, wicks, setWicks, recent, pick } = colors;
     const candles = chartType === "candles";
     // Candles and footprint draw bars: the bar size and the up and down colours apply.
-    const bars = chartType !== "line";
+    const bars = isBarChart(chartType);
     const footprint = chartType === "footprint";
+    // The line rows apply in line mode only; the heatmap has its own rows and ground (P20-5).
+    const lineMode = chartType === "line";
+    const heatmapMode = chartType === "heatmap";
+    const heatmapOffered = heatmap !== undefined && chartTypesFor(surface).includes("heatmap");
     const shown = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     const colorRow = (setting: ColorSetting, label: string, prefix: string, hex: string, value: string, disabled: boolean) => (
@@ -128,13 +149,21 @@ export function ChartSettingsPopup({
 
                     {displayOpen && (
                         <div className="settings-pop__panel" id={`pc-settings-display-${surface}`}>
-                            <div className="settings-pop__row">
-                                <span className="settings-pop__name">Background</span>
+                            <div className={settingsRowClass(heatmapMode)} data-testid="pc-bg-row">
+                                <span className="settings-pop__name">
+                                    Background
+                                    {heatmapMode ? (
+                                        <span className="settings-pop__note" data-testid="pc-bg-note">
+                                            Heatmap draws on black
+                                        </span>
+                                    ) : null}
+                                </span>
                                 <span className="settings-toggle" role="group" aria-label="Chart background">
                                     <button
                                         type="button"
                                         className="settings-toggle__opt settings-toggle__opt--sans"
                                         aria-pressed={bg === "black"}
+                                        disabled={heatmapMode}
                                         data-testid="pc-bg-black"
                                         onClick={() => setBg("black")}
                                     >
@@ -144,6 +173,7 @@ export function ChartSettingsPopup({
                                         type="button"
                                         className="settings-toggle__opt settings-toggle__opt--sans"
                                         aria-pressed={bg === "white"}
+                                        disabled={heatmapMode}
                                         data-testid="pc-bg-white"
                                         onClick={() => setBg("white")}
                                     >
@@ -240,15 +270,15 @@ export function ChartSettingsPopup({
                             <div className="settings-pop__sub" data-testid="pc-sub-line">
                                 Line
                             </div>
-                            {colorRow("line", "Line color", "pc-line", lineColor, lineColor, bars)}
-                            <div className={settingsRowClass(bars)} data-testid="pc-grad-row">
+                            {colorRow("line", "Line color", "pc-line", lineColor, lineColor, !lineMode)}
+                            <div className={settingsRowClass(!lineMode)} data-testid="pc-grad-row">
                                 <span className="settings-pop__name">Area fill</span>
                                 <span className="settings-toggle" role="group" aria-label="Area fill">
                                     <button
                                         type="button"
                                         className="settings-toggle__opt settings-toggle__opt--sans"
                                         aria-pressed={gradientOn}
-                                        disabled={bars}
+                                        disabled={!lineMode}
                                         data-testid="pc-grad-on"
                                         onClick={() => setGradientOn(true)}
                                     >
@@ -258,7 +288,7 @@ export function ChartSettingsPopup({
                                         type="button"
                                         className="settings-toggle__opt settings-toggle__opt--sans"
                                         aria-pressed={!gradientOn}
-                                        disabled={bars}
+                                        disabled={!lineMode}
                                         data-testid="pc-grad-off"
                                         onClick={() => setGradientOn(false)}
                                     >
@@ -272,12 +302,68 @@ export function ChartSettingsPopup({
                                 "pc-fill",
                                 fill === "line" ? lineColor : fill,
                                 fill,
-                                bars || !gradientOn,
+                                !lineMode || !gradientOn,
                             )}
-                            {bars ? (
+                            {!lineMode ? (
                                 <div className="settings-pop__note settings-pop__note--line" data-testid="pc-line-note">
                                     Line rows apply in line mode
                                 </div>
+                            ) : null}
+
+                            {heatmapOffered ? (
+                                <>
+                                    <div className="settings-pop__sub" data-testid="pc-sub-heatmap">
+                                        Heatmap
+                                    </div>
+                                    <div className={settingsRowClass(!heatmapMode)} data-testid="pc-contrast-row">
+                                        <span className="settings-pop__name">Contrast</span>
+                                        <span className="settings-radio" role="radiogroup" aria-label="Heatmap contrast">
+                                            {HEAT_CONTRASTS.map((c) => (
+                                                <label
+                                                    key={c}
+                                                    className={
+                                                        heatmapMode ? "settings-radio__opt" : "settings-radio__opt settings-radio__opt--disabled"
+                                                    }
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name={`pc-heat-contrast-${surface}`}
+                                                        checked={heatmap.contrast === c}
+                                                        disabled={!heatmapMode}
+                                                        onChange={() => heatmap.setContrast(c)}
+                                                        data-testid={`pc-contrast-${c}`}
+                                                    />
+                                                    {CONTRAST_LABEL[c]}
+                                                </label>
+                                            ))}
+                                        </span>
+                                    </div>
+                                    <div className={settingsRowClass(!heatmapMode)} data-testid="pc-trades-row">
+                                        <span className="settings-pop__name">Trades</span>
+                                        <span className="settings-toggle" role="group" aria-label="Heatmap trades">
+                                            <button
+                                                type="button"
+                                                className="settings-toggle__opt settings-toggle__opt--sans"
+                                                aria-pressed={heatmap.trades}
+                                                disabled={!heatmapMode}
+                                                data-testid="pc-trades-on"
+                                                onClick={() => heatmap.setTrades(true)}
+                                            >
+                                                On
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="settings-toggle__opt settings-toggle__opt--sans"
+                                                aria-pressed={!heatmap.trades}
+                                                disabled={!heatmapMode}
+                                                data-testid="pc-trades-off"
+                                                onClick={() => heatmap.setTrades(false)}
+                                            >
+                                                Off
+                                            </button>
+                                        </span>
+                                    </div>
+                                </>
                             ) : null}
                         </div>
                     )}

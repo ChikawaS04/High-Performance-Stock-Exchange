@@ -36,6 +36,9 @@
  * the bound handler and the display-only preview. The only protocol import this
  * page gains is the OrderIntent type in the handler signature (P14-6).
  *
+ * P20-5: the chart also takes the depth recorder and state.heatTrades for the heatmap
+ * chart type, which only this page offers.
+ *
  * P17: the chart reads the bars slice on the page surface's own chart settings,
  * and the side panel gains the session VWAP row (sessionNotional / sessionVolume).
  * Charts follow-up: the chart draws in fit mode at its real size (a 12:5 plot box,
@@ -52,6 +55,7 @@
  */
 
 import type { AppState } from "../state/reducer";
+import type { DepthRecorder } from "../heatmap/depthRecorder";
 import type { OrderIntent } from "../protocol/messages";
 
 import { PriceChart } from "../components/PriceChart";
@@ -71,6 +75,8 @@ export interface ChartsPageProps {
     readonly onReprice?: (origClOrdId: number, newPx: number) => void;
     /** Orders with a reprice in flight, which cannot be dragged (P18-5). */
     readonly repricing?: readonly number[];
+    /** The session's depth history for the heatmap (P20-5), from useOrderBook. */
+    readonly depth?: DepthRecorder;
 }
 
 export function ChartsPage({
@@ -80,6 +86,7 @@ export function ChartsPage({
                                    onViewInTrading,
                                    onReprice,
                                    repricing,
+                                   depth,
                                }: ChartsPageProps) {
     useDocumentTitle(PAGE_NAMES.charts);
     const connected = state.connection === "open";
@@ -101,6 +108,8 @@ export function ChartsPage({
                     quotes={state.quotes}
                     quoteBars={state.quoteBars}
                     volumeAtPrice={state.volumeAtPrice}
+                    depth={depth}
+                    heatTrades={state.heatTrades}
                     repricing={repricing}
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}

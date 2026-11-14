@@ -21,6 +21,15 @@
  *    starts following at the 64px minimum. Every bar-mode overlay and pane draws as in
  *    candle mode, and the readout adds the hovered row.
  *
+ *  - Heatmap (P20-5, Charts page only): the liquidity heatmap. The recorded L2 book over
+ *    time on a canvas under the SVG (HeatmapLayer), on the line chart's time window
+ *    (zoom and pan, Latest) and its own price grid (heatmap/layout.ts), with trade
+ *    bubbles and the best bid and ask drawn on the canvas. It always draws on black
+ *    (P20-0 F6). The SVG keeps the axes, crosshair, readout and the time-axis overlays
+ *    (VWAP, own fills, own orders with drag to reprice), each over a dark casing in this
+ *    mode only (greenlight amendment 6). The readout shows the hovered cell's time,
+ *    price (or a binned row's range) and resting size, and a hovered trade.
+ *
  * The header band (ChartBand) carries View, chart type, bar size, Indicators and the
  * gear. Both surfaces lay out at their measured box (fit mode): the Charts page's
  * plot keeps a 12:5 box and draws at its real pixel size, the floating window fills
@@ -48,7 +57,7 @@
  * -ref-session, -ref-market, -cross) are preserved.
  */
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
 import { useBoxSize } from "../useBoxSize";
@@ -128,6 +137,24 @@ import { paramValue } from "../indicatorParams";
 import { FOOTPRINT_SLOT, footprintBar, footprintRowStep, rowAt } from "../footprint";
 import { TICK_PX } from "../prices";
 import { profileStats } from "../indicators/volumeProfile";
+import { HeatmapLayer } from "./HeatmapLayer";
+import { DepthRecorder } from "../heatmap/depthRecorder";
+import { bucketOfNs, bucketStartNs, oldestBucket } from "../heatmap/depthRing";
+import {
+    HEATMAP_DEFAULT_SPAN_NS,
+    bestsRange,
+    gridFor,
+    nextDomain,
+    rowReadout,
+    sameGrid,
+    visibleBuckets,
+    xOfNs,
+    yOfPx,
+} from "../heatmap/layout";
+import type { HeatView, PriceDomain, RowGrid } from "../heatmap/layout";
+import { bubbleMarks, drawOverlay, hitBubble, quotePaths } from "../heatmap/overlay";
+import type { BubbleMark } from "../heatmap/overlay";
+import { useHeatmapSettings } from "../heatmap/heatmapSettings";
 
 /** The nominal drawing size, used until the plot is measured. */
 const NOMINAL_W = 720;
@@ -289,6 +316,10 @@ export interface PriceChartProps {
     readonly quoteBars?: QuoteSet;
     /** Session volume at price (state.volumeAtPrice) for the volume profile (P19-3); Charts page only. */
     readonly volumeAtPrice?: ReadonlyMap<number, number>;
+    /** The session's depth history (useOrderBook's recorder) for the heatmap (P20-5); Charts page only. */
+    readonly depth?: DepthRecorder;
+    /** Every fill, oldest first (state.heatTrades), for the heatmap's bubbles (P20-4). */
+    readonly heatTrades?: readonly TapeEntry[];
 }
 
 const NO_FILLS: readonly OwnFill[] = [];
@@ -297,6 +328,9 @@ const NO_IDS: readonly number[] = [];
 const NO_QUOTES: readonly QuotePoint[] = [];
 const NO_QUOTE_BARS: QuoteSet = emptyQuoteSet();
 const NO_VAP: ReadonlyMap<number, number> = new Map<number, number>();
+const NO_TRADES: readonly TapeEntry[] = [];
+/** An empty recorder for a chart given none (the floating window, tests). */
+const NO_DEPTH = new DepthRecorder();
 /** Order tag height, and the gap kept between a tag and the price axis. */
 const ORDER_TAG_H = 14;
 
@@ -356,13 +390,20 @@ export function PriceChart({
     quotes = NO_QUOTES,
     quoteBars = NO_QUOTE_BARS,
     volumeAtPrice = NO_VAP,
+    depth = NO_DEPTH,
+    heatTrades = NO_TRADES,
 }: PriceChartProps) {
     // Display settings persist, shared by the page and the floating window (§13).
     const colors = useChartColors();
-    const { bg, lineColor, gradientOn, fill, wicks } = colors;
+    const { lineColor, gradientOn, fill, wicks } = colors;
     // Chart settings are per surface (P17 D5).
     const settings = useChartSettings(surface, registry);
     const { chartType, barSize, indicators } = settings;
+    // The heatmap (P20-5) always draws on black (P20-0 F6), whatever the Background setting.
+    const heatMode = chartType === "heatmap";
+    const bg = heatMode ? "black" : colors.bg;
+    const heatSettings = useHeatmapSettings();
+    const depthVersion = useSyncExternalStore(depth.subscribe, depth.getVersion);
 
     const [hover, setHover] = useState<Hover | null>(null);
     const [panning, setPanning] = useState(false);
@@ -381,6 +422,11 @@ export function PriceChart({
     const cwin = cwinState.size === barSize && cwinState.type === chartType ? cwinState.win : FOLLOW_AUTO;
     const setCwin = (win: CandleWindow): void => setCwinState({ size: barSize, type: chartType, win });
     const [lwin, setLwin] = useState<LineWindow>(LINE_FULL);
+    // The heatmap's time window: line-mode maths, opening on the newest 3 minutes (P20-0).
+    const [hwin, setHwin] = useState<LineWindow>({ spanNs: HEATMAP_DEFAULT_SPAN_NS, rightT: null });
+    // The heatmap's price domain and grid persist across renders for the hysteresis (layout.nextDomain).
+    const domainRef = useRef<PriceDomain | null>(null);
+    const gridRef = useRef<RowGrid | null>(null);
     const dragRef = useRef<DragState | null>(null);
     // Drag to reprice (P18-4): the order-tag gesture, separate from the plot pan.
     const [orderDrag, setOrderDrag] = useState<RepriceDrag | null>(null);
@@ -433,7 +479,7 @@ export function PriceChart({
 
     // ---- Line geometry: the tape inside the visible time window. ----
     const line = useMemo(() => {
-        if (candles) return null;
+        if (candles || heatMode) return null;
         const series = buildPriceSeries(tape);
         if (series.points.length === 0 || series.tMin === null || series.tMax === null) return null;
         const { points, tMin, tMax } = series;
@@ -501,7 +547,61 @@ export function PriceChart({
             xOf,
             yOf,
         };
-    }, [candles, tape, lwin, PLOT_LEFT, PLOT_W, priceBottom, priceH, yTarget]);
+    }, [candles, heatMode, tape, lwin, PLOT_LEFT, PLOT_W, priceBottom, priceH, yTarget]);
+
+    // ---- Heatmap geometry (P20-5): the recorded columns inside the time window. ----
+    const heat = useMemo(() => {
+        if (!heatMode) return null;
+        const ring = depth.ring;
+        if (ring.count === 0) return null;
+        const tMin = bucketStartNs(oldestBucket(ring));
+        const tMax = bucketStartNs(ring.head + 1);
+        const win = resolveLineWindow(hwin, tMin, tMax);
+        const view: HeatView = { lo: win.lo, hi: win.hi, plotLeft: PLOT_LEFT, plotTop: priceTop, plotW: PLOT_W, plotH: priceH };
+        const { b0, b1 } = visibleBuckets(view);
+        const bests = bestsRange(ring, b0, b1);
+        const domain = bests !== null ? nextDomain(domainRef.current, bests.lo, bests.hi) : domainRef.current;
+        if (domain === null) return null;
+        domainRef.current = domain;
+        const fresh = gridFor(domain);
+        const grid = sameGrid(gridRef.current, fresh) ? gridRef.current! : fresh;
+        gridRef.current = grid;
+        const dMin = grid.edgeLo;
+        const dMax = grid.edgeHi;
+        const levels = priceAxis(dMin, dMax, yTarget).levels;
+        const span = win.span;
+        const stepSec = pickTickStep(span > 0 ? PLOT_W / (span / 1_000_000_000) : 0);
+        const ticks = span > 0 ? clockTicks(win.lo, win.hi, stepSec) : [win.lo];
+        return {
+            ring,
+            view,
+            grid,
+            tMin,
+            tMax,
+            win,
+            dMin,
+            dMax,
+            levels,
+            ticks,
+            stepSec,
+            xOf: (t: number): number => xOfNs(view, t),
+            yOf: (px: number): number => yOfPx(view, grid, px),
+        };
+        // depthVersion stands in for the ring, which is mutated in place.
+    }, [heatMode, depth, depthVersion, hwin, PLOT_LEFT, PLOT_W, priceTop, priceH, yTarget]);
+    // The time-axis scene: the line chart's, or the heatmap's (fill markers, VWAP, pan and zoom).
+    const timeAxis = line ?? heat;
+
+    // Trade bubbles and the best bid and ask lines, replayed on the heatmap canvas (P20-4).
+    const heatBubbles: readonly BubbleMark[] = useMemo(
+        () => (heat !== null && heatSettings.trades ? bubbleMarks(heatTrades, heat.view, heat.grid) : []),
+        [heat, heatSettings.trades, heatTrades],
+    );
+    const heatOverlay = useMemo(() => {
+        if (heat === null) return undefined;
+        const paths = quotePaths(quotes, heat.view, heat.grid);
+        return (ctx: CanvasRenderingContext2D): void => drawOverlay(ctx, heat.view, paths, heatBubbles);
+    }, [heat, quotes, heatBubbles]);
 
     // ---- Candle geometry: the selected series inside the zoom and pan window. ----
     const sizeNs = barSizeNs(barSize);
@@ -704,15 +804,15 @@ export function PriceChart({
                 y: candle.yOf(m.pricePx) + markerOffset(m.side, m.stack),
             }));
         }
-        if (line !== null) {
-            return fillMarkersForLine(fills, line.win.lo, line.win.hi).map((m) => ({
+        if (timeAxis !== null) {
+            return fillMarkersForLine(fills, timeAxis.win.lo, timeAxis.win.hi).map((m) => ({
                 m,
-                x: line.xOf(m.anchor),
-                y: line.yOf(m.pricePx) + markerOffset(m.side, m.stack),
+                x: timeAxis.xOf(m.anchor),
+                y: timeAxis.yOf(m.pricePx) + markerOffset(m.side, m.stack),
             }));
         }
         return [];
-    }, [executionsOn, fills, candle, line, sizeNs]);
+    }, [executionsOn, fills, candle, timeAxis, sizeNs]);
     const markerMarks = useMemo(
         () =>
             markerPts.length === 0 ? null : (
@@ -799,6 +899,8 @@ export function PriceChart({
         if (candle !== null) {
             const extent = { oldest: candle.view.oldestBucket, newest: candle.view.newestBucket };
             setCwin(zoomCandles(viewWin, candle.view.slotW, notches, PLOT_W, extent, slotBounds));
+        } else if (heat !== null) {
+            setHwin(zoomLine(hwin, notches, heat.tMin, heat.tMax));
         } else if (line !== null) {
             setLwin(zoomLine(lwin, notches, line.tMin, line.tMax));
         }
@@ -829,7 +931,7 @@ export function PriceChart({
                 candle !== null
                     ? { window: viewWin, slotW: candle.view.slotW, rightBucket: candle.view.lastBucket }
                     : null,
-            line: line !== null ? line.win : null,
+            line: timeAxis !== null ? timeAxis.win : null,
             moved: false,
         };
         if (typeof svgEl.setPointerCapture === "function") {
@@ -867,7 +969,7 @@ export function PriceChart({
 
     /** The pointer's y read as a price on the current scene, clamped to the price area. */
     const pointerPrice = (sy: number): number | null => {
-        const sc = candles ? candle : line;
+        const sc = candles ? candle : timeAxis;
         if (sc === null) return null;
         const y = Math.max(priceTop, Math.min(priceBottom, sy));
         return priceAt(y, priceTop, priceH, sc.dMin, sc.dMax);
@@ -938,6 +1040,8 @@ export function PriceChart({
                 if (d.candle !== null && candle !== null) {
                     const extent = { oldest: candle.view.oldestBucket, newest: candle.view.newestBucket };
                     setCwin(panCandles(d.candle, dx, PLOT_W, extent));
+                } else if (d.line !== null && heat !== null) {
+                    setHwin(panLine(d.line, dx, PLOT_W, heat.tMin, heat.tMax));
                 } else if (d.line !== null && line !== null) {
                     setLwin(panLine(d.line, dx, PLOT_W, line.tMin, line.tMax));
                 }
@@ -964,6 +1068,7 @@ export function PriceChart({
             registry={registry}
             params={settings.params}
             setParam={settings.setParam}
+            heatmap={surface === "page" ? heatSettings : undefined}
         />
     );
 
@@ -989,8 +1094,8 @@ export function PriceChart({
     if (colors.candleDown !== "default") rootStyle["--candle-down"] = colors.candleDown;
     const rootClass = `price-chart price-chart--${bg}${fit ? " price-chart--fit" : ""}${
         surface === "page" ? " price-chart--page" : ""
-    }`;
-    const scene = candles ? candle : line;
+    }${heatMode ? " price-chart--heatmap" : ""}`;
+    const scene = candles ? candle : timeAxis;
 
     // Empty: a quiet frame, nothing to plot, no NaN.
     if (scene === null) {
@@ -1003,8 +1108,9 @@ export function PriceChart({
                         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
                         width="100%"
                         role="img"
-                        aria-label="Session price chart (no trades)"
+                        aria-label={heatMode ? "Liquidity heatmap (no depth)" : "Session price chart (no trades)"}
                         data-testid="price-chart"
+                        data-chart-type={chartType}
                     >
                         <rect x={0} y={0} width={VIEW_W} height={VIEW_H} fill={ink.bg} />
                         <text
@@ -1015,7 +1121,7 @@ export function PriceChart({
                             fill={ink.axis}
                             fontSize="11"
                         >
-                            No trades yet
+                            {heatMode ? "No depth yet" : "No trades yet"}
                         </text>
                     </svg>
                 </div>
@@ -1027,12 +1133,12 @@ export function PriceChart({
     const inDomain = (px: number): boolean => px >= dMin && px <= dMax;
     const sessionRef = sessionOpenPx > 0 && inDomain(sessionOpenPx) ? sessionOpenPx : null;
     const marketRef = openPx !== undefined && openPx > 0 && inDomain(openPx) ? openPx : null;
-    const following = candle !== null ? candle.view.following : line!.win.following;
+    const following = candle !== null ? candle.view.following : timeAxis!.win.following;
 
     // x-axis ticks: round clock steps, the first and any midnight crossing as a date.
     const rawTicks: readonly { readonly x: number; readonly t: number }[] =
-        candle !== null ? candle.ticks : line!.ticks.map((t) => ({ x: line!.xOf(t), t }));
-    const stepSec = candle !== null ? candle.stepSec : line!.stepSec;
+        candle !== null ? candle.ticks : timeAxis!.ticks.map((t) => ({ x: timeAxis!.xOf(t), t }));
+    const stepSec = candle !== null ? candle.stepSec : timeAxis!.stepSec;
     const tickLabels = labelTicks(
         rawTicks.map((k) => k.t),
         stepSec,
@@ -1051,8 +1157,10 @@ export function PriceChart({
 
     // Last price: the newest bar's close (candles) or the newest print (line), even
     // when panned back; the tag pins to the axis edge when it is off-scale.
-    const lastPx = candle !== null ? candle.newest.close : line!.newest.px;
-    const lastY = yOf(lastPx);
+    // The heatmap's last price is the newest print, when there is one.
+    const lastPx: number | null =
+        candle !== null ? candle.newest.close : line !== null ? line.newest.px : tape.length > 0 ? tape[0].pricePx : null;
+    const lastY = lastPx !== null ? yOf(lastPx) : priceTop;
     const lastDir = candle !== null ? dirOf(candle.newest) : null;
     const tagY = Math.max(priceTop + TAG_H / 2, Math.min(priceBottom - TAG_H / 2, lastY));
     const lastHex = lastDir === null ? lineColor : candleInk[lastDir];
@@ -1072,11 +1180,11 @@ export function PriceChart({
         if (candle !== null) {
             const ps = candle.view.bars.filter((s) => s.bar.vwap >= 0).map((s) => `${candle.xOfSlot(s.slot)},${yOf(s.bar.vwap)}`);
             vwapPts = ps.length > 0 ? ps.join(" ") : null;
-        } else if (line !== null) {
-            const steps = lineVwapSteps(seriesBars(fiveS), FIVE_S, line.win.lo, line.win.hi);
+        } else if (timeAxis !== null) {
+            const steps = lineVwapSteps(seriesBars(fiveS), FIVE_S, timeAxis.win.lo, timeAxis.win.hi);
             const ps: string[] = [];
             steps.forEach((p, i) => {
-                const x = line.xOf(p.t);
+                const x = timeAxis.xOf(p.t);
                 const y = yOf(p.vwap);
                 if (i > 0) ps.push(`${x},${yOf(steps[i - 1].vwap)}`);
                 ps.push(`${x},${y}`);
@@ -1113,6 +1221,7 @@ export function PriceChart({
     let hoverPrint: PlotPoint | null = null;
     let hoverMarker: FillMarker | null = null;
     let hoverPrice: number | null = null;
+    let hoverBubble: BubbleMark | null = null;
     if (hover !== null && !panning && orderDrag === null) {
         const mi = nearestPoint(markerPts, hover.sx, hover.sy);
         if (mi >= 0) hoverMarker = markerPts[mi].m;
@@ -1131,6 +1240,12 @@ export function PriceChart({
                 hoverPrint = line.inView[i];
                 cross = { x: hoverPrint.x, t: hoverPrint.t, py, price };
             }
+        } else if (heat !== null) {
+            // The heatmap is continuous in time: the crosshair follows the pointer.
+            const t = heat.win.lo + ((hover.sx - PLOT_LEFT) / PLOT_W) * heat.win.span;
+            cross = { x: hover.sx, t, py, price };
+            const bi = hitBubble(heatBubbles, hover.sx, hover.sy);
+            if (bi >= 0) hoverBubble = heatBubbles[bi];
         }
     }
 
@@ -1171,13 +1286,40 @@ export function PriceChart({
             }
         }
         readout = parts;
-    } else {
-        const p = hoverPrint ?? line!.inView[line!.inView.length - 1] ?? line!.newest;
+    } else if (line !== null) {
+        const p = hoverPrint ?? line.inView[line.inView.length - 1] ?? line.newest;
         readout = [
             ["", formatPrice(p.px)],
             ["x", formatQty(p.qty)],
             ["@", formatClockNanos(p.t, "s")],
         ];
+    } else {
+        // Heatmap: the hovered cell (a binned row reads its range and summed size), else the
+        // newest column's best bid and ask with their resting sizes.
+        const h = heat!;
+        const sized = (r: { readonly size: number | null } | null): string =>
+            r === null ? "-" : r.size === null ? "beyond depth" : formatQty(r.size);
+        if (cross !== null && hoverPrice !== null) {
+            const bucket = bucketOfNs(cross.t);
+            const px = h.grid.lo + Math.round((hoverPrice - h.grid.lo) / TICK_PX) * TICK_PX;
+            const cell = rowReadout(h.ring, h.grid, bucket, px);
+            const parts: Part[] = [["@", formatClockNanos(cross.t, "s")]];
+            if (cell !== null) {
+                parts.push(["PX", cell.hi > cell.lo ? `${formatPrice(cell.lo)}-${formatPrice(cell.hi)}` : formatPrice(cell.lo)]);
+            }
+            parts.push(["SIZE", sized(cell)]);
+            readout = parts;
+        } else {
+            const head = h.ring.head;
+            const parts: Part[] = [["@", formatClockNanos(bucketStartNs(head), "s")]];
+            if (bestBid > 0) parts.push(["BID", `${formatPrice(bestBid)} x ${sized(rowReadout(h.ring, h.grid, head, bestBid))}`]);
+            if (bestAsk > 0) parts.push(["ASK", `${formatPrice(bestAsk)} x ${sized(rowReadout(h.ring, h.grid, head, bestAsk))}`]);
+            readout = parts;
+        }
+        if (hoverBubble !== null) {
+            const side = hoverBubble.side ?? "TRADE";
+            readout = [...readout, [side, `${formatQty(hoverBubble.qty)} @ ${formatPrice(hoverBubble.pricePx)}`]];
+        }
     }
     // A hovered own fill marker extends the readout (P18 D2): "BUY 200 @ 1446.66".
     if (hoverMarker !== null) readout = [...readout, [hoverMarker.side, markerReadout(hoverMarker, formatPrice, formatQty)]];
@@ -1191,6 +1333,22 @@ export function PriceChart({
         <div className={rootClass} style={rootStyle as CSSProperties} data-menu-boundary="">
             {band}
             <div className="price-chart__plot" ref={setPlotEl}>
+                {heat !== null ? (
+                    <HeatmapLayer
+                        ring={heat.ring}
+                        version={depthVersion}
+                        view={heat.view}
+                        grid={heat.grid}
+                        contrast={heatSettings.contrast}
+                        overlay={heatOverlay}
+                        style={{
+                            left: `${(PLOT_LEFT / VIEW_W) * 100}%`,
+                            top: `${(priceTop / VIEW_H) * 100}%`,
+                            width: `${(PLOT_W / VIEW_W) * 100}%`,
+                            height: `${(priceH / VIEW_H) * 100}%`,
+                        }}
+                    />
+                ) : null}
                 <svg
                     ref={setSvgEl}
                     className={svgClass}
@@ -1217,7 +1375,15 @@ export function PriceChart({
                         </clipPath>
                     </defs>
 
-                    <rect x={0} y={0} width={VIEW_W} height={VIEW_H} fill={ink.bg} />
+                    {heatMode ? (
+                        <path
+                            d={`M0 0 H${VIEW_W} V${VIEW_H} H0 Z M${PLOT_LEFT} ${priceTop} V${priceBottom} H${PLOT_RIGHT} V${priceTop} Z`}
+                            fill={ink.bg}
+                            fillRule="evenodd"
+                        />
+                    ) : (
+                        <rect x={0} y={0} width={VIEW_W} height={VIEW_H} fill={ink.bg} />
+                    )}
 
                     {/* Horizontal gridlines + right-hand price labels (a label is skipped near the volume pane's). */}
                     {levels.map((v) =>
@@ -1314,7 +1480,7 @@ export function PriceChart({
                     ) : null}
 
                     {/* Dashed last-price level across the plot (Bloomberg GP signature). */}
-                    {lastDir !== null ? (
+                    {lastPx === null ? null : lastDir !== null ? (
                         <line
                             className={`price-chart__level price-chart__level--${lastDir}`}
                             data-testid="price-chart-level"
@@ -1391,6 +1557,9 @@ export function PriceChart({
                     {bollMarks !== null ? <g clipPath={clip}>{bollMarks}</g> : null}
                     {maMarks !== null ? <g clipPath={clip}>{maMarks}</g> : null}
 
+                    {vwapPts !== null && heatMode ? (
+                        <polyline className="price-chart__casing" data-testid="price-chart-vwap-casing" points={vwapPts} clipPath={clip} />
+                    ) : null}
                     {vwapPts !== null ? (
                         <polyline className="price-chart__vwap" data-testid="price-chart-vwap" points={vwapPts} clipPath={clip} />
                     ) : null}
@@ -1407,6 +1576,17 @@ export function PriceChart({
                                 const x = PLOT_RIGHT - 2 - w;
                                 return (
                                     <g key={o.clOrdId} data-order-id={o.clOrdId}>
+                                        {o.pin === null && heatMode ? (
+                                            <line
+                                                className="price-chart__casing"
+                                                data-testid="price-chart-order-casing"
+                                                x1={PLOT_LEFT}
+                                                y1={y}
+                                                x2={PLOT_RIGHT}
+                                                y2={y}
+                                                clipPath={clip}
+                                            />
+                                        ) : null}
                                         {o.pin === null ? (
                                             <line
                                                 className={`price-chart__order price-chart__order--${side} price-chart__order--${o.kind}`}
@@ -1455,7 +1635,7 @@ export function PriceChart({
                     ) : null}
 
                     {/* Last-price tag on the right axis; its ink is chosen by luminance. */}
-                    {lastDir !== null ? (
+                    {lastPx === null ? null : lastDir !== null ? (
                         <g data-testid="price-chart-tag">
                             <rect
                                 className={`price-chart__tagbg price-chart__tagbg--${lastDir}`}
@@ -1653,6 +1833,7 @@ export function PriceChart({
                         }}
                         onClick={() => {
                             if (candles) setCwin({ slotW: cwin.slotW, rightBucket: null });
+                            else if (heatMode) setHwin({ spanNs: hwin.spanNs, rightT: null });
                             else setLwin({ spanNs: lwin.spanNs, rightT: null });
                         }}
                     >

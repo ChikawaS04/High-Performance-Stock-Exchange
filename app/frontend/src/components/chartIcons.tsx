@@ -31,6 +31,18 @@ export function FootprintIcon() {
 }
 
 /** A polyline. */
+/** The liquidity heatmap (P20-5): a grid of cells, brighter where liquidity rests. */
+export function HeatmapIcon() {
+    return (
+        <svg className="chart-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" data-icon="heatmap">
+            <rect x="1.5" y="1.5" width="11" height="11" fill="none" stroke="currentColor" />
+            <rect x="1.5" y="4" width="5.5" height="2.5" fill="currentColor" opacity="0.45" />
+            <rect x="7" y="4" width="5.5" height="2.5" fill="currentColor" />
+            <rect x="4" y="8.5" width="8.5" height="2" fill="currentColor" opacity="0.7" />
+        </svg>
+    );
+}
+
 export function LineIcon() {
     return (
         <svg className="chart-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" data-icon="line">

@@ -80,7 +80,7 @@ import { ChartsPage } from "./pages/ChartsPage";
 import "./styles/terminal.css";
 
 export default function App() {
-    const { state, send, dispatchLocal } = useOrderBook();
+    const { state, send, dispatchLocal, depth } = useOrderBook();
     const { openPx } = useIgnitionPrice();
     const navigate = useNavigate();
     const [priceOverlayOpen, setPriceOverlayOpen] = useState(false);
@@ -173,6 +173,7 @@ export default function App() {
                             onViewInTrading={handleViewInTrading}
                             onReprice={handleReprice}
                             repricing={repricing}
+                            depth={depth}
                         />
                     }
                 />

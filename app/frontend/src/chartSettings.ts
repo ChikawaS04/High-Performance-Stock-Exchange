@@ -43,17 +43,17 @@ export type { ChartSurface, ChartType } from "./indicators/registry";
 
 /** The chart types the floating window offers (and every surface before Phase 19). */
 export const CHART_TYPES: readonly ChartType[] = ["line", "candles"];
-/** The Charts page adds footprint (P19-6, P19 D6). */
-export const PAGE_CHART_TYPES: readonly ChartType[] = ["line", "candles", "footprint"];
+/** The Charts page adds footprint (P19-6, P19 D6) and the liquidity heatmap (P20-5, P20 D6). */
+export const PAGE_CHART_TYPES: readonly ChartType[] = ["line", "candles", "footprint", "heatmap"];
 
 /** The chart types a surface offers. */
 export function chartTypesFor(surface: ChartSurface): readonly ChartType[] {
     return surface === "page" ? PAGE_CHART_TYPES : CHART_TYPES;
 }
 
-/** Candles and footprint draw bars and lay out lower panes; line does not. */
+/** Candles and footprint draw bars and lay out lower panes; line and the heatmap do not. */
 export function isBarChart(t: ChartType): boolean {
-    return t !== "line";
+    return t === "candles" || t === "footprint";
 }
 
 export const DEFAULT_CHART_TYPE: ChartType = "candles";
@@ -65,7 +65,7 @@ export const DEFAULT_INDICATORS: readonly string[] = defaultIndicatorIds();
 /** The ids every surface had offered before indicatorsSeen was stored (Phase 17). */
 export const SEEN_BEFORE_P18: readonly string[] = ["volume", "vwap"];
 
-/** The window's validator: a stored "footprint" there fails and is dropped to the default (P19-6). */
+/** The window's validator: a stored "footprint" or "heatmap" there fails and is dropped to the default (P19-6, P20-5). */
 export const isChartType: Validator<ChartType> = oneOf<ChartType>(CHART_TYPES);
 export const isPageChartType: Validator<ChartType> = oneOf<ChartType>(PAGE_CHART_TYPES);
 

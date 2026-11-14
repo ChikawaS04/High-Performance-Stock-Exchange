@@ -54,6 +54,9 @@ export const SETTING_KEYS = {
     priceWindowIndicatorsSeen: settingKey("priceWindow", "indicatorsSeen"),
     // Indicator parameters per surface (P19-7): indicator id, then param id, then value.
     priceChartIndicatorParams: settingKey("priceChart", "indicatorParams"),
+    // The heatmap's display settings (P20-5), Charts page only: the heatmap is not offered on the window.
+    priceChartHeatmapContrast: settingKey("priceChart", "heatmapContrast"),
+    priceChartHeatmapTrades: settingKey("priceChart", "heatmapTrades"),
     priceWindowIndicatorParams: settingKey("priceWindow", "indicatorParams"),
     depthChartBackground: settingKey("depthChart", "background"),
     bookReaderDepth: settingKey("bookReader", "depth"),

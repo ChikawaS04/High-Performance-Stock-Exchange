@@ -6,7 +6,8 @@
  *    §11.5 list as a menu with one item, View in trading. Then a 1px divider.
  *  - Chart type: the compact white single-select (FieldMenu), the trigger showing the
  *    current type's icon and name, each option its icon and label.
- *  - Bar size: the compact single-select, mono options right-aligned. Hidden in line mode.
+ *  - Bar size: the compact single-select, mono options right-aligned. Hidden in line and
+ *    heatmap mode (P20-5): only the bar chart types draw bars.
  *    In footprint (Charts page only, P19-6) it offers only 1m and 5m, the sizes that
  *    keep per-price detail; FieldMenu has no disabled options, so the others are left out.
  *  - Indicators: a raised charcoal button with the indicator icon, opening a §10
@@ -30,23 +31,24 @@ import { createPortal } from "react-dom";
 
 import { BAR_SIZE_IDS, FOOTPRINT_SIZES } from "../bars";
 import type { BarSizeId } from "../bars";
-import { chartTypesFor } from "../chartSettings";
+import { chartTypesFor, isBarChart } from "../chartSettings";
 import type { ChartSurface, ChartType } from "../chartSettings";
 import { INDICATORS } from "../indicators/registry";
 import type { IndicatorDescriptor } from "../indicators/registry";
 import { FieldMenu, useListPlacement } from "./FieldMenu";
 import type { MenuOption } from "./FieldMenu";
 import { IndicatorRows } from "./IndicatorRows";
-import { CandleIcon, FootprintIcon, GearIcon, IndicatorIcon, LineIcon } from "./chartIcons";
+import { CandleIcon, FootprintIcon, GearIcon, HeatmapIcon, IndicatorIcon, LineIcon } from "./chartIcons";
 
 type BandPopup = "view" | "ind" | "settings";
 
-const TYPE_LABEL: Readonly<Record<ChartType, string>> = { candles: "Candles", line: "Line", footprint: "Footprint" };
+const TYPE_LABEL: Readonly<Record<ChartType, string>> = { candles: "Candles", line: "Line", footprint: "Footprint", heatmap: "Heatmap" };
 
 const ALL_TYPE_OPTIONS: readonly MenuOption[] = [
     { value: "candles", label: "Candles", icon: <CandleIcon /> },
     { value: "line", label: "Line", icon: <LineIcon /> },
     { value: "footprint", label: "Footprint", icon: <FootprintIcon /> },
+    { value: "heatmap", label: "Heatmap", icon: <HeatmapIcon /> },
 ];
 
 const SIZE_OPTIONS: readonly MenuOption[] = BAR_SIZE_IDS.map((s) => ({ value: s, label: s }));
@@ -161,7 +163,7 @@ export function ChartBand({
                     }}
                 />
 
-                {chartType !== "line" ? (
+                {isBarChart(chartType) ? (
                     <FieldMenu
                         testId="pc-band-size"
                         ariaLabel={`Bar size: ${barSize}`}

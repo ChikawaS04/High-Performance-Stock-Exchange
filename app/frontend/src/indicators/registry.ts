@@ -19,11 +19,12 @@
 
 export type ChartSurface = "page" | "window";
 /**
- * Line and candles on both surfaces; footprint (P19-6, P19 D6) on the Charts page only
- * (chartSettings.chartTypesFor). Candles and footprint are the bar chart types: both
- * draw the selected bar series and lay out lower panes.
+ * Line and candles on both surfaces; footprint (P19-6, P19 D6) and the liquidity
+ * heatmap (P20-5, P20 D6) on the Charts page only (chartSettings.chartTypesFor).
+ * Candles and footprint are the bar chart types: both draw the selected bar series and
+ * lay out lower panes. The heatmap draws on the line chart's time axis with no panes.
  */
-export type ChartType = "line" | "candles" | "footprint";
+export type ChartType = "line" | "candles" | "footprint" | "heatmap";
 export type IndicatorPlacement = "overlay" | "pane";
 
 /**
@@ -79,7 +80,9 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
         label: "VWAP",
         placement: "overlay",
         surfaces: ["page", "window"],
-        chartTypes: ["line", "candles", "footprint"],
+        // P20-5: the heatmap draws the time-axis overlays: VWAP, own fills and orders.
+        // Bid/Ask is built into the heatmap, the volume profile would cover its cells.
+        chartTypes: ["line", "candles", "footprint", "heatmap"],
         defaultOn: true,
     },
     // P18-2: own fills as markers (P18 D2), on both surfaces and both chart types.
@@ -88,7 +91,7 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
         label: "Executions",
         placement: "overlay",
         surfaces: ["page", "window"],
-        chartTypes: ["line", "candles", "footprint"],
+        chartTypes: ["line", "candles", "footprint", "heatmap"],
         defaultOn: true,
     },
     // P18-3: own working orders as lines (P18 D3), on both surfaces and both chart types.
@@ -97,7 +100,7 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
         label: "Orders",
         placement: "overlay",
         surfaces: ["page", "window"],
-        chartTypes: ["line", "candles", "footprint"],
+        chartTypes: ["line", "candles", "footprint", "heatmap"],
         defaultOn: true,
     },
     // P18-7: best bid and ask over time as step lines (P18 D7), off by default.

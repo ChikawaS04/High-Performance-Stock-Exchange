@@ -158,6 +158,10 @@ describe("gear popup colours", () => {
             "Line color",
             "Area fill",
             "Fill color",
+            // P20-5: the page's popup adds the heatmap rows (disabled outside heatmap mode).
+            "Heatmap",
+            "Contrast",
+            "Trades",
         ]);
         expect(screen.getByTestId("pc-reset-colors").textContent).toBe("Reset colors");
     });
