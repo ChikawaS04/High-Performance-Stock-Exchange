@@ -34,10 +34,10 @@ describe("chart settings validators (P17-4)", () => {
         expect(isStringArray({ 0: "volume" })).toBe(false);
     });
 
-    it("defaults are candles, 15s, volume, VWAP and Executions (P18-2)", () => {
+    it("defaults are candles, 15s, volume, VWAP, Executions and Orders (P18-3)", () => {
         expect(DEFAULT_CHART_TYPE).toBe("candles");
         expect(DEFAULT_BAR_SIZE).toBe("15s");
-        expect(DEFAULT_INDICATORS).toEqual(["volume", "vwap", "executions"]);
+        expect(DEFAULT_INDICATORS).toEqual(["volume", "vwap", "executions", "orders"]);
     });
 });
 

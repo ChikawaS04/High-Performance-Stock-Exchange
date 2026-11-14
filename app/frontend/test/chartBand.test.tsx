@@ -94,7 +94,7 @@ describe("page band", () => {
         const pop = screen.getByTestId("pc-ind-pop");
         expect(pop.className).toContain("settings-pop");
         fireEvent.click(screen.getByTestId("pc-ind-vwap-off"));
-        expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["volume", "executions"]);
+        expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["volume", "executions", "orders"]);
         fireEvent.click(screen.getByTestId("pc-ind-pop-close"));
         expect(screen.queryByTestId("pc-ind-pop")).toBeNull();
         fireEvent.click(screen.getByTestId("pc-settings-gear"));

@@ -6,7 +6,8 @@
  * Phase 17 registers volume (a pane, candles only, since volume per bar needs bars)
  * and VWAP (an overlay, both chart types). Later phases add descriptors here, and a
  * params field arrives with its first consumer (Phase 19). Phase 18 adds the own
- * fill markers (Executions) and the defaultOn flag.
+ * fill markers (Executions), the working order lines (Orders) and the defaultOn
+ * flag.
  *
  * Overlays are unlimited. Lower panes are capped per surface (PANE_CAP), because
  * past that the price area gets too short to read. Every function that reads the
@@ -40,6 +41,15 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
     {
         id: "executions",
         label: "Executions",
+        placement: "overlay",
+        surfaces: ["page", "window"],
+        chartTypes: ["line", "candles"],
+        defaultOn: true,
+    },
+    // P18-3: own working orders as lines (P18 D3), on both surfaces and both chart types.
+    {
+        id: "orders",
+        label: "Orders",
         placement: "overlay",
         surfaces: ["page", "window"],
         chartTypes: ["line", "candles"],

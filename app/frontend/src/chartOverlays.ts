@@ -12,10 +12,22 @@
  * price, stacked outward (buys down, sells up) by MARKER_STACK_PX per fill. A
  * larger group draws one marker with a count, at the group's quantity-weighted
  * average price.
+ *
+ * Working order lines (P18 D3). One line per own resting order: a limit at its own
+ * price (dashed), a midpoint peg at the current venue mid (dotted). The mid is the
+ * exact mean of the lit best bid and best ask, as the engine computes it; both tops
+ * are on the one-cent tick, so it is a whole number of units (a multiple of 50) and
+ * may sit on a half cent. It is never snapped. With either side of the book empty
+ * there is no mid, so a peg has no line. A line whose price is outside the visible
+ * price domain is pinned to the nearer edge as a tag with an arrow, so a working
+ * order is never invisible; order lines never widen the domain. Only a limit line
+ * is draggable (P18-4); a peg has no price of its own.
  */
 
 import { bucketOf, vwapUnits } from "./bars";
+import { formatQty } from "./format";
 import type { OwnFill } from "./state/reducer";
+import type { WorkingOrder } from "./ownExecutions";
 import type { Side } from "./protocol/messages";
 
 /** Outward offset between stacked markers in one group, in drawing units. */
@@ -143,4 +155,81 @@ export function nearestPoint(points: readonly { readonly x: number; readonly y: 
 export function markerReadout(m: FillMarker, formatPrice: (px: number) => string, formatQty: (q: number) => string): string {
     const base = `${formatQty(m.qty)} @ ${formatPrice(m.pricePx)}`;
     return m.count > 1 ? `${base} (${m.count} fills)` : base;
+}
+
+// ---- Working order lines (P18 D3) ----------------------------------------------
+
+export type OrderPin = "top" | "bottom";
+
+export interface OrderLine {
+    readonly clOrdId: number;
+    readonly side: Side;
+    readonly kind: "limit" | "peg";
+    /** The line's price in units: the limit, or the current mid for a peg. */
+    readonly pricePx: number;
+    /** Set when the price is outside the visible domain: the edge the tag pins to. */
+    readonly pin: OrderPin | null;
+    /** Tag text: "BUY 200 LMT", an iceberg "BUY 100/500 LMT", a peg "SELL 50 PEG". */
+    readonly label: string;
+    /** Only a limit line can be dragged to reprice (P18-4). */
+    readonly draggable: boolean;
+}
+
+/** The venue mid in units, or null when either side of the lit book is empty. */
+export function venueMid(bestBid: number, bestAsk: number): number | null {
+    if (bestBid <= 0 || bestAsk <= 0) return null;
+    // Integer mean, as MatchingEngine.mid() computes it: exact for on-tick tops.
+    return Math.floor((bestBid + bestAsk) / 2);
+}
+
+/** The tag text for a working order (see OrderLine.label). */
+export function orderLabel(w: WorkingOrder): string {
+    if (w.ordType === "PEG_MID") return `${w.side} ${formatQty(w.remainingQty)} PEG`;
+    const qty =
+        w.displayQty !== null ? `${formatQty(Math.min(w.displayQty, w.remainingQty))}/${formatQty(w.remainingQty)}` : formatQty(w.remainingQty);
+    return `${w.side} ${qty} LMT`;
+}
+
+/**
+ * One line per working order, in the working list's order. A peg is left out when
+ * there is no mid. `dMin` and `dMax` are the visible price domain in units.
+ */
+export function placeOrderLines(
+    working: readonly WorkingOrder[],
+    mid: number | null,
+    dMin: number,
+    dMax: number,
+): readonly OrderLine[] {
+    const out: OrderLine[] = [];
+    for (const w of working) {
+        const isPeg = w.limitPx === null;
+        const pricePx = isPeg ? mid : w.limitPx;
+        if (pricePx === null) continue;
+        const pin: OrderPin | null = pricePx > dMax ? "top" : pricePx < dMin ? "bottom" : null;
+        out.push({
+            clOrdId: w.clOrdId,
+            side: w.side,
+            kind: isPeg ? "peg" : "limit",
+            pricePx,
+            pin,
+            label: orderLabel(w),
+            draggable: !isPeg,
+        });
+    }
+    return out;
+}
+
+/**
+ * The y of each order tag: its line's y when in domain; pinned tags stack inward
+ * from their edge, one tag height apart, so several off-screen orders all show.
+ * `yOf` maps a price to drawing units; `top` and `bottom` bound the price area.
+ */
+export function orderTagYs(lines: readonly OrderLine[], yOf: (px: number) => number, top: number, bottom: number, tagH: number): readonly number[] {
+    let topN = 0;
+    let bottomN = 0;
+    return lines.map((l) => {
+        if (l.pin === "top") return top + tagH / 2 + tagH * topN++;
+        if (l.pin === "bottom") return bottom - tagH / 2 - tagH * bottomN++;
+        return yOf(l.pricePx);
+    });
 }

@@ -33,6 +33,7 @@ import { FloatingWindow } from "./FloatingWindow";
 import { SETTING_KEYS } from "../settings/persist";
 import type { BarSet } from "../bars";
 import type { OwnFill, TapeEntry } from "../state/reducer";
+import type { WorkingOrder } from "../ownExecutions";
 
 export interface PriceChartOverlayProps {
     readonly open: boolean;
@@ -42,6 +43,10 @@ export interface PriceChartOverlayProps {
     readonly bars: BarSet;
     /** Own fills for the chart's markers (P18-2), from buildOwnExecutions. */
     readonly fills?: readonly OwnFill[];
+    /** Own resting orders and the lit tops, for the order lines (P18-3). */
+    readonly working?: readonly WorkingOrder[];
+    readonly bestBid?: number;
+    readonly bestAsk?: number;
     readonly sessionOpenPx: number;
     readonly openPx?: number;
 }
@@ -56,6 +61,9 @@ export function PriceChartOverlay({
     tape,
     bars,
     fills,
+    working,
+    bestBid,
+    bestAsk,
     sessionOpenPx,
     openPx,
 }: PriceChartOverlayProps) {
@@ -91,6 +99,9 @@ export function PriceChartOverlay({
                 bars={bars}
                 surface="window"
                 fills={fills}
+                working={working}
+                bestBid={bestBid}
+                bestAsk={bestAsk}
                 sessionOpenPx={sessionOpenPx}
                 openPx={openPx}
                 onClose={onClose}

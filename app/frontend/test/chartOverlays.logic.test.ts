@@ -9,7 +9,12 @@ import {
     markerOffset,
     markerReadout,
     nearestPoint,
+    orderLabel,
+    orderTagYs,
+    placeOrderLines,
+    venueMid,
 } from "../src/chartOverlays";
+import type { WorkingOrder } from "../src/ownExecutions";
 import { bucketOf } from "../src/bars";
 import type { OwnFill } from "../src/state/reducer";
 import type { Side } from "../src/protocol/messages";
@@ -121,5 +126,76 @@ describe("marker geometry and hover", () => {
         const four = newestFirst(...[1, 2, 3, 4].map((i) => own(T0 + i * S, "SELL", 14_466_600, 50)));
         const [count] = fillMarkersForCandles(four, B0, B0, NS);
         expect(markerReadout(count, formatPrice, formatQty)).toBe(`${formatQty(200)} @ 1446.66 (4 fills)`);
+    });
+});
+
+function working(over: Partial<WorkingOrder> & Pick<WorkingOrder, "clOrdId">): WorkingOrder {
+    return { side: "BUY", ordType: "LIMIT", limitPx: 1_000_000, remainingQty: 200, displayQty: null, ...over };
+}
+
+describe("venueMid (P18 D3)", () => {
+    it("is the exact mean of the lit tops, a half cent when the spread is one tick", () => {
+        expect(venueMid(1_000_000, 1_000_200)).toBe(1_000_100);
+        expect(venueMid(1_000_000, 1_000_100)).toBe(1_000_050);
+    });
+
+    it("is null when either side is empty", () => {
+        expect(venueMid(-1, 1_000_100)).toBeNull();
+        expect(venueMid(1_000_000, -1)).toBeNull();
+    });
+});
+
+describe("placeOrderLines (P18 D3)", () => {
+    it("draws a limit at its price and labels it, iceberg with its displayed size", () => {
+        const lines = placeOrderLines(
+            [working({ clOrdId: 1 }), working({ clOrdId: 2, side: "SELL", limitPx: 1_000_400, remainingQty: 500, displayQty: 100 })],
+            null,
+            999_000,
+            1_001_000,
+        );
+        expect(lines.map((l) => [l.clOrdId, l.kind, l.pricePx, l.pin, l.label, l.draggable])).toEqual([
+            [1, "limit", 1_000_000, null, "BUY 200 LMT", true],
+            [2, "limit", 1_000_400, null, "SELL 100/500 LMT", true],
+        ]);
+    });
+
+    it("draws a peg at the mid, never draggable, and leaves it out with no mid", () => {
+        const peg = working({ clOrdId: 3, ordType: "PEG_MID", limitPx: null, remainingQty: 50 });
+        const [line] = placeOrderLines([peg], 1_000_050, 999_000, 1_001_000);
+        expect(line).toMatchObject({ kind: "peg", pricePx: 1_000_050, draggable: false, label: "BUY 50 PEG", pin: null });
+        expect(placeOrderLines([peg], null, 999_000, 1_001_000)).toHaveLength(0);
+    });
+
+    it("pins an order outside the domain to the nearer edge", () => {
+        const lines = placeOrderLines(
+            [working({ clOrdId: 1, limitPx: 2_000_000 }), working({ clOrdId: 2, limitPx: 500_000 }), working({ clOrdId: 3, limitPx: 1_001_000 })],
+            null,
+            999_000,
+            1_001_000,
+        );
+        expect(lines.map((l) => l.pin)).toEqual(["top", "bottom", null]);
+    });
+
+    it("never shows an iceberg's displayed size above what is left, and groups thousands", () => {
+        expect(orderLabel(working({ clOrdId: 1, remainingQty: 60, displayQty: 100 }))).toBe("BUY 60/60 LMT");
+        expect(orderLabel(working({ clOrdId: 1, remainingQty: 2_500 }))).toBe("BUY 2,500 LMT");
+    });
+});
+
+describe("orderTagYs (P18 D3)", () => {
+    it("puts an in-domain tag on its line and stacks pinned tags inward from each edge", () => {
+        const lines = placeOrderLines(
+            [
+                working({ clOrdId: 1, limitPx: 2_000_000 }),
+                working({ clOrdId: 2, limitPx: 3_000_000 }),
+                working({ clOrdId: 3, limitPx: 500_000 }),
+                working({ clOrdId: 4, limitPx: 1_000_000 }),
+            ],
+            null,
+            999_000,
+            1_001_000,
+        );
+        const ys = orderTagYs(lines, () => 123, 20, 220, 14);
+        expect(ys).toEqual([27, 41, 213, 123]);
     });
 });

@@ -13,7 +13,7 @@ describe("useChartSettings (P17-4)", () => {
         const { result } = renderHook(() => useChartSettings("page"));
         expect(result.current.chartType).toBe("candles");
         expect(result.current.barSize).toBe("15s");
-        expect(result.current.indicators).toEqual(["volume", "vwap", "executions"]);
+        expect(result.current.indicators).toEqual(["volume", "vwap", "executions", "orders"]);
     });
 
     it("keeps separate values for the page and the window", () => {
@@ -26,7 +26,7 @@ describe("useChartSettings (P17-4)", () => {
         });
         expect(page.result.current.chartType).toBe("line");
         expect(page.result.current.barSize).toBe("15s");
-        expect(page.result.current.indicators).toEqual(["volume", "vwap", "executions"]);
+        expect(page.result.current.indicators).toEqual(["volume", "vwap", "executions", "orders"]);
         expect(win.result.current.chartType).toBe("candles");
         expect(win.result.current.barSize).toBe("5m");
         expect(win.result.current.indicators).toEqual(["vwap"]);
@@ -49,7 +49,7 @@ describe("useChartSettings (P17-4)", () => {
     it("cleans a stored set with unknown ids without losing the key", () => {
         localStorage.setItem("hpse.v1.priceChart.indicators", JSON.stringify(["bogus", "vwap", "vwap"]));
         // Every registered id already offered, so the P18-2 migration adds nothing here.
-        localStorage.setItem("hpse.v1.priceChart.indicatorsSeen", JSON.stringify(["volume", "vwap", "executions"]));
+        localStorage.setItem("hpse.v1.priceChart.indicatorsSeen", JSON.stringify(["volume", "vwap", "executions", "orders"]));
         const { result } = renderHook(() => useChartSettings("page"));
         expect(result.current.indicators).toEqual(["vwap"]);
         expect(localStorage.getItem("hpse.v1.priceChart.indicators")).not.toBeNull();
@@ -67,12 +67,17 @@ describe("useChartSettings indicator migration (P18-2)", () => {
     it("switches Executions on once for a set stored before it existed, and a later off sticks", () => {
         localStorage.setItem("hpse.v1.priceWindow.indicators", JSON.stringify(["volume"]));
         const first = renderHook(() => useChartSettings("window"));
-        expect(first.result.current.indicators).toEqual(["volume", "executions"]);
-        expect(JSON.parse(localStorage.getItem("hpse.v1.priceWindow.indicators") ?? "null")).toEqual(["volume", "executions"]);
+        expect(first.result.current.indicators).toEqual(["volume", "executions", "orders"]);
+        expect(JSON.parse(localStorage.getItem("hpse.v1.priceWindow.indicators") ?? "null")).toEqual([
+            "volume",
+            "executions",
+            "orders",
+        ]);
         expect(JSON.parse(localStorage.getItem("hpse.v1.priceWindow.indicatorsSeen") ?? "null")).toEqual([
             "volume",
             "vwap",
             "executions",
+            "orders",
         ]);
         act(() => first.result.current.setIndicators(["volume"]));
         first.unmount();
@@ -83,7 +88,7 @@ describe("useChartSettings indicator migration (P18-2)", () => {
     it("migrates each surface on its own keys", () => {
         localStorage.setItem("hpse.v1.priceChart.indicators", JSON.stringify(["vwap"]));
         const page = renderHook(() => useChartSettings("page"));
-        expect(page.result.current.indicators).toEqual(["vwap", "executions"]);
+        expect(page.result.current.indicators).toEqual(["vwap", "executions", "orders"]);
         expect(localStorage.getItem("hpse.v1.priceWindow.indicatorsSeen")).toBeNull();
     });
 });

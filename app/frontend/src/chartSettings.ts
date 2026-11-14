@@ -44,7 +44,7 @@ export const CHART_TYPES: readonly ChartType[] = ["line", "candles"];
 export const DEFAULT_CHART_TYPE: ChartType = "candles";
 /** 15s: the bots' fill rate gives a 1m chart only a handful of candles in a short session (F11). */
 export const DEFAULT_BAR_SIZE: BarSizeId = "15s";
-/** Every registered indicator marked defaultOn: volume, VWAP and Executions. */
+/** Every registered indicator marked defaultOn: volume, VWAP, Executions and Orders. */
 export const DEFAULT_INDICATORS: readonly string[] = defaultIndicatorIds();
 
 /** The ids every surface had offered before indicatorsSeen was stored (Phase 17). */

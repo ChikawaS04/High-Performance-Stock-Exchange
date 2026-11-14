@@ -85,8 +85,18 @@ import type { IndicatorDescriptor } from "../indicators/registry";
 import { layoutPanes } from "../indicators/layoutPanes";
 import type { PaneLayout } from "../indicators/layoutPanes";
 import type { OwnFill, TapeEntry } from "../state/reducer";
-import { fillMarkersForCandles, fillMarkersForLine, markerOffset, markerReadout, nearestPoint } from "../chartOverlays";
+import {
+    fillMarkersForCandles,
+    fillMarkersForLine,
+    markerOffset,
+    markerReadout,
+    nearestPoint,
+    orderTagYs,
+    placeOrderLines,
+    venueMid,
+} from "../chartOverlays";
 import type { FillMarker } from "../chartOverlays";
+import type { WorkingOrder } from "../ownExecutions";
 import { ChartBand } from "./ChartBand";
 import { ChartSettingsPopup } from "./ChartSettingsPopup";
 
@@ -229,9 +239,22 @@ export interface PriceChartProps {
     readonly registry?: readonly IndicatorDescriptor[];
     /** This terminal's own fills, newest first (buildOwnExecutions().fills), for the markers (P18-2). */
     readonly fills?: readonly OwnFill[];
+    /** This terminal's resting orders (buildOwnExecutions().working), for the order lines (P18-3). */
+    readonly working?: readonly WorkingOrder[];
+    /** Lit best bid and ask in units (state.book), for a peg's line at the mid; -1 when a side is empty. */
+    readonly bestBid?: number;
+    readonly bestAsk?: number;
 }
 
 const NO_FILLS: readonly OwnFill[] = [];
+const NO_WORKING: readonly WorkingOrder[] = [];
+/** Order tag height, and the gap kept between a tag and the price axis. */
+const ORDER_TAG_H = 14;
+
+/** Approximate width of an order tag: 10px mono label plus padding and an arrow when pinned. */
+function orderTagWidth(label: string, pinned: boolean): number {
+    return (label.length + (pinned ? 2 : 0)) * 6.1 + 10;
+}
 
 /** One placed fill marker: its point in drawing units (the triangle's centre). */
 interface MarkerPoint {
@@ -276,6 +299,9 @@ export function PriceChart({
     surface = "page",
     registry = INDICATORS,
     fills = NO_FILLS,
+    working = NO_WORKING,
+    bestBid = -1,
+    bestAsk = -1,
 }: PriceChartProps) {
     // Display settings persist, shared by the page and the floating window (§13).
     const colors = useChartColors();
@@ -313,6 +339,7 @@ export function PriceChart({
     const drawable = drawableIds(surface, chartType, indicators, registry);
     const vwapOn = drawable.includes("vwap");
     const executionsOn = drawable.includes("executions");
+    const ordersOn = drawable.includes("orders");
     const candleInk = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     // Lower panes only in candle mode (volume needs bars); price keeps >= 60%. Keyed
@@ -790,6 +817,11 @@ export function PriceChart({
     }
     const vwapTagY = vwapPts !== null ? placeVwapTag(tagY, yOf(vwapNow), priceTop, priceBottom, TAG_H) : null;
 
+    // Working order lines (P18-3): a limit dashed at its price, a peg dotted at the mid,
+    // an off-domain order pinned to the edge as a tag with an arrow. Never widen the domain.
+    const orderLines = ordersOn ? placeOrderLines(working, venueMid(bestBid, bestAsk), dMin, dMax) : [];
+    const orderYs = orderTagYs(orderLines, yOf, priceTop, priceBottom, ORDER_TAG_H);
+
     // Crosshair (P17-10), hidden while panning.
     let cross: { readonly x: number; readonly t: number; readonly py: number | null; readonly price: number | null } | null = null;
     let hoverBar: Bar | null = null;
@@ -1031,6 +1063,59 @@ export function PriceChart({
                     ) : null}
 
                     {markerMarks !== null ? <g clipPath={clip}>{markerMarks}</g> : null}
+
+                    {orderLines.length > 0 ? (
+                        <g className="price-chart__orders" data-testid="price-chart-orders">
+                            {orderLines.map((o, i) => {
+                                const side = o.side === "BUY" ? "buy" : "sell";
+                                const y = orderYs[i];
+                                const text = o.pin === null ? o.label : `${o.pin === "top" ? "▲" : "▼"} ${o.label}`;
+                                const w = orderTagWidth(o.label, o.pin !== null);
+                                const x = PLOT_RIGHT - 2 - w;
+                                return (
+                                    <g key={o.clOrdId} data-order-id={o.clOrdId}>
+                                        {o.pin === null ? (
+                                            <line
+                                                className={`price-chart__order price-chart__order--${side} price-chart__order--${o.kind}`}
+                                                data-testid="price-chart-order"
+                                                data-kind={o.kind}
+                                                x1={PLOT_LEFT}
+                                                y1={y}
+                                                x2={PLOT_RIGHT}
+                                                y2={y}
+                                                clipPath={clip}
+                                            />
+                                        ) : null}
+                                        <g
+                                            className={`price-chart__order-tag price-chart__order-tag--${side}`}
+                                            data-testid="price-chart-order-tag"
+                                            data-pin={o.pin ?? ""}
+                                            data-draggable={o.draggable ? "true" : "false"}
+                                        >
+                                            <rect
+                                                className={`price-chart__order-tagbg price-chart__order-tagbg--${side}`}
+                                                x={x}
+                                                y={y - ORDER_TAG_H / 2}
+                                                width={w}
+                                                height={ORDER_TAG_H}
+                                                rx="2"
+                                            />
+                                            <text
+                                                className="price-chart__order-text"
+                                                data-testid="price-chart-order-text"
+                                                x={x + w / 2}
+                                                y={y}
+                                                dominantBaseline="middle"
+                                                textAnchor="middle"
+                                            >
+                                                {text}
+                                            </text>
+                                        </g>
+                                    </g>
+                                );
+                            })}
+                        </g>
+                    ) : null}
 
                     {/* Last-price tag on the right axis; its ink is chosen by luminance. */}
                     {lastDir !== null ? (

@@ -94,6 +94,7 @@ describe("Indicators category (P17-9)", () => {
             "Volume",
             "VWAP",
             "Executions",
+            "Orders",
         ]);
         const opts = screen.getByTestId("pc-ind-vwap-row").querySelectorAll(".settings-toggle__opt");
         expect(Array.from(opts).map((o) => o.textContent)).toEqual(["On", "Off"]);
@@ -105,9 +106,10 @@ describe("Indicators category (P17-9)", () => {
     it("persists each indicator toggle", () => {
         const { unmount } = open();
         fireEvent.click(screen.getByTestId("pc-ind-vwap-off"));
-        expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["volume", "executions"]);
+        expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["volume", "executions", "orders"]);
         fireEvent.click(screen.getByTestId("pc-ind-volume-off"));
         fireEvent.click(screen.getByTestId("pc-ind-executions-off"));
+        fireEvent.click(screen.getByTestId("pc-ind-orders-off"));
         expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual([]);
         unmount();
         open();

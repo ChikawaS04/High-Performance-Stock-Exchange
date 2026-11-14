@@ -181,6 +181,9 @@ export function TradingPage({
                 tape={state.tape}
                 bars={state.bars}
                 fills={own.fills}
+                working={own.working}
+                bestBid={state.book.bestBid}
+                bestAsk={state.book.bestAsk}
                 sessionOpenPx={state.sessionOpenPx}
                 openPx={openPx}
             />

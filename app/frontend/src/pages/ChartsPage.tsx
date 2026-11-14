@@ -88,6 +88,9 @@ export function ChartsPage({
                     bars={state.bars}
                     surface="page"
                     fills={own.fills}
+                    working={own.working}
+                    bestBid={state.book.bestBid}
+                    bestAsk={state.book.bestAsk}
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
                     onViewInTrading={onViewInTrading}

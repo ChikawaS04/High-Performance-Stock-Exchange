@@ -4302,6 +4302,37 @@ body {
     fill: var(--quote-ask);
 }
 
+/* Working order lines (P18 D3): a 1px line in the side colour, dashed for a limit and
+   dotted for a midpoint peg, with a side-coloured tag just inside the price axis. */
+.price-chart__order {
+    stroke-width: 1;
+    fill: none;
+}
+.price-chart__order--buy {
+    stroke: var(--quote-bid);
+}
+.price-chart__order--sell {
+    stroke: var(--quote-ask);
+}
+.price-chart__order--limit {
+    stroke-dasharray: 4 3;
+}
+.price-chart__order--peg {
+    stroke-dasharray: 1 2;
+}
+.price-chart__order-tagbg--buy {
+    fill: var(--quote-bid);
+}
+.price-chart__order-tagbg--sell {
+    fill: var(--quote-ask);
+}
+.price-chart__order-text {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    fill: #0b0b0b;
+}
+
 /* Date tile on the time axis (Charts follow-up): the §2 head tile, --head ground,
    --hair-strong border, white sans. */
 .price-chart__datebg {
