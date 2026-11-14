@@ -4334,6 +4334,14 @@ body {
 }
 /* Bid/ask lines (P18 D7): step lines in the bid blue and ask red at 70% so they sit
    behind the price; an empty side breaks its line. */
+/* Volume profile (P19-3, DESIGN_SYSTEM.md §16): neutral greys only. Rows outside the
+   value area are faint, value-area rows brighter; the POC row takes the text ink
+   (its fill is set inline from the ground-aware ink). */
+.price-chart__profile-row { shape-rendering: crispEdges; }
+.price-chart__profile-row--out { fill-opacity: 0.22; }
+.price-chart__profile-row--va { fill-opacity: 0.45; }
+.price-chart__profile-row--poc { fill-opacity: 0.6; }
+
 .price-chart__quote {
     fill: none;
     stroke-width: 1;

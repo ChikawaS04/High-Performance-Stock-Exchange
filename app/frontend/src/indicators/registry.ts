@@ -7,7 +7,8 @@
  * and VWAP (an overlay, both chart types). Later phases add descriptors here, and a
  * params field arrives with its first consumer (Phase 19). Phase 18 adds the own
  * fill markers (Executions), the working order lines (Orders), the best bid and
- * ask lines (Bid/Ask) and the defaultOn flag.
+ * ask lines (Bid/Ask) and the defaultOn flag. Phase 19 adds the order-flow tools
+ * (volume profile, CVD) and the bar indicators.
  *
  * Overlays are unlimited. Lower panes are capped per surface (PANE_CAP), because
  * past that the price area gets too short to read. Every function that reads the
@@ -57,6 +58,9 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
     },
     // P18-7: best bid and ask over time as step lines (P18 D7), off by default.
     { id: "bidask", label: "Bid/Ask", placement: "overlay", surfaces: ["page", "window"], chartTypes: ["line", "candles"] },
+    // P19-3: session volume at price as a horizontal histogram (P19 D4), Charts page only,
+    // off by default. Session-wide, so it needs no bars and draws in line mode too.
+    { id: "volprofile", label: "Volume profile", placement: "overlay", surfaces: ["page"], chartTypes: ["line", "candles"] },
 ];
 
 /** The ids a fresh install starts with: every descriptor marked defaultOn, in registry order. */

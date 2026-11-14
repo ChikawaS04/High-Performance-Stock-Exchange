@@ -107,6 +107,8 @@ import { ModifyOrderPopup } from "./ModifyOrderPopup";
 import type { ModifyRequest } from "./ModifyOrderPopup";
 import { ChartBand } from "./ChartBand";
 import { ChartSettingsPopup } from "./ChartSettingsPopup";
+import { VolumeProfileLayer } from "./VolumeProfileLayer";
+import { profileStats } from "../indicators/volumeProfile";
 
 /** The nominal drawing size, used until the plot is measured. */
 const NOMINAL_W = 720;
@@ -262,6 +264,8 @@ export interface PriceChartProps {
     /** Best-quote history for the bid/ask lines (P18-7): the raw ring (line mode) and the bucketed series (candles). */
     readonly quotes?: readonly QuotePoint[];
     readonly quoteBars?: QuoteSet;
+    /** Session volume at price (state.volumeAtPrice) for the volume profile (P19-3); Charts page only. */
+    readonly volumeAtPrice?: ReadonlyMap<number, number>;
 }
 
 const NO_FILLS: readonly OwnFill[] = [];
@@ -269,6 +273,7 @@ const NO_WORKING: readonly WorkingOrder[] = [];
 const NO_IDS: readonly number[] = [];
 const NO_QUOTES: readonly QuotePoint[] = [];
 const NO_QUOTE_BARS: QuoteSet = emptyQuoteSet();
+const NO_VAP: ReadonlyMap<number, number> = new Map<number, number>();
 /** Order tag height, and the gap kept between a tag and the price axis. */
 const ORDER_TAG_H = 14;
 
@@ -327,6 +332,7 @@ export function PriceChart({
     repricing = NO_IDS,
     quotes = NO_QUOTES,
     quoteBars = NO_QUOTE_BARS,
+    volumeAtPrice = NO_VAP,
 }: PriceChartProps) {
     // Display settings persist, shared by the page and the floating window (§13).
     const colors = useChartColors();
@@ -371,6 +377,9 @@ export function PriceChart({
     const executionsOn = drawable.includes("executions");
     const ordersOn = drawable.includes("orders");
     const bidaskOn = drawable.includes("bidask");
+    const profileOn = drawable.includes("volprofile");
+    // POC and value area depend only on the session distribution (P19 D3), not the view.
+    const profile = useMemo(() => (profileOn ? profileStats(volumeAtPrice) : null), [profileOn, volumeAtPrice]);
     const candleInk = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     // Lower panes only in candle mode (volume needs bars); price keeps >= 60%. Keyed
@@ -1186,6 +1195,22 @@ export function PriceChart({
                             clipPath={clip}
                         />
                     )}
+
+                    {profile !== null ? (
+                        <g clipPath={clip}>
+                            <VolumeProfileLayer
+                                stats={profile}
+                                dMin={dMin}
+                                dMax={dMax}
+                                yOf={yOf}
+                                priceH={priceH}
+                                plotRight={PLOT_RIGHT}
+                                plotW={PLOT_W}
+                                dim={ink.dim}
+                                text={ink.text}
+                            />
+                        </g>
+                    ) : null}
 
                     {quoteMarks !== null ? <g clipPath={clip}>{quoteMarks}</g> : null}
 

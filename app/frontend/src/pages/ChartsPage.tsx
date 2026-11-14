@@ -100,6 +100,7 @@ export function ChartsPage({
                     onReprice={onReprice}
                     quotes={state.quotes}
                     quoteBars={state.quoteBars}
+                    volumeAtPrice={state.volumeAtPrice}
                     repricing={repricing}
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
