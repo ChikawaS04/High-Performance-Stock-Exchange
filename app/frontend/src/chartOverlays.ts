@@ -1,0 +1,146 @@
+/**
+ * Pure placement for the chart's own-trading overlays (Phase 18). No React, no
+ * pixels beyond what the caller hands in: the chart maps an anchor (a candle slot,
+ * or a time in line mode) and a price to its own coordinates.
+ *
+ * Fill markers (P18 D2). A fill is a side, not a direction (DESIGN_SYSTEM.md §2), so
+ * a buy is an up-pointing triangle just below its price in the bid blue and a sell
+ * a down-pointing triangle just above it in the ask red. Fills are grouped by
+ * anchor and side: in candle mode the anchor is the fill's bar slot, in line mode
+ * its timestamp (every fill of one aggressor shares its command timestamp). A
+ * group of up to MARKER_STACK_MAX fills draws one marker per fill, each at its own
+ * price, stacked outward (buys down, sells up) by MARKER_STACK_PX per fill. A
+ * larger group draws one marker with a count, at the group's quantity-weighted
+ * average price.
+ */
+
+import { bucketOf, vwapUnits } from "./bars";
+import type { OwnFill } from "./state/reducer";
+import type { Side } from "./protocol/messages";
+
+/** Outward offset between stacked markers in one group, in drawing units. */
+export const MARKER_STACK_PX = 3;
+/** Most markers drawn for one group; past it the group is one marker with a count. */
+export const MARKER_STACK_MAX = 3;
+/** Pointer distance, in drawing units, within which a marker counts as hovered. */
+export const MARKER_HIT_PX = 7;
+
+export interface FillMarker {
+    /** Stable React key. */
+    readonly key: string;
+    readonly side: Side;
+    /** A candle slot index (candle mode) or an epoch-nanosecond time (line mode). */
+    readonly anchor: number;
+    /** The marker's price in units: the fill's own, or the group's average for a count marker. */
+    readonly pricePx: number;
+    /** 0 for the first marker of a group, then 1, 2: how far it sits outward. */
+    readonly stack: number;
+    /** Fills this marker stands for: 1, or the group size for a count marker. */
+    readonly count: number;
+    /** Shares this marker stands for. */
+    readonly qty: number;
+}
+
+interface Group {
+    readonly anchor: number;
+    readonly side: Side;
+    readonly fills: OwnFill[];
+}
+
+/** Group fills by anchor and side, each group oldest first, groups in anchor order. */
+function groupFills(fills: readonly OwnFill[], anchorOf: (f: OwnFill) => number | null): Group[] {
+    const groups = new Map<string, Group>();
+    // myFills is newest first; walk it backwards so each group is oldest first.
+    for (let i = fills.length - 1; i >= 0; i--) {
+        const f = fills[i];
+        const anchor = anchorOf(f);
+        if (anchor === null) continue;
+        const key = `${anchor}:${f.side}`;
+        let g = groups.get(key);
+        if (g === undefined) {
+            g = { anchor, side: f.side, fills: [] };
+            groups.set(key, g);
+        }
+        g.fills.push(f);
+    }
+    return [...groups.values()].sort((a, b) => a.anchor - b.anchor || (a.side === "BUY" ? -1 : 1));
+}
+
+function markersOf(groups: readonly Group[]): FillMarker[] {
+    const out: FillMarker[] = [];
+    for (const g of groups) {
+        const base = `${g.anchor}:${g.side}`;
+        if (g.fills.length > MARKER_STACK_MAX) {
+            let qty = 0;
+            let notional = 0n;
+            for (const f of g.fills) {
+                qty += f.qty;
+                notional += BigInt(f.pricePx) * BigInt(f.qty);
+            }
+            // The average is a display position and readout statistic, never an order
+            // price, so rounding it half up (as VWAP is) is allowed.
+            out.push({ key: `${base}:n`, side: g.side, anchor: g.anchor, pricePx: vwapUnits(notional, qty), stack: 0, count: g.fills.length, qty });
+            continue;
+        }
+        g.fills.forEach((f, i) => {
+            out.push({ key: `${base}:${f.tradeId}:${f.clOrdId}`, side: g.side, anchor: g.anchor, pricePx: f.pricePx, stack: i, count: 1, qty: f.qty });
+        });
+    }
+    return out;
+}
+
+/**
+ * Markers for the candle view: each fill anchored to its bar's slot. Only fills
+ * whose bucket lies in [firstBucket, lastBucket] are placed; the slot is
+ * bucket - firstBucket, exactly as the candle view numbers its slots.
+ */
+export function fillMarkersForCandles(
+    fills: readonly OwnFill[],
+    firstBucket: number,
+    lastBucket: number,
+    sizeNs: number,
+): readonly FillMarker[] {
+    return markersOf(
+        groupFills(fills, (f) => {
+            const b = bucketOf(f.timestamp, sizeNs);
+            return b >= firstBucket && b <= lastBucket ? b - firstBucket : null;
+        }),
+    );
+}
+
+/** Markers for the line chart: each fill anchored to its own time, inside [lo, hi]. */
+export function fillMarkersForLine(fills: readonly OwnFill[], lo: number, hi: number): readonly FillMarker[] {
+    return markersOf(groupFills(fills, (f) => (f.timestamp >= lo && f.timestamp <= hi ? f.timestamp : null)));
+}
+
+/**
+ * The marker point's offset from its price, in drawing units: below the price for a
+ * buy (positive y), above it for a sell, further out per stack step.
+ */
+export function markerOffset(side: Side, stack: number): number {
+    const out = 5 + stack * MARKER_STACK_PX;
+    return side === "BUY" ? out : -out;
+}
+
+/**
+ * Index of the marker point nearest (x, y) within `r`, or -1. Ties go to the earlier
+ * point. Pure, so the hover hit test is unit tested without a DOM.
+ */
+export function nearestPoint(points: readonly { readonly x: number; readonly y: number }[], x: number, y: number, r = MARKER_HIT_PX): number {
+    let best = -1;
+    let bestD = r * r;
+    points.forEach((p, i) => {
+        const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+        if (d <= bestD && (best === -1 || d < bestD)) {
+            best = i;
+            bestD = d;
+        }
+    });
+    return best;
+}
+
+/** The readout text for a hovered marker: "200 @ 1446.66", plus "(4 fills)" for a count marker. */
+export function markerReadout(m: FillMarker, formatPrice: (px: number) => string, formatQty: (q: number) => string): string {
+    const base = `${formatQty(m.qty)} @ ${formatPrice(m.pricePx)}`;
+    return m.count > 1 ? `${base} (${m.count} fills)` : base;
+}

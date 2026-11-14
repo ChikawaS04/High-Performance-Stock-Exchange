@@ -8,7 +8,9 @@ import {
     isBarSize,
     isChartType,
     isStringArray,
+    migrateIndicators,
     sanitizeIndicators,
+    SEEN_BEFORE_P18,
 } from "../src/chartSettings";
 import type { IndicatorDescriptor } from "../src/indicators/registry";
 
@@ -32,10 +34,10 @@ describe("chart settings validators (P17-4)", () => {
         expect(isStringArray({ 0: "volume" })).toBe(false);
     });
 
-    it("defaults are candles, 15s, volume and VWAP", () => {
+    it("defaults are candles, 15s, volume, VWAP and Executions (P18-2)", () => {
         expect(DEFAULT_CHART_TYPE).toBe("candles");
         expect(DEFAULT_BAR_SIZE).toBe("15s");
-        expect(DEFAULT_INDICATORS).toEqual(["volume", "vwap"]);
+        expect(DEFAULT_INDICATORS).toEqual(["volume", "vwap", "executions"]);
     });
 });
 
@@ -65,11 +67,53 @@ describe("per-surface keys (P17-4)", () => {
             chartType: "hpse.v1.priceChart.chartType",
             barSize: "hpse.v1.priceChart.barSize",
             indicators: "hpse.v1.priceChart.indicators",
+            indicatorsSeen: "hpse.v1.priceChart.indicatorsSeen",
         });
         expect(chartSettingKeys("window")).toEqual({
             chartType: "hpse.v1.priceWindow.chartType",
             barSize: "hpse.v1.priceWindow.barSize",
             indicators: "hpse.v1.priceWindow.indicators",
+            indicatorsSeen: "hpse.v1.priceWindow.indicatorsSeen",
         });
+    });
+});
+
+describe("migrateIndicators (P18-2)", () => {
+    const LATER: IndicatorDescriptor[] = [
+        { id: "volume", label: "Volume", placement: "pane", surfaces: ["page", "window"], chartTypes: ["candles"], defaultOn: true },
+        { id: "vwap", label: "VWAP", placement: "overlay", surfaces: ["page", "window"], chartTypes: ["line", "candles"], defaultOn: true },
+        { id: "executions", label: "Executions", placement: "overlay", surfaces: ["page", "window"], chartTypes: ["line", "candles"], defaultOn: true },
+        { id: "bidask", label: "Bid/Ask", placement: "overlay", surfaces: ["page", "window"], chartTypes: ["line", "candles"] },
+        { id: "pageOnly", label: "Page only", placement: "overlay", surfaces: ["page"], chartTypes: ["candles"], defaultOn: true },
+    ];
+
+    it("switches on an unseen defaultOn id once, keeps a user's Phase 17 choices, and marks every new id seen", () => {
+        // A Phase 17 user who had turned VWAP off.
+        const m = migrateIndicators(["volume"], SEEN_BEFORE_P18, "window", LATER);
+        expect(m.changed).toBe(true);
+        expect(m.indicators).toEqual(["volume", "executions"]);
+        expect(m.seen).toEqual(["volume", "vwap", "executions", "bidask"]);
+    });
+
+    it("leaves a seen id alone, so a user who turned it off keeps it off", () => {
+        const seen = ["volume", "vwap", "executions", "bidask", "pageOnly"];
+        const m = migrateIndicators(["vwap"], seen, "page", LATER);
+        expect(m.changed).toBe(false);
+        expect(m.indicators).toEqual(["vwap"]);
+        expect(m.seen).toBe(seen);
+    });
+
+    it("only offers ids the surface has", () => {
+        const page = migrateIndicators([], SEEN_BEFORE_P18, "page", LATER);
+        expect(page.indicators).toEqual(["executions", "pageOnly"]);
+        const win = migrateIndicators([], SEEN_BEFORE_P18, "window", LATER);
+        expect(win.indicators).toEqual(["executions"]);
+    });
+
+    it("does not duplicate an id already enabled", () => {
+        const stored = ["executions", "vwap"];
+        const m = migrateIndicators(stored, SEEN_BEFORE_P18, "window", LATER);
+        expect(m.indicators).toBe(stored);
+        expect(m.changed).toBe(true);
     });
 });

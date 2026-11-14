@@ -48,6 +48,10 @@ export const SETTING_KEYS = {
     priceWindowChartType: settingKey("priceWindow", "chartType"),
     priceWindowBarSize: settingKey("priceWindow", "barSize"),
     priceWindowIndicators: settingKey("priceWindow", "indicators"),
+    // Indicator ids each surface has already offered (P18-2), so an id added later
+    // and marked defaultOn is switched on once for a user with a stored set.
+    priceChartIndicatorsSeen: settingKey("priceChart", "indicatorsSeen"),
+    priceWindowIndicatorsSeen: settingKey("priceWindow", "indicatorsSeen"),
     depthChartBackground: settingKey("depthChart", "background"),
     bookReaderDepth: settingKey("bookReader", "depth"),
     blotterStatusFilter: settingKey("blotter", "statusFilter"),

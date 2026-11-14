@@ -55,6 +55,7 @@ import type { AppState } from "../state/reducer";
 import type { OrderIntent } from "../protocol/messages";
 
 import { PriceChart } from "../components/PriceChart";
+import { buildOwnExecutions } from "../ownExecutions";
 import { SessionStats } from "../components/SessionStats";
 import { OrderEntry } from "../components/OrderEntry";
 import { PAGE_NAMES } from "../documentTitle";
@@ -76,6 +77,8 @@ export function ChartsPage({
                                }: ChartsPageProps) {
     useDocumentTitle(PAGE_NAMES.charts);
     const connected = state.connection === "open";
+    // P18-2: the one own-execution model (P18 D1) feeds the chart's overlays.
+    const own = buildOwnExecutions(state);
 
     return (
         <main className="chart-page" aria-label="Price chart">
@@ -84,6 +87,7 @@ export function ChartsPage({
                     tape={state.tape}
                     bars={state.bars}
                     surface="page"
+                    fills={own.fills}
                     sessionOpenPx={state.sessionOpenPx}
                     openPx={openPx}
                     onViewInTrading={onViewInTrading}

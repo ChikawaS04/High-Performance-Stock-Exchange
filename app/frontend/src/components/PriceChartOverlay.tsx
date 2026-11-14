@@ -32,7 +32,7 @@ import { PriceChart } from "./PriceChart";
 import { FloatingWindow } from "./FloatingWindow";
 import { SETTING_KEYS } from "../settings/persist";
 import type { BarSet } from "../bars";
-import type { TapeEntry } from "../state/reducer";
+import type { OwnFill, TapeEntry } from "../state/reducer";
 
 export interface PriceChartOverlayProps {
     readonly open: boolean;
@@ -40,6 +40,8 @@ export interface PriceChartOverlayProps {
     readonly tape: readonly TapeEntry[];
     /** The reducer bars slice (P17-11), for the window's candle chart. */
     readonly bars: BarSet;
+    /** Own fills for the chart's markers (P18-2), from buildOwnExecutions. */
+    readonly fills?: readonly OwnFill[];
     readonly sessionOpenPx: number;
     readonly openPx?: number;
 }
@@ -53,6 +55,7 @@ export function PriceChartOverlay({
     onClose,
     tape,
     bars,
+    fills,
     sessionOpenPx,
     openPx,
 }: PriceChartOverlayProps) {
@@ -87,6 +90,7 @@ export function PriceChartOverlay({
                 tape={tape}
                 bars={bars}
                 surface="window"
+                fills={fills}
                 sessionOpenPx={sessionOpenPx}
                 openPx={openPx}
                 onClose={onClose}

@@ -84,7 +84,9 @@ import { INDICATORS, drawableIds } from "../indicators/registry";
 import type { IndicatorDescriptor } from "../indicators/registry";
 import { layoutPanes } from "../indicators/layoutPanes";
 import type { PaneLayout } from "../indicators/layoutPanes";
-import type { TapeEntry } from "../state/reducer";
+import type { OwnFill, TapeEntry } from "../state/reducer";
+import { fillMarkersForCandles, fillMarkersForLine, markerOffset, markerReadout, nearestPoint } from "../chartOverlays";
+import type { FillMarker } from "../chartOverlays";
 import { ChartBand } from "./ChartBand";
 import { ChartSettingsPopup } from "./ChartSettingsPopup";
 
@@ -225,6 +227,25 @@ export interface PriceChartProps {
     readonly surface?: ChartSurface;
     /** Indicator registry; a test seam for the pane cap (P17-0 F13). */
     readonly registry?: readonly IndicatorDescriptor[];
+    /** This terminal's own fills, newest first (buildOwnExecutions().fills), for the markers (P18-2). */
+    readonly fills?: readonly OwnFill[];
+}
+
+const NO_FILLS: readonly OwnFill[] = [];
+
+/** One placed fill marker: its point in drawing units (the triangle's centre). */
+interface MarkerPoint {
+    readonly m: FillMarker;
+    readonly x: number;
+    readonly y: number;
+}
+
+/** A 7 x 6 triangle centred on (x, y): pointing up for a buy, down for a sell (P18 D2). */
+function markerPath(p: MarkerPoint): string {
+    const { x, y } = p;
+    return p.m.side === "BUY"
+        ? `M ${x} ${y - 3} L ${x + 3.5} ${y + 3} L ${x - 3.5} ${y + 3} Z`
+        : `M ${x} ${y + 3} L ${x + 3.5} ${y - 3} L ${x - 3.5} ${y - 3} Z`;
 }
 
 interface Hover {
@@ -254,6 +275,7 @@ export function PriceChart({
     fit = false,
     surface = "page",
     registry = INDICATORS,
+    fills = NO_FILLS,
 }: PriceChartProps) {
     // Display settings persist, shared by the page and the floating window (§13).
     const colors = useChartColors();
@@ -290,6 +312,7 @@ export function PriceChart({
     const candles = chartType === "candles";
     const drawable = drawableIds(surface, chartType, indicators, registry);
     const vwapOn = drawable.includes("vwap");
+    const executionsOn = drawable.includes("executions");
     const candleInk = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     // Lower panes only in candle mode (volume needs bars); price keeps >= 60%. Keyed
@@ -486,6 +509,54 @@ export function PriceChart({
             </g>
         );
     }, [candle, volumePane, volTop, volMaxY, volWordY, PLOT_LEFT, PLOT_RIGHT, ink.sep, ink.dim]);
+
+    // Own fill markers (P18-2), placed by the pure chartOverlays module and memoised so
+    // a pointer move re-renders only the crosshair, the readout and the hover pick.
+    const markerPts: readonly MarkerPoint[] = useMemo(() => {
+        if (!executionsOn || fills.length === 0) return [];
+        if (candle !== null) {
+            return fillMarkersForCandles(fills, candle.view.firstBucket, candle.view.lastBucket, sizeNs).map((m) => ({
+                m,
+                x: candle.xOfSlot(m.anchor),
+                y: candle.yOf(m.pricePx) + markerOffset(m.side, m.stack),
+            }));
+        }
+        if (line !== null) {
+            return fillMarkersForLine(fills, line.win.lo, line.win.hi).map((m) => ({
+                m,
+                x: line.xOf(m.anchor),
+                y: line.yOf(m.pricePx) + markerOffset(m.side, m.stack),
+            }));
+        }
+        return [];
+    }, [executionsOn, fills, candle, line, sizeNs]);
+    const markerMarks = useMemo(
+        () =>
+            markerPts.length === 0 ? null : (
+                <g className="price-chart__fills" data-testid="price-chart-fills" pointerEvents="none">
+                    {markerPts.map((p) => {
+                        const cls = p.m.side === "BUY" ? "buy" : "sell";
+                        return (
+                            <g key={p.m.key} data-testid="price-chart-fill" data-side={p.m.side} data-count={p.m.count}>
+                                <path className={`price-chart__fill price-chart__fill--${cls}`} d={markerPath(p)} />
+                                {p.m.count > 1 ? (
+                                    <text
+                                        className={`price-chart__fill-count price-chart__fill-count--${cls}`}
+                                        data-testid="price-chart-fill-count"
+                                        x={p.x + 6}
+                                        y={p.y}
+                                        dominantBaseline="middle"
+                                    >
+                                        {p.m.count}
+                                    </text>
+                                ) : null}
+                            </g>
+                        );
+                    })}
+                </g>
+            ),
+        [markerPts],
+    );
 
     // ---- Zoom (wheel) and pan (drag). The handlers read this render's geometry. ----
     const toView = (clientX: number, clientY: number): Hover | null => {
@@ -723,7 +794,10 @@ export function PriceChart({
     let cross: { readonly x: number; readonly t: number; readonly py: number | null; readonly price: number | null } | null = null;
     let hoverBar: Bar | null = null;
     let hoverPrint: PlotPoint | null = null;
+    let hoverMarker: FillMarker | null = null;
     if (hover !== null && !panning) {
+        const mi = nearestPoint(markerPts, hover.sx, hover.sy);
+        if (mi >= 0) hoverMarker = markerPts[mi].m;
         const price = priceAt(hover.sy, priceTop, priceH, dMin, dMax);
         const py = price !== null ? hover.sy : null;
         if (candle !== null) {
@@ -763,6 +837,8 @@ export function PriceChart({
             ["@", formatClockNanos(p.t, "s")],
         ];
     }
+    // A hovered own fill marker extends the readout (P18 D2): "BUY 200 @ 1446.66".
+    if (hoverMarker !== null) readout = [...readout, [hoverMarker.side, markerReadout(hoverMarker, formatPrice, formatQty)]];
 
     const crossTagFill = ink.dim;
     const crossTagInk = inkOn(ink.dim);
@@ -953,6 +1029,8 @@ export function PriceChart({
                     {vwapPts !== null ? (
                         <polyline className="price-chart__vwap" data-testid="price-chart-vwap" points={vwapPts} clipPath={clip} />
                     ) : null}
+
+                    {markerMarks !== null ? <g clipPath={clip}>{markerMarks}</g> : null}
 
                     {/* Last-price tag on the right axis; its ink is chosen by luminance. */}
                     {lastDir !== null ? (

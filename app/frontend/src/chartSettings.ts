@@ -18,13 +18,20 @@
  * unavailable for the current chart type (volume in line mode) is KEPT, so switching
  * to Line and back does not lose it; the popup shows it disabled. The cleaned set is
  * not written back on read; the next toggle writes a clean set.
+ *
+ * P18-2 adds a one-time migration for indicators registered later. Each surface
+ * also stores the ids it has already offered (indicatorsSeen). An offered id that
+ * is not yet seen is marked seen, and switched on if its descriptor is defaultOn,
+ * so a user whose set was stored before Executions existed gets it on once, and a
+ * user who then turns it off keeps it off. Before this key existed every surface
+ * had offered exactly volume and VWAP (SEEN_BEFORE_P18).
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { BAR_SIZE_IDS } from "./bars";
 import type { BarSizeId } from "./bars";
-import { INDICATORS, onSurface } from "./indicators/registry";
+import { INDICATORS, defaultIndicatorIds, onSurface } from "./indicators/registry";
 import type { ChartSurface, ChartType, IndicatorDescriptor } from "./indicators/registry";
 import { SETTING_KEYS, oneOf } from "./settings/persist";
 import type { Validator } from "./settings/persist";
@@ -37,7 +44,11 @@ export const CHART_TYPES: readonly ChartType[] = ["line", "candles"];
 export const DEFAULT_CHART_TYPE: ChartType = "candles";
 /** 15s: the bots' fill rate gives a 1m chart only a handful of candles in a short session (F11). */
 export const DEFAULT_BAR_SIZE: BarSizeId = "15s";
-export const DEFAULT_INDICATORS: readonly string[] = ["volume", "vwap"];
+/** Every registered indicator marked defaultOn: volume, VWAP and Executions. */
+export const DEFAULT_INDICATORS: readonly string[] = defaultIndicatorIds();
+
+/** The ids every surface had offered before indicatorsSeen was stored (Phase 17). */
+export const SEEN_BEFORE_P18: readonly string[] = ["volume", "vwap"];
 
 export const isChartType: Validator<ChartType> = oneOf<ChartType>(CHART_TYPES);
 export const isBarSize: Validator<BarSizeId> = oneOf<BarSizeId>(BAR_SIZE_IDS);
@@ -50,6 +61,7 @@ export interface ChartSettingKeys {
     readonly chartType: string;
     readonly barSize: string;
     readonly indicators: string;
+    readonly indicatorsSeen: string;
 }
 
 /** The persisted keys for a surface (the §13 inventory lives in SETTING_KEYS). */
@@ -59,11 +71,13 @@ export function chartSettingKeys(surface: ChartSurface): ChartSettingKeys {
               chartType: SETTING_KEYS.priceChartChartType,
               barSize: SETTING_KEYS.priceChartBarSize,
               indicators: SETTING_KEYS.priceChartIndicators,
+              indicatorsSeen: SETTING_KEYS.priceChartIndicatorsSeen,
           }
         : {
               chartType: SETTING_KEYS.priceWindowChartType,
               barSize: SETTING_KEYS.priceWindowBarSize,
               indicators: SETTING_KEYS.priceWindowIndicators,
+              indicatorsSeen: SETTING_KEYS.priceWindowIndicatorsSeen,
           };
 }
 
@@ -82,6 +96,35 @@ export function sanitizeIndicators(
         if (offered.has(id) && !out.includes(id)) out.push(id);
     }
     return out;
+}
+
+export interface IndicatorMigration {
+    readonly indicators: readonly string[];
+    readonly seen: readonly string[];
+    /** True when either list changed and should be written back. */
+    readonly changed: boolean;
+}
+
+/**
+ * The one-time switch-on for indicators added after a set was stored (see the module
+ * comment). Pure. Every id the surface offers that is not in `seen` is added to it;
+ * a defaultOn one is also added to the enabled set if it is not there already.
+ * Returns the inputs themselves when nothing is new.
+ */
+export function migrateIndicators(
+    stored: readonly string[],
+    seen: readonly string[],
+    surface: ChartSurface,
+    registry: readonly IndicatorDescriptor[] = INDICATORS,
+): IndicatorMigration {
+    let indicators = stored;
+    let nextSeen = seen;
+    for (const d of onSurface(surface, registry)) {
+        if (nextSeen.includes(d.id)) continue;
+        nextSeen = [...nextSeen, d.id];
+        if (d.defaultOn === true && !indicators.includes(d.id)) indicators = [...indicators, d.id];
+    }
+    return { indicators, seen: nextSeen, changed: nextSeen !== seen };
 }
 
 export interface ChartSettings {
@@ -106,6 +149,17 @@ export function useChartSettings(
         DEFAULT_INDICATORS,
         isStringArray,
     );
-    const indicators = useMemo(() => sanitizeIndicators(stored, surface, registry), [stored, surface, registry]);
+    const [seen, setSeen] = usePersistentSetting<readonly string[]>(keys.indicatorsSeen, SEEN_BEFORE_P18, isStringArray);
+    const migration = useMemo(() => migrateIndicators(stored, seen, surface, registry), [stored, seen, surface, registry]);
+    // Write a migration back once, after render; the render already uses the result.
+    useEffect(() => {
+        if (!migration.changed) return;
+        if (migration.indicators !== stored) setIndicators(migration.indicators);
+        setSeen(migration.seen);
+    }, [migration, stored, setIndicators, setSeen]);
+    const indicators = useMemo(
+        () => sanitizeIndicators(migration.indicators, surface, registry),
+        [migration.indicators, surface, registry],
+    );
     return { chartType, setChartType, barSize, setBarSize, indicators, setIndicators };
 }

@@ -4272,6 +4272,36 @@ body {
     stroke-linejoin: round;
 }
 
+/* Own fill markers (P18 D2): a fill is a side, not a direction (§2), so a buy is the
+   bid blue and a sell the ask red, never the candle direction colours. A thin
+   ground-coloured edge keeps stacked markers apart. */
+.price-chart__fill {
+    stroke-width: 0.75;
+}
+.price-chart__fill--buy {
+    fill: var(--quote-bid);
+}
+.price-chart__fill--sell {
+    fill: var(--quote-ask);
+}
+.price-chart--black .price-chart__fill {
+    stroke: #000000;
+}
+.price-chart--white .price-chart__fill {
+    stroke: #ffffff;
+}
+.price-chart__fill-count {
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 9px;
+}
+.price-chart__fill-count--buy {
+    fill: var(--quote-bid);
+}
+.price-chart__fill-count--sell {
+    fill: var(--quote-ask);
+}
+
 /* Date tile on the time axis (Charts follow-up): the §2 head tile, --head ground,
    --hair-strong border, white sans. */
 .price-chart__datebg {

@@ -93,22 +93,26 @@ describe("Indicators category (P17-9)", () => {
         expect(Array.from(rows).map((r) => r.querySelector(".settings-pop__name")!.firstChild!.textContent)).toEqual([
             "Volume",
             "VWAP",
+            "Executions",
         ]);
         const opts = screen.getByTestId("pc-ind-vwap-row").querySelectorAll(".settings-toggle__opt");
         expect(Array.from(opts).map((o) => o.textContent)).toEqual(["On", "Off"]);
         expect(pressed("pc-ind-vwap-on")).toBe("true");
         expect(pressed("pc-ind-volume-on")).toBe("true");
+        expect(pressed("pc-ind-executions-on")).toBe("true");
     });
 
     it("persists each indicator toggle", () => {
         const { unmount } = open();
         fireEvent.click(screen.getByTestId("pc-ind-vwap-off"));
-        expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["volume"]);
+        expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["volume", "executions"]);
         fireEvent.click(screen.getByTestId("pc-ind-volume-off"));
+        fireEvent.click(screen.getByTestId("pc-ind-executions-off"));
         expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual([]);
         unmount();
         open();
         expect(pressed("pc-ind-vwap-off")).toBe("true");
+        expect(pressed("pc-ind-executions-off")).toBe("true");
         fireEvent.click(screen.getByTestId("pc-ind-vwap-on"));
         expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["vwap"]);
     });

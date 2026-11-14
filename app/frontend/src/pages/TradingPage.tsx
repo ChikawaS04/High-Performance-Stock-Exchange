@@ -39,6 +39,7 @@
 import { useRef, useState } from "react";
 
 import type { AppState } from "../state/reducer";
+import { buildOwnExecutions } from "../ownExecutions";
 import type { OrderIntent } from "../protocol/messages";
 
 import { DepthLadder } from "../components/DepthLadder";
@@ -72,6 +73,8 @@ export function TradingPage({
 }: TradingPageProps) {
     useDocumentTitle(PAGE_NAMES.trading);
     const connected = state.connection === "open";
+    // P18-2: the one own-execution model (P18 D1) feeds the floating chart's overlays.
+    const own = buildOwnExecutions(state);
     const [inspectorOpen, setInspectorOpen] = useState(false);
     const [depthMaxed, setDepthMaxed] = useState(false);
     const entryRef = useRef<OrderEntryHandle>(null);
@@ -177,6 +180,7 @@ export function TradingPage({
                 onClose={onClosePriceOverlay}
                 tape={state.tape}
                 bars={state.bars}
+                fills={own.fills}
                 sessionOpenPx={state.sessionOpenPx}
                 openPx={openPx}
             />
