@@ -86,6 +86,8 @@ import { layoutPanes } from "../indicators/layoutPanes";
 import type { PaneLayout } from "../indicators/layoutPanes";
 import type { OwnFill, TapeEntry } from "../state/reducer";
 import {
+    candleQuoteSteps,
+    lineQuoteSteps,
     fillMarkersForCandles,
     fillMarkersForLine,
     markerOffset,
@@ -95,7 +97,9 @@ import {
     placeOrderLines,
     venueMid,
 } from "../chartOverlays";
-import type { FillMarker, OrderLine } from "../chartOverlays";
+import type { FillMarker, OrderLine, StepRuns } from "../chartOverlays";
+import { emptyQuoteSet, quoteBuckets } from "../quotes";
+import type { QuotePoint, QuoteSet } from "../quotes";
 import type { WorkingOrder } from "../ownExecutions";
 import { dropDrag, isMarketable, moveDrag, startDrag } from "../repriceGesture";
 import type { RepriceDrag } from "../repriceGesture";
@@ -255,11 +259,16 @@ export interface PriceChartProps {
     readonly onReprice?: (origClOrdId: number, newPx: number) => void;
     /** Orders with a reprice in flight (P18-5); their tags cannot be dragged. */
     readonly repricing?: readonly number[];
+    /** Best-quote history for the bid/ask lines (P18-7): the raw ring (line mode) and the bucketed series (candles). */
+    readonly quotes?: readonly QuotePoint[];
+    readonly quoteBars?: QuoteSet;
 }
 
 const NO_FILLS: readonly OwnFill[] = [];
 const NO_WORKING: readonly WorkingOrder[] = [];
 const NO_IDS: readonly number[] = [];
+const NO_QUOTES: readonly QuotePoint[] = [];
+const NO_QUOTE_BARS: QuoteSet = emptyQuoteSet();
 /** Order tag height, and the gap kept between a tag and the price axis. */
 const ORDER_TAG_H = 14;
 
@@ -316,6 +325,8 @@ export function PriceChart({
     bestAsk = -1,
     onReprice,
     repricing = NO_IDS,
+    quotes = NO_QUOTES,
+    quoteBars = NO_QUOTE_BARS,
 }: PriceChartProps) {
     // Display settings persist, shared by the page and the floating window (§13).
     const colors = useChartColors();
@@ -359,6 +370,7 @@ export function PriceChart({
     const vwapOn = drawable.includes("vwap");
     const executionsOn = drawable.includes("executions");
     const ordersOn = drawable.includes("orders");
+    const bidaskOn = drawable.includes("bidask");
     const candleInk = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     // Lower panes only in candle mode (volume needs bars); price keeps >= 60%. Keyed
@@ -603,6 +615,43 @@ export function PriceChart({
             ),
         [markerPts],
     );
+
+    // Bid/ask step lines (P18-7), behind the price: the bucketed series in candle mode,
+    // the raw ring in line mode. Memoised so a pointer move does not re-walk the ring.
+    const quoteMarks = useMemo(() => {
+        if (!bidaskOn) return null;
+        let steps: { readonly bid: StepRuns; readonly ask: StepRuns };
+        let xOf: (a: number) => number;
+        let yOfPx: (px: number) => number;
+        if (candle !== null) {
+            const view = candle.view;
+            steps = candleQuoteSteps(quoteBuckets(quoteBars[barSize]), view.firstBucket, view.lastBucket);
+            xOf = (a) => PLOT_LEFT + view.offset + a * view.slotW;
+            yOfPx = candle.yOf;
+        } else if (line !== null) {
+            steps = lineQuoteSteps(quotes, line.win.lo, line.win.hi);
+            xOf = line.xOf;
+            yOfPx = line.yOf;
+        } else {
+            return null;
+        }
+        const poly = (runs: StepRuns, side: "bid" | "ask") =>
+            runs.map((run, i) => (
+                <polyline
+                    key={`${side}-${i}`}
+                    className={`price-chart__quote price-chart__quote--${side}`}
+                    data-testid={`price-chart-quote-${side}`}
+                    points={run.map((seg) => `${xOf(seg.a0)},${yOfPx(seg.px)} ${xOf(seg.a1)},${yOfPx(seg.px)}`).join(" ")}
+                />
+            ));
+        if (steps.bid.length === 0 && steps.ask.length === 0) return null;
+        return (
+            <g className="price-chart__quotes" data-testid="price-chart-quotes" pointerEvents="none">
+                {poly(steps.bid, "bid")}
+                {poly(steps.ask, "ask")}
+            </g>
+        );
+    }, [bidaskOn, candle, line, quotes, quoteBars, barSize, PLOT_LEFT]);
 
     // ---- Zoom (wheel) and pan (drag). The handlers read this render's geometry. ----
     const toView = (clientX: number, clientY: number): Hover | null => {
@@ -1137,6 +1186,8 @@ export function PriceChart({
                             clipPath={clip}
                         />
                     )}
+
+                    {quoteMarks !== null ? <g clipPath={clip}>{quoteMarks}</g> : null}
 
                     {candleMarks}
                     {volumeMarks}

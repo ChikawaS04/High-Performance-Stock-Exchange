@@ -191,6 +191,8 @@ export function TradingPage({
                 bestBid={state.book.bestBid}
                 bestAsk={state.book.bestAsk}
                 onReprice={onReprice}
+                quotes={state.quotes}
+                quoteBars={state.quoteBars}
                 repricing={repricing}
                 sessionOpenPx={state.sessionOpenPx}
                 openPx={openPx}

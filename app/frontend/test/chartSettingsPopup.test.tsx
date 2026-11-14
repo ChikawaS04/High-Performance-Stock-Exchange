@@ -95,6 +95,7 @@ describe("Indicators category (P17-9)", () => {
             "VWAP",
             "Executions",
             "Orders",
+            "Bid/Ask",
         ]);
         const opts = screen.getByTestId("pc-ind-vwap-row").querySelectorAll(".settings-toggle__opt");
         expect(Array.from(opts).map((o) => o.textContent)).toEqual(["On", "Off"]);

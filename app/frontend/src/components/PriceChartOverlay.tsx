@@ -34,6 +34,7 @@ import { SETTING_KEYS } from "../settings/persist";
 import type { BarSet } from "../bars";
 import type { OwnFill, TapeEntry } from "../state/reducer";
 import type { WorkingOrder } from "../ownExecutions";
+import type { QuotePoint, QuoteSet } from "../quotes";
 
 export interface PriceChartOverlayProps {
     readonly open: boolean;
@@ -50,6 +51,9 @@ export interface PriceChartOverlayProps {
     /** Drag to reprice (P18-4) and the orders with one in flight (P18-5). */
     readonly onReprice?: (origClOrdId: number, newPx: number) => void;
     readonly repricing?: readonly number[];
+    /** Best-quote history for the bid/ask lines (P18-7). */
+    readonly quotes?: readonly QuotePoint[];
+    readonly quoteBars?: QuoteSet;
     readonly sessionOpenPx: number;
     readonly openPx?: number;
 }
@@ -69,6 +73,8 @@ export function PriceChartOverlay({
     bestAsk,
     onReprice,
     repricing,
+    quotes,
+    quoteBars,
     sessionOpenPx,
     openPx,
 }: PriceChartOverlayProps) {
@@ -109,6 +115,8 @@ export function PriceChartOverlay({
                 bestAsk={bestAsk}
                 onReprice={onReprice}
                 repricing={repricing}
+                quotes={quotes}
+                quoteBars={quoteBars}
                 sessionOpenPx={sessionOpenPx}
                 openPx={openPx}
                 onClose={onClose}

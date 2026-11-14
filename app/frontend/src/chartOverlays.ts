@@ -22,6 +22,13 @@
  * price domain is pinned to the nearer edge as a tag with an arrow, so a working
  * order is never invisible; order lines never widen the domain. Only a limit line
  * is draggable (P18-4); a peg has no price of its own.
+ *
+ * Bid/ask lines (P18 D7). Two step lines: a quote holds until the next change, so a
+ * stretch with no change carries the last quote forward, and only an explicit -1
+ * (an empty side, or the disconnect marker) breaks a line. Candle mode steps per
+ * slot from the bucketed series (each bucket's last quote spans its slot, edge to
+ * edge, so the steps line up with the candles); line mode steps on the time domain
+ * from the raw ring. A quote that changed before the view starts is carried in.
  */
 
 import { bucketOf, vwapUnits } from "./bars";
@@ -29,6 +36,7 @@ import { formatQty } from "./format";
 import type { OwnFill } from "./state/reducer";
 import type { WorkingOrder } from "./ownExecutions";
 import type { Side } from "./protocol/messages";
+import type { QuoteBucket, QuotePoint } from "./quotes";
 
 /** Outward offset between stacked markers in one group, in drawing units. */
 export const MARKER_STACK_PX = 3;
@@ -232,4 +240,89 @@ export function orderTagYs(lines: readonly OrderLine[], yOf: (px: number) => num
         if (l.pin === "bottom") return bottom - tagH / 2 - tagH * bottomN++;
         return yOf(l.pricePx);
     });
+}
+
+// ---- Bid/ask step lines (P18 D7) ------------------------------------------------
+
+/** One flat stretch of a step line, from position a0 to a1, at price px. */
+export interface StepSegment {
+    readonly a0: number;
+    readonly a1: number;
+    readonly px: number;
+}
+
+/** A side's line as unbroken runs of contiguous segments. */
+export type StepRuns = readonly (readonly StepSegment[])[];
+
+export interface QuoteSteps {
+    readonly bid: StepRuns;
+    readonly ask: StepRuns;
+}
+
+interface Change {
+    readonly at: number;
+    readonly px: number;
+}
+
+/**
+ * Step runs over [from, to] from changes sorted by position. The value in force at
+ * `from` is the last change at or before it (carried in); each later change inside
+ * the window starts a new segment; the last segment runs to `to`. A value <= 0
+ * (the -1 empty side) is a gap, which ends the current run.
+ */
+export function stepRuns(changes: readonly Change[], from: number, to: number): StepRuns {
+    if (!(to > from)) return [];
+    let i = 0;
+    let current: number | null = null;
+    while (i < changes.length && changes[i].at <= from) {
+        current = changes[i].px;
+        i++;
+    }
+    const runs: StepSegment[][] = [];
+    let run: StepSegment[] = [];
+    let start = from;
+    // Close the stretch [start, end): a quote adds a segment, a gap ends the run.
+    const emit = (end: number): void => {
+        if (current !== null && current > 0) {
+            if (end > start) run.push({ a0: start, a1: end, px: current });
+        } else if (run.length > 0) {
+            runs.push(run);
+            run = [];
+        }
+    };
+    for (; i < changes.length && changes[i].at < to; i++) {
+        const c = changes[i];
+        if (c.px === current) continue;
+        emit(c.at);
+        current = c.px;
+        start = c.at;
+    }
+    emit(to);
+    if (run.length > 0) runs.push(run);
+    return runs;
+}
+
+/**
+ * Candle mode: steps in slot units for the visible buckets [firstBucket, lastBucket].
+ * Positions are slot indices: a bucket's quote spans [slot, slot + 1).
+ */
+export function candleQuoteSteps(buckets: readonly QuoteBucket[], firstBucket: number, lastBucket: number): QuoteSteps {
+    const side = (pick: (b: QuoteBucket) => number): StepRuns =>
+        stepRuns(
+            buckets.map((b) => ({ at: b.bucket - firstBucket, px: pick(b) })),
+            0,
+            lastBucket - firstBucket + 1,
+        );
+    return { bid: side((b) => b.bid), ask: side((b) => b.ask) };
+}
+
+/** Line mode: steps on the epoch-nanosecond time window [lo, hi] from the raw ring. */
+export function lineQuoteSteps(ring: readonly QuotePoint[], lo: number, hi: number): QuoteSteps {
+    const side = (pick: (p: QuotePoint) => number): StepRuns =>
+        stepRuns(
+            ring.map((p) => ({ at: p.t, px: pick(p) })),
+            lo,
+            hi,
+        );
+    return { bid: side((p) => p.bid), ask: side((p) => p.ask) };
 }

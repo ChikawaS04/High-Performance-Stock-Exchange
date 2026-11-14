@@ -78,6 +78,7 @@ describe("useChartSettings indicator migration (P18-2)", () => {
             "vwap",
             "executions",
             "orders",
+            "bidask",
         ]);
         act(() => first.result.current.setIndicators(["volume"]));
         first.unmount();

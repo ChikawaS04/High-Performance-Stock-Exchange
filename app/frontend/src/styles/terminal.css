@@ -4332,6 +4332,20 @@ body {
     font-size: 10px;
     fill: #0b0b0b;
 }
+/* Bid/ask lines (P18 D7): step lines in the bid blue and ask red at 70% so they sit
+   behind the price; an empty side breaks its line. */
+.price-chart__quote {
+    fill: none;
+    stroke-width: 1;
+    stroke-opacity: 0.7;
+}
+.price-chart__quote--bid {
+    stroke: var(--quote-bid);
+}
+.price-chart__quote--ask {
+    stroke: var(--quote-ask);
+}
+
 /* Drag to reprice (P18 D4): a limit tag is the handle; the ghost line follows the
    pointer at the snapped price, solid and half strength, above the original line. */
 .price-chart__order-tag--draggable {

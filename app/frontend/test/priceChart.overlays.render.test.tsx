@@ -331,3 +331,89 @@ describe("working order lines (P18-3)", () => {
         expect(within(screen.getByTestId("price-overlay")).getAllByTestId("price-chart-order")).toHaveLength(1);
     });
 });
+
+// ---- P18-7: bid/ask lines ---------------------------------------------------------
+
+function bookAt(t: number, bid: number, ask: number): Action {
+    return {
+        type: "FRAME",
+        frame: { type: "BOOK", bestBid: bid, bestAsk: ask, bids: bid > 0 ? [[bid, 5]] : [], asks: ask > 0 ? [[ask, 5]] : [], timestamp: t },
+    };
+}
+
+function quoted(...books: Action[]): AppState {
+    return [{ type: "CONNECTION", status: "open" } as Action, ...books].reduce(reducer, session());
+}
+
+function renderQuotes(state: AppState) {
+    return render(<PriceChart tape={state.tape} bars={state.bars} sessionOpenPx={-1} quotes={state.quotes} quoteBars={state.quoteBars} />);
+}
+
+function bidAskOn(): void {
+    localStorage.setItem(SETTING_KEYS.priceChartIndicators, JSON.stringify(["volume", "vwap", "bidask"]));
+    localStorage.setItem(SETTING_KEYS.priceChartIndicatorsSeen, JSON.stringify(["volume", "vwap", "executions", "orders", "bidask"]));
+}
+
+describe("bid/ask lines (P18-7)", () => {
+    const s = (): AppState => quoted(bookAt(T0 + 1 * S, 999_900, 1_000_400), bookAt(T0 + 20 * S, 1_000_000, 1_000_400));
+
+    it("are off by default", () => {
+        renderQuotes(s());
+        expect(screen.queryByTestId("price-chart-quotes")).toBeNull();
+    });
+
+    it("draw a bid and an ask step line behind the candles when on", () => {
+        bidAskOn();
+        renderQuotes(s());
+        const bid = screen.getAllByTestId("price-chart-quote-bid");
+        const ask = screen.getAllByTestId("price-chart-quote-ask");
+        expect(bid).toHaveLength(1);
+        expect(ask).toHaveLength(1);
+        expect(bid[0].getAttribute("class")).toBe("price-chart__quote price-chart__quote--bid");
+        // Behind the price: the quote layer comes before the first candle in the drawing order.
+        const quotesG = screen.getByTestId("price-chart-quotes");
+        const candle = screen.getAllByTestId("price-chart-candle")[0];
+        expect(quotesG.compareDocumentPosition(candle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // The bid steps up once (two flat segments, four points); the ask holds (one segment carried to the right edge).
+        expect(bid[0].getAttribute("points")!.split(" ")).toHaveLength(4);
+        expect(ask[0].getAttribute("points")!.split(" ")).toHaveLength(2);
+        const ys = bid[0].getAttribute("points")!.split(" ").map((p) => Number(p.split(",")[1]));
+        expect(ys[2]).toBeLessThan(ys[0]);
+    });
+
+    it("break at an empty side", () => {
+        bidAskOn();
+        renderQuotes(quoted(bookAt(T0 + 1 * S, 999_900, 1_000_400), bookAt(T0 + 16 * S, -1, 1_000_400), bookAt(T0 + 31 * S, 999_800, 1_000_400)));
+        expect(screen.getAllByTestId("price-chart-quote-bid")).toHaveLength(2);
+        expect(screen.getAllByTestId("price-chart-quote-ask")).toHaveLength(1);
+    });
+
+    it("break across a disconnect", () => {
+        bidAskOn();
+        const st = [{ type: "CONNECTION", status: "reconnecting" } as Action, { type: "CONNECTION", status: "open" } as Action, bookAt(T0 + 31 * S, 999_900, 1_000_400)].reduce(
+            reducer,
+            quoted(bookAt(T0 + 1 * S, 999_900, 1_000_400)),
+        );
+        renderQuotes(st);
+        expect(screen.getAllByTestId("price-chart-quote-bid")).toHaveLength(2);
+        expect(screen.getAllByTestId("price-chart-quote-ask")).toHaveLength(2);
+    });
+
+    it("draw in line mode too, from the raw ring", () => {
+        bidAskOn();
+        localStorage.setItem(SETTING_KEYS.priceChartChartType, JSON.stringify("line"));
+        renderQuotes(s());
+        expect(screen.getAllByTestId("price-chart-quote-bid")).toHaveLength(1);
+        expect(screen.getAllByTestId("price-chart-quote-ask")).toHaveLength(1);
+    });
+
+    it("never widen the price axis", () => {
+        const far = quoted(bookAt(T0 + 1 * S, 500_000, 2_000_000));
+        const { unmount } = renderQuotes(far);
+        const before = screen.getAllByTestId("price-chart-y-label").map((t) => t.textContent);
+        unmount();
+        bidAskOn();
+        renderQuotes(far);
+        expect(screen.getAllByTestId("price-chart-y-label").map((t) => t.textContent)).toEqual(before);
+    });
+});
