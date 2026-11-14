@@ -4644,3 +4644,22 @@ body {
     font-size: 11px;
     color: #ffffff;
 }
+
+/* Blotter view switch (P18 D10): the §11.3 two-state toggle in the panel header band,
+   in the title's place, left of the filters. Labels are sans (they are words, not units). */
+.open-orders__tabs {
+    flex: none;
+}
+.open-orders__tab {
+    font-family: var(--sans);
+    font-size: 11px;
+}
+
+/* Executions tab (P18 D10): cost reads red and improvement green, the direction
+   colours (§2), never the bid blue or ask red. A flat or missing value stays white. */
+.exec-q__metric--cost {
+    color: var(--tick-down);
+}
+.exec-q__metric--improve {
+    color: var(--tick-up);
+}

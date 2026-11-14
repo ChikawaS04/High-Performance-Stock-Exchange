@@ -67,6 +67,8 @@ import type { MarketOrder, MyOrder } from "../state/reducer";
 import { formatPrice, formatClockNanos, EMPTY_PRICE } from "../format";
 import { validateOrigClOrdId } from "./CancelTicket";
 import { FieldMenu } from "./FieldMenu";
+import { ExecutionsTable } from "./ExecutionsTable";
+import type { ExecutionQualityRow } from "../executionQuality";
 import {
     DEFAULT_OWNER_FILTER,
     DEFAULT_STATUS_FILTER,
@@ -81,7 +83,7 @@ import {
     type StatusFilter,
 } from "../blotterFilter";
 import { OWNER_LABELS } from "../participants";
-import { SETTING_KEYS } from "../settings/persist";
+import { SETTING_KEYS, oneOf } from "../settings/persist";
 import { usePersistentSetting } from "../settings/usePersistentSetting";
 
 const FILTER_MENU = STATUS_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
@@ -114,15 +116,31 @@ function orderTypeWords(order: MyOrder): string {
     return order.displayQty > 0 ? "LIMIT (ICEBERG)" : "LIMIT";
 }
 
+/** The blotter panel's two views (P18 D10), persisted as hpse.v1.blotter.tab. */
+export type BlotterTab = "orders" | "executions";
+export const DEFAULT_BLOTTER_TAB: BlotterTab = "orders";
+const isBlotterTab = oneOf<BlotterTab>(["orders", "executions"]);
+const NO_EXECUTIONS: readonly ExecutionQualityRow[] = [];
+
 export interface OpenOrdersProps {
     readonly orders: readonly MyOrder[];
+    /** Execution quality rows for the Executions tab (P18-10), from buildExecutionQuality. */
+    readonly executions?: readonly ExecutionQualityRow[];
     /** Other participants' orders (the bots'), shown under the owner filter. */
     readonly marketOrders?: readonly MarketOrder[];
     readonly onCancel: (origClOrdId: number) => void;
     readonly disabled?: boolean;
 }
 
-export function OpenOrders({ orders, marketOrders = NO_MARKET_ORDERS, onCancel, disabled = false }: OpenOrdersProps) {
+export function OpenOrders({
+    orders,
+    executions = NO_EXECUTIONS,
+    marketOrders = NO_MARKET_ORDERS,
+    onCancel,
+    disabled = false,
+}: OpenOrdersProps) {
+    // Orders or Executions (P18-10), persisted like the filters (§13).
+    const [tab, setTab] = usePersistentSetting<BlotterTab>(SETTING_KEYS.blotterTab, DEFAULT_BLOTTER_TAB, isBlotterTab);
     const [menuOpen, setMenuOpen] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [idInput, setIdInput] = useState("");
@@ -218,7 +236,29 @@ export function OpenOrders({ orders, marketOrders = NO_MARKET_ORDERS, onCancel, 
     return (
         <div className="open-orders">
             <div className="open-orders__head">
-                <span className="open-orders__panel-title">Orders</span>
+                {/* P18-10: the panel's two views as the §11.3 switch, in the title's place. */}
+                <span className="settings-toggle open-orders__tabs" role="group" aria-label="Blotter view" data-testid="blotter-tabs">
+                    <button
+                        type="button"
+                        className="settings-toggle__opt open-orders__tab"
+                        aria-pressed={tab === "orders"}
+                        data-testid="blotter-tab-orders"
+                        onClick={() => setTab("orders")}
+                    >
+                        Orders
+                    </button>
+                    <button
+                        type="button"
+                        className="settings-toggle__opt open-orders__tab"
+                        aria-pressed={tab === "executions"}
+                        data-testid="blotter-tab-executions"
+                        onClick={() => setTab("executions")}
+                    >
+                        Executions
+                    </button>
+                </span>
+                {tab === "orders" ? (
+                <>
                 <FieldMenu
                     testId="blotter-owner-filter"
                     ariaLabel="Owner filter"
@@ -265,10 +305,14 @@ export function OpenOrders({ orders, marketOrders = NO_MARKET_ORDERS, onCancel, 
                         </div>
                     ) : null}
                 </div>
+                </>
+                ) : null}
             </div>
 
             <div className="open-orders__body">
-                {rows.length === 0 ? (
+                {tab === "executions" ? (
+                    <ExecutionsTable rows={executions} />
+                ) : rows.length === 0 ? (
                     <div className="open-orders__empty" data-testid="open-orders-empty">
                         {emptyBlotterMessage(ownerFilter, "ALL")}
                     </div>

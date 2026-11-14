@@ -56,6 +56,8 @@ export const SETTING_KEYS = {
     bookReaderDepth: settingKey("bookReader", "depth"),
     blotterStatusFilter: settingKey("blotter", "statusFilter"),
     blotterOwnerFilter: settingKey("blotter", "ownerFilter"),
+    // Orders or Executions (P18-10).
+    blotterTab: settingKey("blotter", "tab"),
     priceWindowGeometry: settingKey("priceWindow", "geometry"),
     depthWindowGeometry: settingKey("depthWindow", "geometry"),
 } as const;

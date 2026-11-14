@@ -40,6 +40,7 @@ import { useRef, useState } from "react";
 
 import type { AppState } from "../state/reducer";
 import { buildOwnExecutions } from "../ownExecutions";
+import { buildExecutionQuality } from "../executionQuality";
 import type { OrderIntent } from "../protocol/messages";
 
 import { DepthLadder } from "../components/DepthLadder";
@@ -165,6 +166,7 @@ export function TradingPage({
 
                     <section tabIndex={-1} className="panel panel--blotter" aria-label="Order blotter">
                         <OpenOrders
+                            executions={buildExecutionQuality(state.myOrders)}
                             orders={state.myOrders}
                             marketOrders={state.marketOrders}
                             onCancel={onCancelOrder}
