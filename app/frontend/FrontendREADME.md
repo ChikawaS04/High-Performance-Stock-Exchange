@@ -399,7 +399,9 @@ These are real properties of the running system, documented rather than glossed:
   share, cost against the arrival mid and against the session VWAP after the last fill (bps,
   positive is cost for either side, red; negative is improvement, green), spread paid on
   aggressive fills (1.00 is the full half-spread, 0 the mid, negative an improvement), and the
-  passive share, with a pinned ALL row of quantity-weighted averages. The arrival is stamped at
+  passive share, with a pinned ALL row of weighted averages (the bps metrics by filled
+  quantity, spread paid by aggressive quantity, since it measures only the shares an order
+  took). The arrival is stamped at
   submit from the book the terminal was showing; a repriced order keeps its original's arrival,
   so a reprice cannot hide drift. Everything is integer units and BigInt, converted only for
   display. Metrics start when the tab connects, like the session stats.

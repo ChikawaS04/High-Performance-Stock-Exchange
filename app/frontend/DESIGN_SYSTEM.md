@@ -249,8 +249,10 @@ this exact colour scheme**, so tables read as one family across the terminal.
   A cost reads red and an improvement green (the direction colours `--tick-down` /
   `--tick-up`, §2), never the bid blue or ask red; a missing value is the dash. A
   pinned **ALL** row in the table foot, sticky to the bottom of the scroll area on the
-  `--body` ground, totals the filled quantity and gives the quantity-weighted average
-  of each metric over the orders that have one. Empty state: "No executions yet".
+  `--body` ground, totals the filled quantity and gives the weighted average of each
+  metric over the orders that have one: vs Arrival and vs VWAP by filled quantity,
+  Spread paid by aggressive quantity (it measures aggressive fills only, so an order
+  with none is left out). Empty state: "No executions yet".
 - **Column-header row** (the `thead`): sits on the **panel body** colour `--body`
   (`#1b1b1b`), with a 1px `--line` bottom hairline. Labels are uppercase, bright
   white `#ffffff`, **weight 600**, ~9px, letter-spacing ~0.08em. Sticky at the top

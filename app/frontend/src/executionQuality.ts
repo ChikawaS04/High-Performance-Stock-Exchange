@@ -36,6 +36,8 @@ export interface ExecutionQualityRow {
     readonly side: Side;
     readonly originalQty: number;
     readonly filledQty: number;
+    /** Shares filled as the aggressor (MyOrder.exec.aggQty): the weight of Spread paid in the ALL row. */
+    readonly aggQty: number;
     /** Quantity-weighted average fill price in units, rounded half up (a statistic). */
     readonly avgPx: number;
     /** Filled quantity / original quantity, 0 to 1. */
@@ -97,6 +99,7 @@ export function qualityRow(o: MyOrder): ExecutionQualityRow | null {
         side: o.side,
         originalQty: o.originalQty,
         filledQty: e.qty,
+        aggQty: e.aggQty,
         avgPx: avgUnits(e.notional, e.qty),
         filledFrac: o.originalQty > 0 ? e.qty / o.originalQty : 0,
         vsArrivalBps: costBps(o.side, e.notional, e.qty, mid),
@@ -170,7 +173,10 @@ export interface ExecutionQualitySummary {
     readonly filledQty: number;
     /** Total filled / total original, 0 to 1; 0 with no rows. */
     readonly filledFrac: number;
-    /** Quantity-weighted over the rows that have a value; null when none does. */
+    /**
+     * Weighted over the rows that have a value; null when none does. The bps metrics
+     * weigh by filled quantity, Spread paid by aggressive quantity.
+     */
     readonly vsArrivalBps: number | null;
     readonly vsVwapBps: number | null;
     readonly spreadPaid: number | null;
@@ -178,15 +184,23 @@ export interface ExecutionQualitySummary {
     readonly passivePct: number;
 }
 
-/** sum(value * filledQty) / sum(filledQty) over rows with a value, else null. */
-function weighted(rows: readonly ExecutionQualityRow[], pick: (r: ExecutionQualityRow) => number | null): number | null {
+/**
+ * sum(value * weight) / sum(weight) over rows with a value and a positive weight,
+ * else null.
+ */
+function weighted(
+    rows: readonly ExecutionQualityRow[],
+    pick: (r: ExecutionQualityRow) => number | null,
+    weight: (r: ExecutionQualityRow) => number,
+): number | null {
     let num = 0;
     let den = 0;
     for (const r of rows) {
         const v = pick(r);
-        if (v === null || !Number.isFinite(v)) continue;
-        num += v * r.filledQty;
-        den += r.filledQty;
+        const w = weight(r);
+        if (v === null || !Number.isFinite(v) || !(w > 0)) continue;
+        num += v * w;
+        den += w;
     }
     return den > 0 ? num / den : null;
 }
@@ -195,7 +209,10 @@ function weighted(rows: readonly ExecutionQualityRow[], pick: (r: ExecutionQuali
  * The pinned ALL row (P18 D11): total filled quantity, and the quantity-weighted
  * average of each metric across the orders that have a value. An order without a
  * value for a metric (no arrival mid, no aggressive fill) is left out of that
- * metric's average only. Weights are filled quantity for every metric.
+ * metric's average only. vs Arrival and vs VWAP weigh by filled quantity. Spread
+ * paid is measured on aggressive fills only, so it weighs by aggressive quantity:
+ * a mostly passive order counts only for the shares it took, and an order with no
+ * aggressive fill is excluded.
  */
 export function summarizeExecutionQuality(rows: readonly ExecutionQualityRow[]): ExecutionQualitySummary {
     let filledQty = 0;
@@ -209,9 +226,9 @@ export function summarizeExecutionQuality(rows: readonly ExecutionQualityRow[]):
     return {
         filledQty,
         filledFrac: originalQty > 0 ? filledQty / originalQty : 0,
-        vsArrivalBps: weighted(rows, (r) => r.vsArrivalBps),
-        vsVwapBps: weighted(rows, (r) => r.vsVwapBps),
-        spreadPaid: weighted(rows, (r) => r.spreadPaid),
+        vsArrivalBps: weighted(rows, (r) => r.vsArrivalBps, (r) => r.filledQty),
+        vsVwapBps: weighted(rows, (r) => r.vsVwapBps, (r) => r.filledQty),
+        spreadPaid: weighted(rows, (r) => r.spreadPaid, (r) => r.aggQty),
         passivePct: filledQty > 0 ? (passiveQty / filledQty) * 100 : 0,
     };
 }

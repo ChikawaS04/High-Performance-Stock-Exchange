@@ -170,6 +170,7 @@ describe("summarizeExecutionQuality (P18 D11)", () => {
         return {
             side: "BUY",
             originalQty: over.filledQty,
+            aggQty: over.filledQty,
             avgPx: 1_000_000,
             filledFrac: 1,
             vsArrivalBps: 0,
@@ -191,6 +192,37 @@ describe("summarizeExecutionQuality (P18 D11)", () => {
         expect(s.vsVwapBps).toBeCloseTo((-1 * 100 + 3 * 300) / 400, 9);
         expect(s.spreadPaid).toBeCloseTo((1 * 100 + 0.5 * 300) / 400, 9);
         expect(s.passivePct).toBeCloseTo(75, 9);
+    });
+
+    it("weights Spread paid by aggressive quantity, not filled quantity", () => {
+        // A mostly passive order (900 passive, 100 aggressive, paid the full half-spread)
+        // and a fully aggressive order (100, filled at the mid).
+        const mostlyPassive = qualityRow(
+            order("BUY", [[1_000_000, 900, "passive"], [1_000_200, 100, "aggressive"]], { clOrdId: 1, originalQty: 1_000 }),
+        )!;
+        const aggressive = qualityRow(order("BUY", [[1_000_100, 100, "aggressive"]], { clOrdId: 2 }))!;
+        expect(mostlyPassive.aggQty).toBe(100);
+        expect(mostlyPassive.spreadPaid).toBe(1);
+        expect(aggressive.aggQty).toBe(100);
+        expect(aggressive.spreadPaid).toBe(0);
+        const s = summarizeExecutionQuality([mostlyPassive, aggressive]);
+        // 100/100 aggressive weights: (1 x 100 + 0 x 100) / 200 = 0.5. Weighting by
+        // filled quantity (1,000 and 100) would give 0.909.
+        expect(s.spreadPaid).toBe(0.5);
+        // The bps metrics stay weighted by filled quantity.
+        expect(s.vsArrivalBps).toBeCloseTo(
+            (mostlyPassive.vsArrivalBps! * 1_000 + aggressive.vsArrivalBps! * 100) / 1_100,
+            9,
+        );
+    });
+
+    it("leaves an order with no aggressive fill out of the Spread paid average", () => {
+        const s = summarizeExecutionQuality([
+            row({ clOrdId: 1, filledQty: 500, aggQty: 0, spreadPaid: null }),
+            row({ clOrdId: 2, filledQty: 100, aggQty: 100, spreadPaid: 0.25 }),
+        ]);
+        expect(s.spreadPaid).toBe(0.25);
+        expect(summarizeExecutionQuality([row({ clOrdId: 1, filledQty: 50, aggQty: 0, spreadPaid: 0.7 })]).spreadPaid).toBeNull();
     });
 
     it("leaves an order without a value out of that metric's average only", () => {
