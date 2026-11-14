@@ -96,6 +96,11 @@
  * sent, carried on SENT meta and stored on the new row (MyOrder.arrival). A
  * repriced order's replacement inherits its original's arrival, so execution
  * quality is measured from the trader's first decision, not the reprice.
+ *
+ * P20-4 adds heatTrades, the heatmap's trade bubbles: every fill as the same TapeEntry
+ * the tape holds (so the same aggressor side), oldest first, capped at
+ * HEATMAP_TRADE_CAP, appended in the same isFill guard. The depth history itself is
+ * not reducer state: it lives in the socket edge's recorder (P20-1).
  */
 
 import { isFill } from "../protocol/messages";
@@ -121,6 +126,13 @@ import type {
 
 /** Newest-first fill history cap. */
 export const TAPE_CAP = 200;
+
+/**
+ * Oldest-first trade history for the heatmap's bubbles (P20-4). The tape's 200 prints
+ * cover about five minutes at the bots' measured 0.63 fills a second, less than the
+ * heatmap's 10-minute window (P20-0 F4); 4,000 covers it at six times that rate.
+ */
+export const HEATMAP_TRADE_CAP = 4000;
 
 /**
  * Newest-first inspector log cap (P7-9). Larger than TAPE_CAP because it merges
@@ -434,6 +446,8 @@ export interface AppState {
     readonly quotes: readonly QuotePoint[];
     /** The last best quote per clock-aligned bucket, at the four bar sizes (P18-6). */
     readonly quoteBars: QuoteSet;
+    /** Every fill for the heatmap's bubbles (P20-4), oldest first, capped at HEATMAP_TRADE_CAP. */
+    readonly heatTrades: readonly TapeEntry[];
 }
 
 export const EMPTY_BOOK: BookState = {
@@ -469,6 +483,7 @@ export const initialState: AppState = {
     reprices: [],
     quotes: [],
     quoteBars: emptyQuoteSet(),
+    heatTrades: [],
 };
 
 /**
@@ -744,6 +759,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
     let bars = state.bars;
     let sessionDelta = state.sessionDelta;
     let volumeAtPrice = state.volumeAtPrice;
+    let heatTrades = state.heatTrades;
     // Session VWAP after this fill (P18-1 stamps it on own fills); unset off fills.
     let fillVwap = SESSION_OPEN_UNSET;
 
@@ -761,6 +777,10 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
             aggressorSide: side,
         };
         tape = [entry, ...state.tape].slice(0, TAPE_CAP);
+        heatTrades =
+            state.heatTrades.length >= HEATMAP_TRADE_CAP
+                ? [...state.heatTrades.slice(state.heatTrades.length - HEATMAP_TRADE_CAP + 1), entry]
+                : [...state.heatTrades, entry];
 
         // One onFill per trade, aggressor-only, filledQuantity is the per-event slice
         // (P7-0/Q7-2), so this running sum is the true session quantity with no double
@@ -936,6 +956,7 @@ function applyExec(state: AppState, frame: ExecFrame): AppState {
         bars,
         sessionDelta,
         volumeAtPrice,
+        heatTrades,
         lastFrameNanos: frame.timestamp,
         inspectorLog,
         orderNotices,
