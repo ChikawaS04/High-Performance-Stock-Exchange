@@ -7,7 +7,8 @@
  * (§13). The band's chart type, bar size and Indicators controls are shortcuts to the
  * same persisted keys, so the popup and the band always agree.
  *
- * Display, in order: Background, Chart type, Bar size (candles only), then a
+ * Display, in order: Background, Chart type, Bar size (bar chart types only; in
+ * footprint 5s and 15s show disabled with the note "1m and 5m only", P19-6), then a
  * "Candles" sub-label with Up candle, Down candle and Wicks, then a "Line" sub-label
  * with Line color, Area fill and Fill color. Rows that draw nothing in the current
  * chart type show disabled (the candle rows in line mode, the line rows in candle
@@ -22,11 +23,11 @@
 
 import { useState } from "react";
 
-import { BAR_SIZE_IDS } from "../bars";
+import { BAR_SIZE_IDS, hasFootprint } from "../bars";
 import type { BarSizeId } from "../bars";
 import { effectiveCandleColors } from "../chartColors";
 import type { ChartColors, ColorSetting } from "../chartColors";
-import { CHART_TYPES } from "../chartSettings";
+import { chartTypesFor } from "../chartSettings";
 import type { ChartSurface, ChartType } from "../chartSettings";
 import { INDICATORS } from "../indicators/registry";
 import type { IndicatorDescriptor } from "../indicators/registry";
@@ -35,7 +36,7 @@ import { IndicatorRows, settingsRowClass } from "./IndicatorRows";
 
 export type { ChartBg, FillChoice } from "../chartColors";
 
-const CHART_TYPE_LABEL: Readonly<Record<ChartType, string>> = { line: "Line", candles: "Candles" };
+const CHART_TYPE_LABEL: Readonly<Record<ChartType, string>> = { line: "Line", candles: "Candles", footprint: "Footprint" };
 
 export interface ChartSettingsPopupProps {
     readonly surface: ChartSurface;
@@ -68,6 +69,9 @@ export function ChartSettingsPopup({
 
     const { bg, setBg, lineColor, gradientOn, setGradientOn, fill, wicks, setWicks, recent, pick } = colors;
     const candles = chartType === "candles";
+    // Candles and footprint draw bars: the bar size and the up and down colours apply.
+    const bars = chartType !== "line";
+    const footprint = chartType === "footprint";
     const shown = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     const colorRow = (setting: ColorSetting, label: string, prefix: string, hex: string, value: string, disabled: boolean) => (
@@ -145,7 +149,7 @@ export function ChartSettingsPopup({
                             <div className="settings-pop__row" data-testid="pc-type-row">
                                 <span className="settings-pop__name">Chart type</span>
                                 <span className="settings-radio" role="radiogroup" aria-label="Chart type">
-                                    {CHART_TYPES.map((t) => (
+                                    {chartTypesFor(surface).map((t) => (
                                         <label key={t} className="settings-radio__opt">
                                             <input
                                                 type="radio"
@@ -160,22 +164,36 @@ export function ChartSettingsPopup({
                                 </span>
                             </div>
 
-                            {candles ? (
+                            {bars ? (
                                 <div className="settings-pop__row" data-testid="pc-size-row">
-                                    <span className="settings-pop__name">Bar size</span>
+                                    <span className="settings-pop__name">
+                                        Bar size
+                                        {footprint ? (
+                                            <span className="settings-pop__note" data-testid="pc-size-note">
+                                                1m and 5m only
+                                            </span>
+                                        ) : null}
+                                    </span>
                                     <span className="settings-radio" role="radiogroup" aria-label="Bar size">
-                                        {BAR_SIZE_IDS.map((s) => (
-                                            <label key={s} className="settings-radio__opt">
-                                                <input
-                                                    type="radio"
-                                                    name={`pc-bar-size-${surface}`}
-                                                    checked={barSize === s}
-                                                    onChange={() => setBarSize(s)}
-                                                    data-testid={`pc-size-${s}`}
-                                                />
-                                                {s}
-                                            </label>
-                                        ))}
+                                        {BAR_SIZE_IDS.map((s) => {
+                                            const off = footprint && !hasFootprint(s);
+                                            return (
+                                                <label
+                                                    key={s}
+                                                    className={off ? "settings-radio__opt settings-radio__opt--disabled" : "settings-radio__opt"}
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name={`pc-bar-size-${surface}`}
+                                                        checked={barSize === s}
+                                                        disabled={off}
+                                                        onChange={() => setBarSize(s)}
+                                                        data-testid={`pc-size-${s}`}
+                                                    />
+                                                    {s}
+                                                </label>
+                                            );
+                                        })}
                                     </span>
                                 </div>
                             ) : null}
@@ -183,8 +201,8 @@ export function ChartSettingsPopup({
                             <div className="settings-pop__sub" data-testid="pc-sub-candles">
                                 Candles
                             </div>
-                            {colorRow("up", "Up candle", "pc-up", shown.up, shown.up, !candles)}
-                            {colorRow("down", "Down candle", "pc-down", shown.down, shown.down, !candles)}
+                            {colorRow("up", "Up candle", "pc-up", shown.up, shown.up, !bars)}
+                            {colorRow("down", "Down candle", "pc-down", shown.down, shown.down, !bars)}
                             <div className={settingsRowClass(!candles)} data-testid="pc-wicks-row">
                                 <span className="settings-pop__name">Wicks</span>
                                 <span className="settings-toggle" role="group" aria-label="Wicks">
@@ -214,15 +232,15 @@ export function ChartSettingsPopup({
                             <div className="settings-pop__sub" data-testid="pc-sub-line">
                                 Line
                             </div>
-                            {colorRow("line", "Line color", "pc-line", lineColor, lineColor, candles)}
-                            <div className={settingsRowClass(candles)} data-testid="pc-grad-row">
+                            {colorRow("line", "Line color", "pc-line", lineColor, lineColor, bars)}
+                            <div className={settingsRowClass(bars)} data-testid="pc-grad-row">
                                 <span className="settings-pop__name">Area fill</span>
                                 <span className="settings-toggle" role="group" aria-label="Area fill">
                                     <button
                                         type="button"
                                         className="settings-toggle__opt settings-toggle__opt--sans"
                                         aria-pressed={gradientOn}
-                                        disabled={candles}
+                                        disabled={bars}
                                         data-testid="pc-grad-on"
                                         onClick={() => setGradientOn(true)}
                                     >
@@ -232,7 +250,7 @@ export function ChartSettingsPopup({
                                         type="button"
                                         className="settings-toggle__opt settings-toggle__opt--sans"
                                         aria-pressed={!gradientOn}
-                                        disabled={candles}
+                                        disabled={bars}
                                         data-testid="pc-grad-off"
                                         onClick={() => setGradientOn(false)}
                                     >
@@ -246,9 +264,9 @@ export function ChartSettingsPopup({
                                 "pc-fill",
                                 fill === "line" ? lineColor : fill,
                                 fill,
-                                candles || !gradientOn,
+                                bars || !gradientOn,
                             )}
-                            {candles ? (
+                            {bars ? (
                                 <div className="settings-pop__note settings-pop__note--line" data-testid="pc-line-note">
                                     Line rows apply in line mode
                                 </div>

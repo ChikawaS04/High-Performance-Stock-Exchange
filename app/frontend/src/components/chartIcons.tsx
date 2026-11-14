@@ -16,6 +16,20 @@ export function CandleIcon() {
     );
 }
 
+/** Two footprint columns of stacked cells (P19-6). */
+export function FootprintIcon() {
+    return (
+        <svg className="chart-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" data-icon="footprint">
+            <rect x="1.5" y="2.5" width="4.5" height="9" fill="none" stroke="currentColor" />
+            <line x1="1.5" y1="5.5" x2="6" y2="5.5" stroke="currentColor" />
+            <line x1="1.5" y1="8.5" x2="6" y2="8.5" stroke="currentColor" />
+            <rect x="8" y="1.5" width="4.5" height="9" fill="none" stroke="currentColor" />
+            <line x1="8" y1="4.5" x2="12.5" y2="4.5" stroke="currentColor" />
+            <rect x="8" y="4.5" width="4.5" height="3" fill="currentColor" />
+        </svg>
+    );
+}
+
 /** A polyline. */
 export function LineIcon() {
     return (

@@ -29,7 +29,7 @@
 
 import { useEffect, useMemo } from "react";
 
-import { BAR_SIZE_IDS } from "./bars";
+import { BAR_SIZE_IDS, hasFootprint } from "./bars";
 import type { BarSizeId } from "./bars";
 import { INDICATORS, defaultIndicatorIds, onSurface } from "./indicators/registry";
 import type { ChartSurface, ChartType, IndicatorDescriptor } from "./indicators/registry";
@@ -39,7 +39,20 @@ import { usePersistentSetting } from "./settings/usePersistentSetting";
 
 export type { ChartSurface, ChartType } from "./indicators/registry";
 
+/** The chart types the floating window offers (and every surface before Phase 19). */
 export const CHART_TYPES: readonly ChartType[] = ["line", "candles"];
+/** The Charts page adds footprint (P19-6, P19 D6). */
+export const PAGE_CHART_TYPES: readonly ChartType[] = ["line", "candles", "footprint"];
+
+/** The chart types a surface offers. */
+export function chartTypesFor(surface: ChartSurface): readonly ChartType[] {
+    return surface === "page" ? PAGE_CHART_TYPES : CHART_TYPES;
+}
+
+/** Candles and footprint draw bars and lay out lower panes; line does not. */
+export function isBarChart(t: ChartType): boolean {
+    return t !== "line";
+}
 
 export const DEFAULT_CHART_TYPE: ChartType = "candles";
 /** 15s: the bots' fill rate gives a 1m chart only a handful of candles in a short session (F11). */
@@ -50,7 +63,21 @@ export const DEFAULT_INDICATORS: readonly string[] = defaultIndicatorIds();
 /** The ids every surface had offered before indicatorsSeen was stored (Phase 17). */
 export const SEEN_BEFORE_P18: readonly string[] = ["volume", "vwap"];
 
+/** The window's validator: a stored "footprint" there fails and is dropped to the default (P19-6). */
 export const isChartType: Validator<ChartType> = oneOf<ChartType>(CHART_TYPES);
+export const isPageChartType: Validator<ChartType> = oneOf<ChartType>(PAGE_CHART_TYPES);
+
+export function chartTypeValidator(surface: ChartSurface): Validator<ChartType> {
+    return surface === "page" ? isPageChartType : isChartType;
+}
+
+/**
+ * The bar size a chart type can draw. Footprint keeps per-price detail only at 1m and
+ * 5m (P19 D2, D6), so any other size reads as 1m there; candles and line take any size.
+ */
+export function barSizeFor(chartType: ChartType, size: BarSizeId): BarSizeId {
+    return chartType === "footprint" && !hasFootprint(size) ? "1m" : size;
+}
 export const isBarSize: Validator<BarSizeId> = oneOf<BarSizeId>(BAR_SIZE_IDS);
 
 /** Lenient: any array of strings. Cleaning is sanitizeIndicators' job. */
@@ -142,8 +169,23 @@ export function useChartSettings(
     registry: readonly IndicatorDescriptor[] = INDICATORS,
 ): ChartSettings {
     const keys = chartSettingKeys(surface);
-    const [chartType, setChartType] = usePersistentSetting<ChartType>(keys.chartType, DEFAULT_CHART_TYPE, isChartType);
-    const [barSize, setBarSize] = usePersistentSetting<BarSizeId>(keys.barSize, DEFAULT_BAR_SIZE, isBarSize);
+    const [chartType, storeChartType] = usePersistentSetting<ChartType>(
+        keys.chartType,
+        DEFAULT_CHART_TYPE,
+        chartTypeValidator(surface),
+    );
+    const [storedBarSize, storeBarSize] = usePersistentSetting<BarSizeId>(keys.barSize, DEFAULT_BAR_SIZE, isBarSize);
+    // Footprint draws only 1m and 5m (P19-6): choosing it on 5s or 15s switches to 1m and
+    // stores that, so leaving footprint stays on 1m; a 5s or 15s pick is refused there.
+    const barSize = barSizeFor(chartType, storedBarSize);
+    const setChartType = (next: ChartType): void => {
+        if (next === "footprint" && !hasFootprint(storedBarSize)) storeBarSize("1m");
+        storeChartType(next);
+    };
+    const setBarSize = (next: BarSizeId): void => {
+        if (chartType === "footprint" && !hasFootprint(next)) return;
+        storeBarSize(next);
+    };
     const [stored, setIndicators] = usePersistentSetting<readonly string[]>(
         keys.indicators,
         DEFAULT_INDICATORS,

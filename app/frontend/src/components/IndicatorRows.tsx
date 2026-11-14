@@ -6,7 +6,8 @@
  * and write the same persisted set and can never disagree.
  *
  * An indicator the current chart type cannot draw (volume in line mode) shows
- * disabled with the dim note "Candles only" and keeps its stored state. Lower panes
+ * disabled with a dim note naming where it does draw (typeNote: "Bar charts only"
+ * for candles and footprint, P19-6) and keeps its stored state. Lower panes
  * are capped per surface (PANE_CAP): once the stored set holds the cap, the toggles
  * of panes that are off are disabled and one dim line reads "Pane limit reached (N)",
  * only while the cap actually holds a pane off. Overlays are never disabled by the cap.
@@ -22,6 +23,15 @@ export interface IndicatorRowsProps {
     readonly indicators: readonly string[];
     readonly setIndicators: (next: readonly string[]) => void;
     readonly registry?: readonly IndicatorDescriptor[];
+}
+
+/** The dim note on an indicator the current chart type cannot draw. */
+export function typeNote(d: IndicatorDescriptor): string {
+    const t = d.chartTypes;
+    if (t.includes("candles") && t.includes("footprint") && !t.includes("line")) return "Bar charts only";
+    if (t.length === 1 && t[0] === "candles") return "Candles only";
+    if (t.length === 1 && t[0] === "footprint") return "Footprint only";
+    return "Not in this chart type";
 }
 
 export function settingsRowClass(disabled: boolean, stack = false): string {
@@ -54,7 +64,7 @@ export function IndicatorRows({ surface, chartType, indicators, setIndicators, r
                             {d.label}
                             {typeBlocked ? (
                                 <span className="settings-pop__note" data-testid={`pc-ind-${d.id}-note`}>
-                                    Candles only
+                                    {typeNote(d)}
                                 </span>
                             ) : null}
                         </span>

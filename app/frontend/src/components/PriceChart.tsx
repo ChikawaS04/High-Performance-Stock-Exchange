@@ -15,6 +15,12 @@
  *  - Line: the trade-print line from the capped tape, as built in P12-R, with its
  *    area fill and the last-price tag in the line colour.
  *
+ *  - Footprint (P19-6, Charts page only, 1m and 5m): the candle slots and price scale,
+ *    each bar drawn as a column of "sell x buy" price rows (FootprintLayer), with its
+ *    own slot range (footprint.FOOTPRINT_SLOT, 64 to 160px). Entering footprint
+ *    starts following at the 64px minimum. Every bar-mode overlay and pane draws as in
+ *    candle mode, and the readout adds the hovered row.
+ *
  * The header band (ChartBand) carries View, chart type, bar size, Indicators and the
  * gear. Both surfaces lay out at their measured box (fit mode): the Charts page's
  * plot keeps a 12:5 box and draws at its real pixel size, the floating window fills
@@ -63,11 +69,12 @@ import {
     priceAt,
     slotCentre,
 } from "../candleView";
-import { useChartSettings } from "../chartSettings";
+import { isBarChart, useChartSettings } from "../chartSettings";
 import type { ChartSurface } from "../chartSettings";
 import { effectiveCandleColors, inkOn, useChartColors } from "../chartColors";
 import type { ChartBg } from "../chartColors";
 import {
+    CANDLE_SLOT,
     FOLLOW_AUTO,
     LINE_FULL,
     isDrag,
@@ -109,6 +116,9 @@ import { ChartBand } from "./ChartBand";
 import { ChartSettingsPopup } from "./ChartSettingsPopup";
 import { VolumeProfileLayer } from "./VolumeProfileLayer";
 import { CvdPane } from "./CvdPane";
+import { FootprintLayer } from "./FootprintLayer";
+import { FOOTPRINT_SLOT, footprintBar, footprintRowStep, rowAt } from "../footprint";
+import { TICK_PX } from "../prices";
 import { profileStats } from "../indicators/volumeProfile";
 
 /** The nominal drawing size, used until the plot is measured. */
@@ -345,13 +355,19 @@ export function PriceChart({
     const [hover, setHover] = useState<Hover | null>(null);
     const [panning, setPanning] = useState(false);
     // Zoom and pan: component-local, never persisted. The candle window belongs to
-    // one bar size (its buckets are that size's); switching size starts following.
-    const [cwinState, setCwinState] = useState<{ readonly size: BarSizeId; readonly win: CandleWindow }>({
+    // one bar size (its buckets are that size's) and one chart type (footprint has its
+    // own slot range); switching either starts following.
+    const [cwinState, setCwinState] = useState<{
+        readonly size: BarSizeId;
+        readonly type: typeof chartType;
+        readonly win: CandleWindow;
+    }>({
         size: barSize,
+        type: chartType,
         win: FOLLOW_AUTO,
     });
-    const cwin = cwinState.size === barSize ? cwinState.win : FOLLOW_AUTO;
-    const setCwin = (win: CandleWindow): void => setCwinState({ size: barSize, win });
+    const cwin = cwinState.size === barSize && cwinState.type === chartType ? cwinState.win : FOLLOW_AUTO;
+    const setCwin = (win: CandleWindow): void => setCwinState({ size: barSize, type: chartType, win });
     const [lwin, setLwin] = useState<LineWindow>(LINE_FULL);
     const dragRef = useRef<DragState | null>(null);
     // Drag to reprice (P18-4): the order-tag gesture, separate from the plot pan.
@@ -372,7 +388,12 @@ export function PriceChart({
 
     const ink = inkFor(bg);
     const fillColor = fill === "line" ? lineColor : fill;
-    const candles = chartType === "candles";
+    // Bar mode: candles or footprint draw the selected bar series and lay out panes.
+    const candles = isBarChart(chartType);
+    const footprintMode = chartType === "footprint";
+    const slotBounds = footprintMode ? FOOTPRINT_SLOT : CANDLE_SLOT;
+    // Footprint has no auto fit: it opens following at its minimum column width.
+    const viewWin: CandleWindow = footprintMode && cwin.slotW === null ? { slotW: FOOTPRINT_SLOT.min, rightBucket: cwin.rightBucket } : cwin;
     const drawable = drawableIds(surface, chartType, indicators, registry);
     const vwapOn = drawable.includes("vwap");
     const executionsOn = drawable.includes("executions");
@@ -475,9 +496,11 @@ export function PriceChart({
     const series = bars[barSize];
     const candle = useMemo(() => {
         if (!candles) return null;
-        const view = buildCandleView(series, PLOT_W, yTarget, cwin);
+        const view = buildCandleView(series, PLOT_W, yTarget, viewWin, slotBounds);
         if (view === null) return null;
         const { dMin, dMax } = view;
+        // Footprint rows: ticks per row so a row is tall enough for its text (P19-5).
+        const fpStep = footprintMode ? footprintRowStep(dMax > dMin ? (priceH * TICK_PX) / (dMax - dMin) : 0) : 1;
         const yOf = (px: number): number => priceBottom - ((px - dMin) / (dMax - dMin)) * priceH;
         const xOfSlot = (slot: number): number => PLOT_LEFT + slotCentre(view, slot);
         const bw = bodyWidth(view);
@@ -486,14 +509,14 @@ export function PriceChart({
         const all = seriesBars(series);
         const newest = all[all.length - 1];
         const lastVisible = view.bars.length > 0 ? view.bars[view.bars.length - 1].bar : newest;
-        return { view, dMin, dMax, levels: view.levels, yOf, xOfSlot, bw, ticks, stepSec, newest, lastVisible };
-    }, [candles, series, cwin, PLOT_W, PLOT_LEFT, priceBottom, priceH, yTarget, sizeNs]);
+        return { view, dMin, dMax, levels: view.levels, yOf, xOfSlot, bw, ticks, stepSec, newest, lastVisible, fpStep };
+    }, [candles, series, viewWin.slotW, viewWin.rightBucket, slotBounds, footprintMode, PLOT_W, PLOT_LEFT, priceBottom, priceH, yTarget, sizeNs]);
 
     // Candle and volume marks are memoised so a pointer move re-renders only the
     // crosshair and the readout, not hundreds of rects.
     const greyWicks = wicks === "grey";
     const candleMarks = useMemo(() => {
-        if (candle === null) return null;
+        if (candle === null || footprintMode) return null;
         const { view, yOf, xOfSlot, bw } = candle;
         return view.bars.map(({ slot, bar }) => {
             const cx = xOfSlot(slot);
@@ -520,7 +543,25 @@ export function PriceChart({
                 </g>
             );
         });
-    }, [candle, greyWicks, ink.dim]);
+    }, [candle, footprintMode, greyWicks, ink.dim]);
+
+    // Footprint columns (P19-6), memoised like the candles.
+    const footprintMarks = useMemo(() => {
+        if (candle === null || !footprintMode) return null;
+        return (
+            <FootprintLayer
+                bars={candle.view.bars}
+                xOfSlot={candle.xOfSlot}
+                slotW={candle.view.slotW}
+                yOf={candle.yOf}
+                stepTicks={candle.fpStep}
+                up={candleInk.up}
+                down={candleInk.down}
+                text={ink.text}
+                dim={ink.dim}
+            />
+        );
+    }, [candle, footprintMode, candleInk.up, candleInk.down, ink.text, ink.dim]);
 
     const volumePane = panes.panes.find((p) => p.id === "volume") ?? null;
     const volTop = volumePane !== null ? PLOT_TOP + volumePane.top : null;
@@ -703,7 +744,7 @@ export function PriceChart({
         if (notches === 0) return true;
         if (candle !== null) {
             const extent = { oldest: candle.view.oldestBucket, newest: candle.view.newestBucket };
-            setCwin(zoomCandles(cwin, candle.view.slotW, notches, PLOT_W, extent));
+            setCwin(zoomCandles(viewWin, candle.view.slotW, notches, PLOT_W, extent, slotBounds));
         } else if (line !== null) {
             setLwin(zoomLine(lwin, notches, line.tMin, line.tMax));
         }
@@ -732,7 +773,7 @@ export function PriceChart({
             scale: VIEW_W / rect.width,
             candle:
                 candle !== null
-                    ? { window: cwin, slotW: candle.view.slotW, rightBucket: candle.view.lastBucket }
+                    ? { window: viewWin, slotW: candle.view.slotW, rightBucket: candle.view.lastBucket }
                     : null,
             line: line !== null ? line.win : null,
             moved: false,
@@ -1015,10 +1056,12 @@ export function PriceChart({
     let hoverBar: Bar | null = null;
     let hoverPrint: PlotPoint | null = null;
     let hoverMarker: FillMarker | null = null;
+    let hoverPrice: number | null = null;
     if (hover !== null && !panning && orderDrag === null) {
         const mi = nearestPoint(markerPts, hover.sx, hover.sy);
         if (mi >= 0) hoverMarker = markerPts[mi].m;
         const price = priceAt(hover.sy, priceTop, priceH, dMin, dMax);
+        hoverPrice = price;
         const py = price !== null ? hover.sy : null;
         if (candle !== null) {
             const hit = hitSlot(candle.view, hover.sx - PLOT_LEFT);
@@ -1048,6 +1091,16 @@ export function PriceChart({
             ["V", formatQty(b.volume)],
         ];
         if (vwapOn && b.vwap >= 0) parts.push(["VWAP", formatPrice(b.vwap)]);
+        // Footprint: the hovered row's range and its sell and buy shares (P19-6).
+        if (footprintMode && hoverBar !== null && hoverPrice !== null) {
+            const row = rowAt(footprintBar(hoverBar, candle.fpStep), hoverPrice);
+            if (row !== null) {
+                const top = row.hi - TICK_PX;
+                parts.push(["ROW", top > row.lo ? `${formatPrice(row.lo)}-${formatPrice(top)}` : formatPrice(row.lo)]);
+                parts.push(["S", formatQty(row.sell)]);
+                parts.push(["B", formatQty(row.buy)]);
+            }
+        }
         readout = parts;
     } else {
         const p = hoverPrint ?? line!.inView[line!.inView.length - 1] ?? line!.newest;
@@ -1237,6 +1290,7 @@ export function PriceChart({
                     {quoteMarks !== null ? <g clipPath={clip}>{quoteMarks}</g> : null}
 
                     {candleMarks}
+                    {footprintMarks !== null ? <g clipPath={clip}>{footprintMarks}</g> : null}
                     {volumeMarks}
                     {cvdMarks}
 

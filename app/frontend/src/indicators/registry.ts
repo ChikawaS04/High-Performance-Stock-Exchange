@@ -18,7 +18,12 @@
  */
 
 export type ChartSurface = "page" | "window";
-export type ChartType = "line" | "candles";
+/**
+ * Line and candles on both surfaces; footprint (P19-6, P19 D6) on the Charts page only
+ * (chartSettings.chartTypesFor). Candles and footprint are the bar chart types: both
+ * draw the selected bar series and lay out lower panes.
+ */
+export type ChartType = "line" | "candles" | "footprint";
 export type IndicatorPlacement = "overlay" | "pane";
 
 export interface IndicatorDescriptor {
@@ -36,15 +41,31 @@ export interface IndicatorDescriptor {
 }
 
 export const INDICATORS: readonly IndicatorDescriptor[] = [
-    { id: "volume", label: "Volume", placement: "pane", surfaces: ["page", "window"], chartTypes: ["candles"], defaultOn: true },
-    { id: "vwap", label: "VWAP", placement: "overlay", surfaces: ["page", "window"], chartTypes: ["line", "candles"], defaultOn: true },
+    // P19-6: every indicator drawn per bar slot or on the price scale also draws in
+    // footprint, which shares the candle slots and price scale.
+    {
+        id: "volume",
+        label: "Volume",
+        placement: "pane",
+        surfaces: ["page", "window"],
+        chartTypes: ["candles", "footprint"],
+        defaultOn: true,
+    },
+    {
+        id: "vwap",
+        label: "VWAP",
+        placement: "overlay",
+        surfaces: ["page", "window"],
+        chartTypes: ["line", "candles", "footprint"],
+        defaultOn: true,
+    },
     // P18-2: own fills as markers (P18 D2), on both surfaces and both chart types.
     {
         id: "executions",
         label: "Executions",
         placement: "overlay",
         surfaces: ["page", "window"],
-        chartTypes: ["line", "candles"],
+        chartTypes: ["line", "candles", "footprint"],
         defaultOn: true,
     },
     // P18-3: own working orders as lines (P18 D3), on both surfaces and both chart types.
@@ -53,17 +74,29 @@ export const INDICATORS: readonly IndicatorDescriptor[] = [
         label: "Orders",
         placement: "overlay",
         surfaces: ["page", "window"],
-        chartTypes: ["line", "candles"],
+        chartTypes: ["line", "candles", "footprint"],
         defaultOn: true,
     },
     // P18-7: best bid and ask over time as step lines (P18 D7), off by default.
-    { id: "bidask", label: "Bid/Ask", placement: "overlay", surfaces: ["page", "window"], chartTypes: ["line", "candles"] },
+    {
+        id: "bidask",
+        label: "Bid/Ask",
+        placement: "overlay",
+        surfaces: ["page", "window"],
+        chartTypes: ["line", "candles", "footprint"],
+    },
     // P19-3: session volume at price as a horizontal histogram (P19 D4), Charts page only,
     // off by default. Session-wide, so it needs no bars and draws in line mode too.
-    { id: "volprofile", label: "Volume profile", placement: "overlay", surfaces: ["page"], chartTypes: ["line", "candles"] },
+    {
+        id: "volprofile",
+        label: "Volume profile",
+        placement: "overlay",
+        surfaces: ["page"],
+        chartTypes: ["line", "candles", "footprint"],
+    },
     // P19-4: cumulative volume delta as a lower pane (P19 D5), Charts page only, off by
     // default. It reads each bar's cvd, so it needs bars; it counts toward PANE_CAP.
-    { id: "cvd", label: "CVD", placement: "pane", surfaces: ["page"], chartTypes: ["candles"] },
+    { id: "cvd", label: "CVD", placement: "pane", surfaces: ["page"], chartTypes: ["candles", "footprint"] },
 ];
 
 /** The ids a fresh install starts with: every descriptor marked defaultOn, in registry order. */

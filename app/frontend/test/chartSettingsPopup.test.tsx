@@ -122,11 +122,11 @@ describe("Indicators category (P17-9)", () => {
         expect(stored(SETTING_KEYS.priceChartIndicators)).toEqual(["vwap"]);
     });
 
-    it("disables the volume toggle in line mode with Candles only, keeping its stored state", () => {
+    it("disables the volume toggle in line mode with Bar charts only, keeping its stored state", () => {
         open();
         fireEvent.click(screen.getByTestId("pc-type-line"));
         expect(row("pc-ind-volume-row")).toContain("settings-pop__row--disabled");
-        expect(screen.getByTestId("pc-ind-volume-note").textContent).toBe("Candles only");
+        expect(screen.getByTestId("pc-ind-volume-note").textContent).toBe("Bar charts only");
         expect((screen.getByTestId("pc-ind-volume-on") as HTMLButtonElement).disabled).toBe(true);
         expect(pressed("pc-ind-volume-on")).toBe("true");
         expect(row("pc-ind-vwap-row")).not.toContain("settings-pop__row--disabled");

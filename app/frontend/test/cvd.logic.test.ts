@@ -64,9 +64,9 @@ describe("CVD scale (P19-4, amended at greenlight)", () => {
 });
 
 describe("CVD pane layout (P19-4)", () => {
-    it("is registered as a page-only pane, candles only, off by default", () => {
+    it("is registered as a page-only pane, bar charts only, off by default", () => {
         const d = INDICATORS.find((x) => x.id === "cvd")!;
-        expect(d).toMatchObject({ placement: "pane", surfaces: ["page"], chartTypes: ["candles"] });
+        expect(d).toMatchObject({ placement: "pane", surfaces: ["page"], chartTypes: ["candles", "footprint"] });
         expect(d.defaultOn).toBeUndefined();
     });
 

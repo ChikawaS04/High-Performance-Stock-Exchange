@@ -149,6 +149,24 @@ export function footprintColumns(plotW: number, slotW: number = FOOTPRINT_SLOT.m
     return Math.max(1, Math.floor(plotW / Math.max(FOOTPRINT_SLOT.min, slotW)));
 }
 
+/**
+ * A cell quantity that fits a 64px column: digits without separators below 10,000
+ * ("1234"), then thousands ("12K", "999K"), then millions with one decimal ("1.2M").
+ * Two of them with " x " stay within 11 characters, about 59px at 9px mono.
+ */
+export function compactQty(n: number): string {
+    const a = Math.abs(Math.trunc(n));
+    const sign = n < 0 ? "-" : "";
+    if (a < 10_000) return `${sign}${a}`;
+    if (a < 1_000_000) return `${sign}${Math.floor(a / 1000)}K`;
+    return `${sign}${(Math.floor(a / 100_000) / 10).toFixed(1)}M`;
+}
+
+/** A cell's text: sell x buy (bid hit by ask lifted). */
+export function cellText(row: { readonly sell: number; readonly buy: number }): string {
+    return `${compactQty(row.sell)} x ${compactQty(row.buy)}`;
+}
+
 /** The row holding `price` in a footprint bar, or null outside its rows. */
 export function rowAt(fb: FootprintBar, price: number): FootprintRow | null {
     for (const row of fb.rows) if (price >= row.lo && price < row.hi) return row;

@@ -4342,6 +4342,22 @@ body {
 .price-chart__profile-row--va { fill-opacity: 0.45; }
 .price-chart__profile-row--poc { fill-opacity: 0.6; }
 
+/* Footprint (P19-6, DESIGN_SYSTEM.md §16): "sell x buy" cells in 9px mono tabular, a
+   low-alpha tint in the dominant side's direction colour on a diagonal imbalance (the
+   fill is set inline from the resolved up or down colour), and the open-close outline. */
+.price-chart__fp-text {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+.price-chart__fp-tint { fill-opacity: 0.28; shape-rendering: crispEdges; }
+.price-chart__fp-outline,
+.price-chart__fp-plain { shape-rendering: crispEdges; }
+
+/* A radio option that does not apply (5s and 15s in footprint, P19-6). */
+.settings-radio__opt--disabled { opacity: 0.45; cursor: default; }
+
 .price-chart__quote {
     fill: none;
     stroke-width: 1;

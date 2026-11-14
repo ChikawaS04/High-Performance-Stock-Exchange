@@ -7,6 +7,8 @@
  *  - Chart type: the compact white single-select (FieldMenu), the trigger showing the
  *    current type's icon and name, each option its icon and label.
  *  - Bar size: the compact single-select, mono options right-aligned. Hidden in line mode.
+ *    In footprint (Charts page only, P19-6) it offers only 1m and 5m, the sizes that
+ *    keep per-price detail; FieldMenu has no disabled options, so the others are left out.
  *  - Indicators: a raised charcoal button with the indicator icon, opening a §10
  *    popup anchored under it that holds the same IndicatorRows as the gear's
  *    Indicators category.
@@ -26,26 +28,29 @@ import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { BAR_SIZE_IDS } from "../bars";
+import { BAR_SIZE_IDS, FOOTPRINT_SIZES } from "../bars";
 import type { BarSizeId } from "../bars";
+import { chartTypesFor } from "../chartSettings";
 import type { ChartSurface, ChartType } from "../chartSettings";
 import { INDICATORS } from "../indicators/registry";
 import type { IndicatorDescriptor } from "../indicators/registry";
 import { FieldMenu, useListPlacement } from "./FieldMenu";
 import type { MenuOption } from "./FieldMenu";
 import { IndicatorRows } from "./IndicatorRows";
-import { CandleIcon, GearIcon, IndicatorIcon, LineIcon } from "./chartIcons";
+import { CandleIcon, FootprintIcon, GearIcon, IndicatorIcon, LineIcon } from "./chartIcons";
 
 type BandPopup = "view" | "ind" | "settings";
 
-const TYPE_LABEL: Readonly<Record<ChartType, string>> = { candles: "Candles", line: "Line" };
+const TYPE_LABEL: Readonly<Record<ChartType, string>> = { candles: "Candles", line: "Line", footprint: "Footprint" };
 
-const TYPE_OPTIONS: readonly MenuOption[] = [
+const ALL_TYPE_OPTIONS: readonly MenuOption[] = [
     { value: "candles", label: "Candles", icon: <CandleIcon /> },
     { value: "line", label: "Line", icon: <LineIcon /> },
+    { value: "footprint", label: "Footprint", icon: <FootprintIcon /> },
 ];
 
 const SIZE_OPTIONS: readonly MenuOption[] = BAR_SIZE_IDS.map((s) => ({ value: s, label: s }));
+const FOOTPRINT_SIZE_OPTIONS: readonly MenuOption[] = FOOTPRINT_SIZES.map((s) => ({ value: s, label: s }));
 
 export interface ChartBandProps {
     readonly surface: ChartSurface;
@@ -79,6 +84,8 @@ export function ChartBand({
     const toggle = (p: BandPopup): void => setOpen((o) => (o === p ? null : p));
     const close = (): void => setOpen(null);
     const compact = surface === "window";
+    const offered = chartTypesFor(surface);
+    const typeOptions = ALL_TYPE_OPTIONS.filter((o) => offered.some((t) => t === o.value));
 
     const viewRef = useRef<HTMLDivElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
@@ -145,20 +152,23 @@ export function ChartBand({
                     compact
                     iconOnly={compact}
                     className="price-chart__type"
-                    options={TYPE_OPTIONS}
+                    options={typeOptions}
                     value={chartType}
                     triggerLabel={TYPE_LABEL[chartType]}
-                    onSelect={(v) => setChartType(v === "line" ? "line" : "candles")}
+                    onSelect={(v) => {
+                        const t = offered.find((x) => x === v);
+                        if (t !== undefined) setChartType(t);
+                    }}
                 />
 
-                {chartType === "candles" ? (
+                {chartType !== "line" ? (
                     <FieldMenu
                         testId="pc-band-size"
                         ariaLabel={`Bar size: ${barSize}`}
                         compact
                         numeric
                         className="price-chart__size"
-                        options={SIZE_OPTIONS}
+                        options={chartType === "footprint" ? FOOTPRINT_SIZE_OPTIONS : SIZE_OPTIONS}
                         value={barSize}
                         onSelect={(v) => {
                             const s = BAR_SIZE_IDS.find((id) => id === v);
