@@ -1242,17 +1242,25 @@ body {
     text-align: right;
 }
 
-/* Right padding on the numeric captions matches each data cell's own internal right
-   padding (change 8px, price 10px, side 12px), so each caption's right edge lines up
-   with the values beneath it. Size has no internal cell padding, so its caption none. */
+/* The grid has no column gap (a gap showed as a dark stripe between the washed change
+   and price cells), so every column's spacing is its own horizontal padding. Each
+   caption carries exactly the padding of the data cell beneath it (time 12/6, change
+   6, price 8, size 8, side 10/12), so caption and values line up and the auto columns
+   size identically from either. */
+.trade-tape__head-time {
+    padding-right: 6px;
+}
 .trade-tape__head-chg {
-    padding-right: 8px;
+    padding: 0 6px;
 }
 .trade-tape__head-price {
-    padding-right: 10px;
+    padding: 0 8px;
+}
+.trade-tape__head-qty {
+    padding: 0 8px;
 }
 .trade-tape__head-side {
-    padding-right: 12px;
+    padding: 0 12px 0 10px;
 }
 
 /* Scrolling body: the sunken well, and the grid that defines the shared columns. */
@@ -1260,7 +1268,9 @@ body {
     display: grid;
     /* time | change $ | change % | price | size | side */
     grid-template-columns: auto auto auto 1fr auto auto;
-    column-gap: 14px;
+    column-gap: 0;
+    /* The columns are sized to fit the panel on a laptop; never scroll sideways. */
+    overflow-x: hidden;
     align-content: start;
     flex: 1;
     min-height: 0;
@@ -1297,6 +1307,7 @@ body {
 }
 
 .trade-tape__time {
+    padding-right: 6px;
     color: #ffffff;
 }
 
@@ -1318,16 +1329,16 @@ body {
 }
 .trade-tape__price {
     gap: 5px;
-    padding: 0 10px;
+    padding: 0 8px;
 }
 .trade-tape__change {
-    padding: 0 8px;
+    padding: 0 6px;
     font-size: 12px;
 }
 /* CHANGE % reserves the widest form ("-<0.0001%") so the column does not resize as
    prints step between two and four decimals (UI polish D1). */
 .trade-tape__change--pct {
-    min-width: calc(9ch + 16px);
+    min-width: calc(9ch + 12px);
 }
 
 /* Direction arrow (▲ / ▼), coloured with the value; small so it doesn't crowd it.
@@ -1359,6 +1370,7 @@ body {
 }
 
 .trade-tape__qty {
+    padding: 0 8px;
     text-align: right;
     color: #ffffff;
 }
@@ -1376,7 +1388,7 @@ body {
     /* No negative margin now: the side column is the last subgrid track and reaches
        the card edge, so its wash bleeds to the edge on its own; the 12px right padding
        is the right gutter that insets the BUY/SELL text (matched by the SIDE caption). */
-    padding: 0 12px;
+    padding: 0 12px 0 10px;
     font-family: var(--sans);
     font-size: 11px;
     font-weight: 400;
@@ -1663,7 +1675,7 @@ body {
 }
 
 /* Price field: well with a stacked up/down stepper on its right edge. */
-.order-entry__control--price { width: 92px; }
+.order-entry__control--price { width: 116px; }
 .order-entry__price-row {
     display: flex;
     align-items: stretch;
@@ -1714,7 +1726,7 @@ body {
 /* Quantity column: well, presets, optional Display beneath. */
 .order-entry__control--tif { width: 64px; }
 .order-entry__control--ordtype { width: 112px; }
-.order-entry__control--qty { width: 90px; }
+.order-entry__control--qty { width: 80px; }
 
 /* ---- standard dropdown / combobox (DESIGN_SYSTEM.md §11.5) ------------------
    The shared FieldMenu (src/components/FieldMenu.tsx): one white scroll pick-list,
@@ -1883,7 +1895,7 @@ body {
 /* Display sits as its own small control to the right of Qty (limit orders only);
    kept narrow so it fits the empty space without widening the panel. */
 .order-entry__control--display {
-    width: 66px;
+    width: 60px;
 }
 
 /* Submit: short, bottom-left, carries the side colour with the glint. */
@@ -1891,7 +1903,7 @@ body {
     appearance: none;
     align-self: flex-end;
     margin-left: auto;
-    width: 118px;
+    width: 100px;
     padding: 6px 0;
     text-align: center;
     border-radius: var(--oe-rad);
@@ -2625,7 +2637,7 @@ body {
 }
 
 .chart-page__region--panel .order-entry__control--price {
-    width: 100px;
+    width: 116px;
 }
 
 .chart-page__region--panel .order-entry__control--qty {
