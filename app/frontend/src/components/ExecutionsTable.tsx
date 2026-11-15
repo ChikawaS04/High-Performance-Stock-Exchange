@@ -47,7 +47,7 @@ export function ExecutionsTable({ rows }: ExecutionsTableProps) {
     }
     const summary = summarizeExecutionQuality(rows);
     return (
-        <div className="open-orders__scroll" data-testid="executions-scroll">
+        <div className="open-orders__scroll term-scroll" data-testid="executions-scroll">
             <table className="open-orders__table exec-q__table" data-testid="executions-table">
                 <thead>
                     <tr>

@@ -317,7 +317,7 @@ export function OpenOrders({
                         {emptyBlotterMessage(ownerFilter, "ALL")}
                     </div>
                 ) : (
-                    <div className="open-orders__scroll" data-testid="open-orders-scroll">
+                    <div className="open-orders__scroll term-scroll" data-testid="open-orders-scroll">
                         <table className="open-orders__table">
                             <thead>
                             <tr>

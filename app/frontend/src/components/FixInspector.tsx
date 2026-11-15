@@ -154,7 +154,7 @@ export function FixInspector({ entries, open, onClose }: FixInspectorProps) {
                 </div>
 
                 <div className="fix-inspector__body">
-                    <div className="fix-inspector__list" data-testid="fix-inspector-list">
+                    <div className="fix-inspector__list term-scroll" data-testid="fix-inspector-list">
                         {filtered.length === 0 ? (
                             <div className="fix-inspector__empty" data-testid="fix-inspector-empty">
                                 No messages yet
@@ -193,7 +193,7 @@ export function FixInspector({ entries, open, onClose }: FixInspectorProps) {
                         )}
                     </div>
 
-                    <div className="fix-inspector__detail" data-testid="fix-inspector-detail">
+                    <div className="fix-inspector__detail term-scroll" data-testid="fix-inspector-detail">
                         {selected === null ? (
                             <div className="fix-inspector__empty">Select a message</div>
                         ) : isFixEntry(selected) ? (

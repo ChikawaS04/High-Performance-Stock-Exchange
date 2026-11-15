@@ -294,7 +294,7 @@ export function TradeTape({ tape }: TradeTapeProps) {
             {/* One grid: the sticky column-header row plus the scrolling data rows.
                 Keeping the header inside the same grid as the rows (via subgrid in the
                 CSS) is what guarantees the captions always line up with their columns. */}
-            <div className="trade-tape__rows">
+            <div className="trade-tape__rows term-scroll">
                 <div className="trade-tape__head" aria-hidden="true">
                     <span className="trade-tape__head-time">Time</span>
                     <span className="trade-tape__head-chg">Change $</span>

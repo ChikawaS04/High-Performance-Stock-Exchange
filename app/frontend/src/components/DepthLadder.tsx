@@ -203,7 +203,7 @@ export function DepthLadder({ book, lastPx = -1 }: DepthLadderProps) {
                 <span className="depth-ladder__head-cum">Total</span>
             </div>
 
-            <div className="depth-ladder__asks" style={paneStyle}>
+            <div className="depth-ladder__asks term-scroll" style={paneStyle}>
                 {asks.map((row) => renderRow(row, "ask"))}
             </div>
 
@@ -228,7 +228,7 @@ export function DepthLadder({ book, lastPx = -1 }: DepthLadderProps) {
         </span>
             </div>
 
-            <div className="depth-ladder__bids" style={paneStyle}>
+            <div className="depth-ladder__bids term-scroll" style={paneStyle}>
                 {bids.map((row) => renderRow(row, "bid"))}
             </div>
         </div>
