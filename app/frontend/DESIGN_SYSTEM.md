@@ -305,7 +305,8 @@ confirmation window. **Every popup across the terminal looks like this.**
 - **Two-tone, lighter than the panels.** Header `--pop-head` (`#333333`) over body
   `--pop-body` (`#434343`). The **header is darker than the body** (the inverse of a
   panel card), and both are lighter shades than the charcoal panels. Modal popups sit
-  on the `--scrim`.
+  on the `--scrim`, with one named exception: the settings view (below), which has
+  no scrim.
 - **Light-grey outline.** A 1px light-grey border (`#808080`) around the whole modal,
   so it reads as a raised window lifted off the dark terminal.
 - **Thin black divider.** A 1px black (`#000000`) rule separates the header band from
@@ -351,6 +352,67 @@ will do.
   in a floating window cannot clip it, and its Escape closes only the popup.
 - A bulk cancel, if one is added, states how many orders it will cancel.
 
+### Settings view (exception: centred, portalled, no scrim)
+
+The price chart's settings open as a **settings view**: the §10 chrome (two-tone, the
+light-grey outline, the black divider, the red `×`, the silver Done), but placed and
+laid out differently from every other popup. It is the pattern for a settings popup
+with more than a handful of rows.
+
+- **Centred and portalled.** Rendered into the page body and centred in the viewport
+  on every surface, so a floating window (§14) can never clip it. It stacks above
+  floating windows (200) and toasts (300), at `350` for its backdrop and `360` for the
+  view, and below the §11.5 pick-list portal (400), which must open over it.
+- **No scrim, no blur.** The exception to the scrim rule above: the chart behind stays
+  fully visible and live, because the reason to open the view is to watch the chart
+  change while editing. A transparent full-viewport backdrop still catches an outside
+  click to close. While the view is open that backdrop also covers a toast, so a click
+  on a toast closes the view rather than reaching the toast.
+- **Closing.** The backdrop, the `×`, Done, and Escape. Escape closes the innermost open
+  thing first (an open colour palette, then an open pick-list) and is consumed there,
+  so it never also closes the floating window behind.
+- **Landscape and capped.** `width: min(680px, 100vw - 48px)`,
+  `height: min(460px, 100vh - 48px)`: wider than tall, it fits a 1280x720 viewport
+  with margin, and it does not grow on a 27 inch screen (27% by 32% at 2560x1440). The
+  height is fixed so the frame does not jump between folders.
+- **Folder view with breadcrumbs.** Below the fixed header the body has two panes:
+  - **Tree** (168px, on the darker `--pop-head` tone, a 1px black divider): every
+    folder as a plain button, subfolders indented 12px. The selected folder is white
+    on a `rgba(255,255,255,.08)` wash with a 2px `--quote-bid` bar on its left; the
+    selected folder's parents are white; a **dim** folder (none of its rows applies in
+    the current state) is at 40% but stays selectable, and its rows show disabled.
+  - **Content**: a **breadcrumb** (`Settings › Display › Candles`, every crumb a
+    button that goes up to that level, the current one white) over the selected
+    folder. A parent folder lists its subfolders as **entries** (the name, a dim
+    summary or note on the right, a `▸`), like a file browser; a leaf folder holds its
+    §11.4 rows.
+- **Fixed chrome.** The header, the breadcrumb and the footer (Reset colors, Done)
+  never scroll; only the tree and the content do, with the themed scrollbar
+  (`.term-scroll`, below).
+- **Session memory.** The view reopens at the last folder viewed on its surface. It is
+  kept in memory for the session and never persisted (§13 excludes navigation).
+- **Focus.** On open, focus moves to the current folder's tree button; on close it
+  returns to the gear. The tree, the crumbs and the entries are buttons in Tab order.
+  There is no focus trap: the terminal behind stays live to look at.
+- **Popovers inside it** (the colour palette) render in a layer of the view, outside
+  the scrolling content, so they are never clipped: under the chip, or above it when
+  the space below is short.
+
+Other settings popups keep the anchored §11.4 popup for now. The header settings and
+the depth chart's settings could adopt the settings view later; the trade tape's single
+short category stays anchored under its gear.
+
+### Themed scroll regions
+
+Every scroll region in a panel, a popup or a settings view uses the one themed
+scrollbar (P8-3, the `--scroll-thumb`, `--scroll-thumb-hover` and `--scroll-track`
+tokens): a thin 8px translucent bar, a square thumb, no arrow buttons and no reserved
+gutter. It is one reusable class, **`.term-scroll`**, put beside the region's own class
+(`class="fix-inspector__list term-scroll"`); never repeat the rules under a new
+selector. A conformance test fails when a scrolling class is added without it. The one
+kind of region exempt is a list that deliberately hides its bar (the §11.5 pick-list,
+the header's instrument strip).
+
 ---
 
 ## 11. Shared controls (LOCKED, terminal-wide standards)
@@ -378,7 +440,8 @@ Reference: the header gear (`.header__gear`). A **bare glyph, not a button block
   should be tucked away rather than shown inline. The gear replaces inline control
   rows; clicking it opens the standard settings popup (§10 chrome) anchored just
   below it, top-right. First applied on the trade tape (it absorbed the old
-  All / >200 / >500 filter and the ms/ns toggle).
+  All / >200 / >500 filter and the ms/ns toggle). The price chart's gear opens the
+  centred **settings view** instead (§10), on both surfaces.
 
 ### 11.2 Radio set: single choice
 
@@ -412,7 +475,10 @@ control, exactly (e.g. the tape's ms/ns time-units switch).
 
 ### 11.4 Settings popup composition
 
-A gear-opened settings popup is the §10 popup chrome filled with these parts:
+A gear-opened settings popup is the §10 popup chrome filled with these parts. A
+short popup (the trade tape's) groups its rows under category headers; a longer one
+is a **settings view** (§10), whose tree folders and breadcrumb replace the category
+headers and sub-labels, and whose leaf folders hold the same rows.
 
 - **Category header** (e.g. `Display`, `Layout`): a full-width transparent button,
   white 12px sans, with a `▸` caret (`--text`) that rotates to `▾` when expanded;
@@ -427,11 +493,13 @@ A gear-opened settings popup is the §10 popup chrome filled with these parts:
   name (the chart's "Candles only") or as one line under a category's rows
   (`settings-pop__note--line`).
 - **Sub-label:** `settings-pop__sub`, a dim 9px uppercase sans label grouping rows
-  inside a category (the chart's **Candles** and **Line**).
+  inside a category. In a settings view each group is a folder instead.
 - **Colour row:** the name on the left and a **colour chip** on the right: a sunken
   §4 well holding a swatch and the hex in mono (`#00FF00`), or "Match line" for a fill
   that follows the line. The chip opens the **palette popup**, the §10 chrome at a
-  small size anchored under the chip: the 42-swatch palette in six columns, a
+  small size anchored under the chip (in a settings view, in the view's popover layer
+  so the scrolling content cannot clip it, flipped above the chip when the space
+  below is short): the 42-swatch palette in six columns, a
   **Recent** row of the last four picks (newest first, once each), and a **Hex** field
   (a sunken mono well) that takes `#RRGGBB` on Enter or blur and ignores anything
   else. A pick applies and closes the palette; one palette is open at a time.
@@ -441,29 +509,51 @@ A gear-opened settings popup is the §10 popup chrome filled with these parts:
 - A transparent full-viewport backdrop catches an outside click to close.
 - Every control in a settings popup persists (§13).
 
-**Price chart popup, Display category (Charts follow-up).** In order: Background,
-Chart type (Line, Candles, and Footprint on the Charts page), Bar size (the bar chart
-types, candles and footprint), then the **Candles** sub-label with Up candle, Down
-candle and Wicks (Match body or Grey), then the **Line** sub-label with Line color,
-Area fill and Fill color. Rows that draw nothing in the current chart type show
-disabled (the candle rows in line mode, the line rows in the bar chart types, with
-the dim line "Line rows apply in line mode"; Wicks in footprint, where Up and Down
-still colour the imbalance tints and outlines). In footprint the 5s and 15s radios
-show disabled with the dim note "1m and 5m only" (§16.12). Reset colors restores up,
-down, line, fill and wicks to their defaults; Recent stays.
+**Price chart settings view: the folders.**
 
-**Indicators category (P17, the price chart popup).** One row per indicator the
-surface offers (§16.4), the indicator name on the left and the standard §11.3 toggle
-(`On`, `Off`) on the right. An indicator the current chart type cannot draw (Volume
-in line mode) shows disabled with an inline note naming where it draws ("Bar charts
-only" for candles and footprint) and keeps its stored state. Lower panes are capped
-per surface; once the enabled panes reach the cap, the
-toggles of panes that are off are disabled and the category shows one dim line,
-"Pane limit reached (N)", only while the cap is actually holding a pane off.
-Overlays are never disabled by the cap. The band's Indicators popup (§16.7) renders
-the same rows (one shared component), so the two always agree.
+```
+Settings
+├── Display
+│   ├── Chart      Background, Chart type, Bar size
+│   ├── Candles    Up candle, Down candle, Wicks
+│   ├── Line       Line color, Area fill, Fill color
+│   └── Heatmap    Contrast, Trades                  (Charts page only)
+└── Indicators
+    ├── Price      VWAP, SMA, SMA 2, EMA, EMA 2, Bollinger
+    ├── Volume     Volume, Volume profile, CVD      (the last two on the Charts page)
+    └── Trading    Executions, Orders, Bid/Ask
+```
 
-**Parameter disclosure rows (P19).** In the gear popup's Indicators category only, an
+A folder with nothing offered on the surface is left out (Heatmap on the floating
+window). An indicator in no group lands in an **Other** folder, so a new one never
+vanishes. A folder none of whose rows applies in the chart type is dim, with a note
+on its entry: Candles "Bar charts only", Line "Line mode only", Heatmap "Heatmap
+only", an indicator group "Not in this chart type". The Indicators listing shows
+each group's count of indicators on ("2 on"). It opens on Display › Chart.
+
+**Display folders (Charts follow-up).** **Chart**: Background, Chart type (Line,
+Candles, and Footprint and Heatmap on the Charts page), Bar size (the bar chart
+types, candles and footprint). **Candles**: Up candle, Down candle and Wicks (Match
+body or Grey). **Line**: Line color, Area fill and Fill color. Rows that draw nothing
+in the current chart type show disabled (the candle rows in line mode, the line rows
+in the bar chart types, with the dim line "Line rows apply in line mode"; Wicks in
+footprint, where Up and Down still colour the imbalance tints and outlines). In
+footprint the 5s and 15s radios show disabled with the dim note "1m and 5m only"
+(§16.12). Every row keeps its control beside its name on one line; none stacks. Reset
+colors restores up, down, line, fill and wicks to their defaults; Recent stays.
+
+**Indicator folders (P17, the price chart settings view).** One row per indicator of
+the folder the surface offers (§16.4), the indicator name on the left and the standard
+§11.3 toggle (`On`, `Off`) on the right. An indicator the current chart type cannot
+draw (Volume in line mode) shows disabled with an inline note naming where it draws
+("Bar charts only" for candles and footprint) and keeps its stored state. Lower panes
+are capped per surface; once the enabled panes reach the cap, the toggles of panes
+that are off are disabled and the folder holding them shows one dim line, "Pane limit
+reached (N)", only while the cap is actually holding one of its panes off. Overlays
+are never disabled by the cap. The band's Indicators popup (§16.7) renders the same
+rows, all of them in one list (one shared component), so the two always agree.
+
+**Parameter disclosure rows (P19).** In the settings view's indicator folders only, an
 indicator with parameters (the moving averages, Bollinger) gets a small `▸`
 disclosure after its name, in the dim text ink. Expanded (`▾`), each parameter is a
 row of its own, its label indented and dim on the left and an §11.5 **editable
@@ -831,7 +921,9 @@ Phases 18 to 20 extend. Everything is hand-rolled SVG with no charting dependenc
 The chart runs on two surfaces: the **Charts page** (`/charts`) and the **floating
 window** on the Trading page (§11.7, §14). The panel title stays "Price chart". Each
 surface keeps its own chart type, bar size and indicators (§13); the display colours
-are shared.
+are shared. On both surfaces the gear opens the same centred settings view (§10),
+rendered into the page body, so the floating window never clips it; each surface
+remembers its own last folder for the session.
 
 | Feature | Floating window (Trading page) | Charts page |
 |---|---|---|
@@ -953,8 +1045,8 @@ right, in order:
 | divider | 1px `--hair-strong`, 16px tall | |
 | **Chart type** | compact white single-select (§11.5), the current type's icon and name | Candles (two candles, one filled, one hollow, each with a wick), Line (a polyline), and on the Charts page Footprint (two columns of stacked cells, one cell filled) |
 | **Bar size** | compact white single-select, mono options right-aligned | 5s, 15s, 1m, 5m; only 1m and 5m in footprint (the list has no disabled options, so the others are left out); hidden in line mode |
-| **Indicators** | raised charcoal button with the indicator icon | A §10 popup anchored under it with the same rows as the gear's Indicators category |
-| divider, then the **gear** | §11.1 | The settings popup, unchanged in what it holds |
+| **Indicators** | raised charcoal button with the indicator icon | A §10 popup anchored under it with the same rows as the settings view's indicator folders, in one list |
+| divider, then the **gear** | §11.1 | The centred settings view (§10), with the folders of §11.4 |
 
 The band controls are shortcuts to the same persisted keys as the gear popup, so the
 two always agree. One band popup or menu is open at a time.

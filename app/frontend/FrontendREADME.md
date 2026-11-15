@@ -408,7 +408,7 @@ These are real properties of the running system, documented rather than glossed:
 - **Moving averages and Bollinger bands are on both chart surfaces, with editable
   parameters (Phase 19).** SMA, SMA 2, EMA, EMA 2 and Bollinger draw on bar closes in the
   bar chart types. Their lengths (and the Bollinger width, shown as a standard deviation)
-  are edited in the gear popup's Indicators category and persist per surface; a bad stored
+  are edited in the settings view's Price folder and persist per surface; a bad stored
   value falls back to that parameter's default alone. The EMA is recomputed over the
   retained 500 bars, so with a length near 500 its values shift slightly as old bars age
   out.
@@ -603,7 +603,7 @@ app/frontend/
 │   │   ├── PriceChart.tsx        # candles, line, footprint or heatmap; composes the layers (P12, P17, P19, P20)
 │   │   ├── HeatmapLayer.tsx      # the heatmap canvas and its paint scheduling (P20-3)
 │   │   ├── ChartBand.tsx         # the chart's header toolbar (Charts follow-up)
-│   │   ├── ChartSettingsPopup.tsx # the chart's settings popup (P17)
+│   │   ├── ChartSettingsPopup.tsx # the chart's settings view: centred folder tree (P17)
 │   │   ├── ColorPalette.tsx      # colour chip rows and the palette popup
 │   │   ├── IndicatorRows.tsx     # indicator toggles shared by the gear and the band
 │   │   ├── FieldMenu.tsx         # the one standard dropdown (§11.5)
