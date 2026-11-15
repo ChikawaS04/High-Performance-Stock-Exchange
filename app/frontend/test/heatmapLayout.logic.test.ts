@@ -5,6 +5,7 @@ import {
     BUBBLE_MIN_R,
     HEATMAP_DOMAIN_SNAP_TICKS,
     HEATMAP_MAX_ROWS,
+    heatmapMaxRows,
     HEATMAP_MIN_INTENSITY,
     HEATMAP_MIN_SPAN_TICKS,
     blitPieces,
@@ -100,6 +101,21 @@ describe("grid binning (amendment 4)", () => {
         expect(g.rowTicks).toBe(2);
         expect(g.rows).toBe(257);
         expect(rowOf(g, PX + 512 * T)).toBe(256);
+    });
+
+    it("caps the rows at the plot's device-pixel height", () => {
+        expect(heatmapMaxRows(250, 1)).toBe(250);
+        expect(heatmapMaxRows(300, 2)).toBe(HEATMAP_MAX_ROWS);
+        expect(heatmapMaxRows(180.6, 1.5)).toBe(270);
+        expect(heatmapMaxRows(0, 1)).toBe(1);
+        expect(heatmapMaxRows(250, 0)).toBe(250);
+    });
+
+    it("bins the 850-tick visual-check run to at least a device pixel a row", () => {
+        const g = gridFor(span(850), heatmapMaxRows(250, 1));
+        expect(g.rowTicks).toBe(4);
+        expect(g.rows).toBe(213);
+        expect(g.rows).toBeLessThanOrEqual(250);
     });
 
     it("bins 2,256 ticks five to a row", () => {
@@ -238,13 +254,21 @@ describe("trade bubbles", () => {
 });
 
 describe("ramp", () => {
-    it("starts at the well, ends near white and hits every stop", () => {
+    it("starts at a dark blue-grey, ends near white and hits every stop", () => {
         for (const s of HEAT_STOPS) expect(rampRgb(s.at)).toEqual(hexRgb(s.hex));
         const lut = buildRampLut();
         expect(lut.length).toBe(RAMP_SIZE);
-        expect(lut[0]).toBe(packRgb(hexRgb("#0d0d0d")));
+        expect(lut[0]).toBe(packRgb(hexRgb("#2e3844")));
         expect(lut[RAMP_SIZE - 1]).toBe(packRgb(hexRgb("#ebebeb")));
         expect(GROUND_PIXEL).toBe(packRgb([0, 0, 0]));
+    });
+
+    it("puts the floor intensity at 2:1 or more against the black ground", () => {
+        // WCAG relative luminance against #000000.
+        const lin = (c: number) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+        const [r, g, b] = rampRgb(HEATMAP_MIN_INTENSITY);
+        const lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+        expect((lum + 0.05) / 0.05).toBeGreaterThanOrEqual(2);
     });
 
     it("brightens monotonically", () => {

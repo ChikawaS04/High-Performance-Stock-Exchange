@@ -144,6 +144,7 @@ import {
     HEATMAP_DEFAULT_SPAN_NS,
     bestsRange,
     gridFor,
+    heatmapMaxRows,
     nextDomain,
     rowReadout,
     sameGrid,
@@ -564,7 +565,9 @@ export function PriceChart({
         const domain = bests !== null ? nextDomain(domainRef.current, bests.lo, bests.hi) : domainRef.current;
         if (domain === null) return null;
         domainRef.current = domain;
-        const fresh = gridFor(domain);
+        // One row at most per device pixel, so binned rows sum rather than average away.
+        const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+        const fresh = gridFor(domain, heatmapMaxRows(priceH, dpr));
         const grid = sameGrid(gridRef.current, fresh) ? gridRef.current! : fresh;
         gridRef.current = grid;
         const dMin = grid.edgeLo;

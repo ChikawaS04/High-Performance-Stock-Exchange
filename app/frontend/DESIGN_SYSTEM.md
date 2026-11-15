@@ -97,7 +97,7 @@ green and still feeds the header's "up" change colour, so a bid must never use i
 | `--ind-sma` | `#1fd6e8` | `#00808a` | SMA and SMA 2 lines and readout keys (§16.13) |
 | `--ind-ema` | `#f14fe6` | `#a8329b` | EMA and EMA 2 lines and readout keys (§16.13) |
 | `--ind-boll` | `#a9b4c4` | `#5b6778` | Bollinger bands, fill and readout keys (§16.13) |
-| `--heat-0` .. `--heat-4` | `#0d0d0d`, `#1a2430`, `#3b4652`, `#8a9097`, `#ebebeb` | (black only) | The liquidity heatmap's ramp stops at 0, 0.25, 0.5, 0.75 and 1 (§16.14) |
+| `--heat-0` .. `--heat-4` | `#2e3844`, `#3d4855`, `#5d6772`, `#9aa0a6`, `#ebebeb` | (black only) | The liquidity heatmap's ramp stops at 0, 0.25, 0.5, 0.75 and 1 (§16.14) |
 
 The black-ground values are the trade tape's `--tick-up` / `--tick-down`, so direction
 reads as one colour family across the terminal. `#00ff00` cannot be read on white, so
@@ -1142,15 +1142,18 @@ top as bubbles, the best bid and ask as lines.
   and reads "beyond depth"; otherwise an unlisted price has no liquidity.
 - **Ground and ramp.** Always the black ground, whatever the Background setting (its
   row shows disabled with "Heatmap draws on black"). One neutral ramp, `--heat-0` to
-  `--heat-4` (§2), from the well colour through a dark blue-grey to near white; blue
-  and red stay for side. An empty cell is the ground.
+  `--heat-4` (§2), from a dark blue-grey to near white; blue and red stay for side.
+  An empty cell is the ground. The low stops are set so the 0.15 floor (`#37424e`) is
+  2:1 against black.
 - **Brightness.** `log(1 + size) / log(1 + clip)`, clamped to 1, and at least 0.15 for
   any non-zero size, so a 1-share level shows. The clip is the visible window's 98th
   percentile divided by the contrast factor (**Low** 0.5, **Normal** 1, **High** 2), so
   one huge order does not black out the rest.
 - **Price range.** Fitted to the visible best bid and ask, padded 10 ticks, at least 40
   ticks, snapped to 10, and held until a best leaves it or it could shrink by a
-  quarter. Past 512 ticks each row covers several ticks and shows their summed size.
+  quarter. Rows are capped at 512 and at the plot's height in device pixels; past the
+  cap each row covers several ticks and shows their summed size, so a sparse level
+  stays visible however wide the range.
 - **Time.** The line chart's window: wheel zoom, drag to pan, Latest. It opens on the
   newest 3 minutes. Zoomed out past one column per device pixel the columns are
   averaged, not dropped.

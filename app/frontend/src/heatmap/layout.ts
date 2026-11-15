@@ -5,7 +5,10 @@
  * Grid. The price domain [lo, hi] (tick prices) is the plot's y range. It is drawn as
  * rows of `rowTicks` ticks each: one tick a row up to HEATMAP_MAX_ROWS ticks, and past
  * that ceil(ticks / HEATMAP_MAX_ROWS) ticks a row, whose size is the SUM of its ticks'
- * sizes, the resting liquidity in that price range (amendment 4). Row 0 is the lowest
+ * sizes, the resting liquidity in that price range (amendment 4). The row cap is also
+ * never more than the plot's height in device pixels (heatmapMaxRows), so a row is at
+ * least one device pixel and a sparse level is summed into its row rather than averaged
+ * away by a downscaled blit (P20-7 visual check). Row 0 is the lowest
  * price. The plot's price edges sit half a tick outside the first and last tick, so a
  * tick's cell is centred on its price.
  *
@@ -109,12 +112,18 @@ export interface RowGrid {
     readonly lo: number;
     /** Ticks in the domain. */
     readonly ticks: number;
-    /** Ticks per row: 1 up to HEATMAP_MAX_ROWS ticks. */
+    /** Ticks per row: 1 up to the row cap (HEATMAP_MAX_ROWS or the plot's device px). */
     readonly rowTicks: number;
     readonly rows: number;
     /** Price edges of the plot: half a tick outside the first tick and the last row's last tick. */
     readonly edgeLo: number;
     readonly edgeHi: number;
+}
+
+/** The row cap for a plot `plotH` CSS px tall at `dpr`: at most one row a device pixel. */
+export function heatmapMaxRows(plotH: number, dpr: number): number {
+    const px = Math.floor(plotH * (dpr > 0 ? dpr : 1));
+    return Math.max(1, Math.min(HEATMAP_MAX_ROWS, px));
 }
 
 export function gridFor(domain: PriceDomain, maxRows: number = HEATMAP_MAX_ROWS): RowGrid {

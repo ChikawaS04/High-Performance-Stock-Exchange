@@ -1,7 +1,7 @@
 /**
  * The heatmap's colour ramp (P20-2, P20 D2, stops accepted at P20-0 F6).
  *
- * One neutral ramp from the well colour through a dark blue-grey to near white. Bid
+ * One neutral ramp from a dark blue-grey to near white. Bid
  * and ask are told apart by where they sit against the best bid and ask lines, so
  * blue and red stay reserved for side (DESIGN_SYSTEM.md §2). The heatmap always draws
  * on the black ground (F6): an empty cell is the ground, never a ramp colour.
@@ -9,6 +9,10 @@
  * The stops are the source of truth for the canvas (DESIGN_SYSTEM.md documents them
  * as --heat-0 .. --heat-4). The renderer reads a 256-entry lookup table of packed
  * pixels, built once, so painting a cell is one array write.
+ *
+ * The low stops are lifted so the floor intensity (HEATMAP_MIN_INTENSITY, 0.15) lands
+ * on #37424e, 2.05:1 against the black ground; the first stops were 1.21:1 there, too
+ * faint to read a 1-share level (P20-7 visual check).
  */
 
 export interface RampStop {
@@ -17,10 +21,10 @@ export interface RampStop {
 }
 
 export const HEAT_STOPS: readonly RampStop[] = [
-    { at: 0, hex: "#0d0d0d" },
-    { at: 0.25, hex: "#1a2430" },
-    { at: 0.5, hex: "#3b4652" },
-    { at: 0.75, hex: "#8a9097" },
+    { at: 0, hex: "#2e3844" },
+    { at: 0.25, hex: "#3d4855" },
+    { at: 0.5, hex: "#5d6772" },
+    { at: 0.75, hex: "#9aa0a6" },
     { at: 1, hex: "#ebebeb" },
 ];
 
