@@ -14,11 +14,77 @@
  * `${prefix}-${hex}`, recent swatches `${prefix}-recent-${hex}`, the hex field
  * `${prefix}-hex`, Match line `${prefix}-line` (so the fill palette keeps the P12-R
  * ids pc-fill-line and pc-fill-<hex>, and the line palette pc-line-<hex>).
+ *
+ * Inside the chart settings view (a scrolling pane) the palette would be clipped, so
+ * the view provides a layer element (PaletteLayerContext) outside the pane. With a
+ * layer the palette is portalled into it and placed from the chip's rect: under the
+ * chip, right-aligned to it, or above it when the space below inside the viewport is
+ * short. It follows the chip on any scroll (capture phase, so the pane counts) and on
+ * resize. Without a layer it keeps the plain absolute placement under the chip.
  */
 
-import { useState } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties, RefObject } from "react";
+import { createPortal } from "react-dom";
 
 import { PALETTE, parseHexInput } from "../chartColors";
+
+/** The element palettes portal into, provided by the chart settings view. */
+export const PaletteLayerContext = createContext<HTMLElement | null>(null);
+
+/** Gap between the chip and the palette, and the viewport margin kept below it. */
+const PALETTE_GAP = 4;
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * The palette's position inside the layer: under the chip and right-aligned to it, or
+ * above when it would run past the viewport's bottom and there is more room above.
+ */
+export function placePalette(
+    chip: { readonly top: number; readonly bottom: number; readonly right: number },
+    layer: { readonly top: number; readonly left: number },
+    palette: { readonly width: number; readonly height: number },
+    viewportH: number,
+): { readonly top: number; readonly left: number } {
+    const below = chip.bottom + PALETTE_GAP;
+    const fitsBelow = below + palette.height <= viewportH - VIEWPORT_MARGIN;
+    const roomAbove = chip.top - PALETTE_GAP - VIEWPORT_MARGIN;
+    const roomBelow = viewportH - VIEWPORT_MARGIN - below;
+    const top = fitsBelow || roomBelow >= roomAbove ? below : chip.top - PALETTE_GAP - palette.height;
+    return { top: top - layer.top, left: chip.right - palette.width - layer.left };
+}
+
+function usePalettePlacement(
+    active: boolean,
+    layer: HTMLElement | null,
+    chipRef: RefObject<HTMLElement | null>,
+    popRef: RefObject<HTMLElement | null>,
+): CSSProperties | undefined {
+    const [style, setStyle] = useState<CSSProperties | undefined>(undefined);
+    useLayoutEffect(() => {
+        if (!active || layer === null) return;
+        const place = (): void => {
+            const chip = chipRef.current;
+            const pop = popRef.current;
+            if (chip === null || pop === null) return;
+            const at = placePalette(
+                chip.getBoundingClientRect(),
+                layer.getBoundingClientRect(),
+                { width: pop.offsetWidth, height: pop.offsetHeight },
+                window.innerHeight,
+            );
+            setStyle({ position: "absolute", top: at.top, left: at.left, right: "auto" });
+        };
+        place();
+        window.addEventListener("scroll", place, true);
+        window.addEventListener("resize", place);
+        return () => {
+            window.removeEventListener("scroll", place, true);
+            window.removeEventListener("resize", place);
+        };
+    }, [active, layer, chipRef, popRef]);
+    return style;
+}
 
 export interface ColorRowProps {
     readonly label: string;
@@ -53,11 +119,35 @@ export function ColorRow({
     rowClass,
 }: ColorRowProps) {
     const chipText = value === "line" ? "Match line" : hex.toUpperCase();
+    const layer = useContext(PaletteLayerContext);
+    const chipRef = useRef<HTMLButtonElement>(null);
+    const popRef = useRef<HTMLDivElement>(null);
+    const showPalette = open && !disabled;
+    const placed = usePalettePlacement(showPalette, layer, chipRef, popRef);
+    const palette = showPalette ? (
+        <ColorPalette
+            title={label}
+            prefix={prefix}
+            value={value}
+            hex={hex}
+            recent={recent}
+            matchLine={matchLine}
+            onPick={(v) => {
+                onPick(v);
+                onClose();
+            }}
+            onClose={onClose}
+            popRef={popRef}
+            // Hidden until measured, so it never flashes at the layer's corner.
+            style={layer === null ? undefined : (placed ?? { position: "absolute", visibility: "hidden" })}
+        />
+    ) : null;
     return (
         <div className={rowClass} data-testid={`${prefix}-row`}>
             <span className="settings-pop__name">{label}</span>
             <span className="color-chip__anchor">
                 <button
+                    ref={chipRef}
                     type="button"
                     className="color-chip"
                     aria-haspopup="dialog"
@@ -73,21 +163,7 @@ export function ColorRow({
                         {"▾"}
                     </span>
                 </button>
-                {open && !disabled ? (
-                    <ColorPalette
-                        title={label}
-                        prefix={prefix}
-                        value={value}
-                        hex={hex}
-                        recent={recent}
-                        matchLine={matchLine}
-                        onPick={(v) => {
-                            onPick(v);
-                            onClose();
-                        }}
-                        onClose={onClose}
-                    />
-                ) : null}
+                {palette !== null && layer !== null ? createPortal(palette, layer) : palette}
             </span>
         </div>
     );
@@ -102,9 +178,11 @@ interface ColorPaletteProps {
     readonly matchLine: boolean;
     readonly onPick: (value: string) => void;
     readonly onClose: () => void;
+    readonly popRef: RefObject<HTMLDivElement | null>;
+    readonly style?: CSSProperties;
 }
 
-function ColorPalette({ title, prefix, value, hex, recent, matchLine, onPick, onClose }: ColorPaletteProps) {
+function ColorPalette({ title, prefix, value, hex, recent, matchLine, onPick, onClose, popRef, style }: ColorPaletteProps) {
     const [text, setText] = useState(hex.toUpperCase());
     const commit = (): void => {
         const parsed = parseHexInput(text);
@@ -112,7 +190,14 @@ function ColorPalette({ title, prefix, value, hex, recent, matchLine, onPick, on
     };
 
     return (
-        <div className="color-pop" role="dialog" aria-label={`${title} colour`} data-testid={`${prefix}-palette`}>
+        <div
+            ref={popRef}
+            className="color-pop"
+            role="dialog"
+            aria-label={`${title} colour`}
+            data-testid={`${prefix}-palette`}
+            style={style}
+        >
             <div className="settings-pop__head color-pop__head">
                 <span className="settings-pop__title">{title}</span>
                 <button

@@ -20,6 +20,10 @@
  * place for a tenths param); an invalid draft is left unstored and the well shows the
  * stored value again on blur. Which rows are expanded is local and never persisted
  * (§13 excludes expanded sections).
+ *
+ * With `ids` (the settings view's indicator folders) only those indicators render, in
+ * registry order; the pane cap still counts every enabled pane, and the limit line
+ * shows in a folder only while the cap holds one of that folder's panes off.
  */
 
 import { useState } from "react";
@@ -37,6 +41,8 @@ export interface IndicatorRowsProps {
     readonly indicators: readonly string[];
     readonly setIndicators: (next: readonly string[]) => void;
     readonly registry?: readonly IndicatorDescriptor[];
+    /** Render only these indicators (a settings view folder); all offered when absent. */
+    readonly ids?: readonly string[];
     /** Show the parameter disclosures (the gear popup's category only). */
     readonly showParams?: boolean;
     readonly params?: IndicatorParams;
@@ -89,9 +95,8 @@ export function typeNote(d: IndicatorDescriptor): string {
     return "Not in this chart type";
 }
 
-export function settingsRowClass(disabled: boolean, stack = false): string {
-    const base = stack ? "settings-pop__row settings-pop__row--stack" : "settings-pop__row";
-    return disabled ? `${base} settings-pop__row--disabled` : base;
+export function settingsRowClass(disabled: boolean): string {
+    return disabled ? "settings-pop__row settings-pop__row--disabled" : "settings-pop__row";
 }
 
 export function IndicatorRows({
@@ -100,6 +105,7 @@ export function IndicatorRows({
     indicators,
     setIndicators,
     registry = INDICATORS,
+    ids,
     showParams = false,
     params = NO_PARAMS,
     setParam,
@@ -107,7 +113,8 @@ export function IndicatorRows({
     const [expanded, setExpanded] = useState<readonly string[]>([]);
     const toggleExpanded = (id: string): void =>
         setExpanded((e) => (e.includes(id) ? e.filter((x) => x !== id) : [...e, id]));
-    const offered = onSurface(surface, registry);
+    const onThis = onSurface(surface, registry);
+    const offered = ids === undefined ? onThis : onThis.filter((d) => ids.includes(d.id));
     const cap = PANE_CAP[surface];
     const atCap = enabledPaneIds(indicators, registry).length >= cap;
     const capHoldsOne = atCap && offered.some((d) => d.placement === "pane" && !indicators.includes(d.id));

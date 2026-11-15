@@ -12,12 +12,15 @@ import { EMPTY_BOOK } from "../src/state/reducer";
 import type { BookState, MyOrder, TapeEntry } from "../src/state/reducer";
 import { emptyBars } from "../src/bars";
 import { SETTING_KEYS } from "../src/settings/persist";
+import { resetLastFolders } from "../src/settings/chartSettingsTree";
+import { openFolder } from "./settingsFolders";
 
 // Each test changes a setting, unmounts the panel (a page switch) and mounts it
 // again: the setting must survive. localStorage is cleared between tests.
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    resetLastFolders();
 });
 
 const BOOK: BookState = {
@@ -78,6 +81,7 @@ describe("persisted panel settings survive a page switch (D10)", () => {
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
         fireEvent.click(screen.getByTestId("pc-bg-white"));
         // Colour rows open the shared palette from their chip (Charts follow-up).
+        openFolder("display/line");
         fireEvent.click(screen.getByTestId("pc-line-chip"));
         fireEvent.click(screen.getByTestId("pc-line-#3b93ff"));
         fireEvent.click(screen.getByTestId("pc-fill-chip"));
@@ -87,7 +91,9 @@ describe("persisted panel settings survive a page switch (D10)", () => {
 
         render(ui());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        openFolder("display/chart");
         expect(screen.getByTestId("pc-bg-white").getAttribute("aria-pressed")).toBe("true");
+        openFolder("display/line");
         fireEvent.click(screen.getByTestId("pc-line-chip"));
         expect(screen.getByTestId("pc-line-#3b93ff").getAttribute("aria-checked")).toBe("true");
         expect(screen.getByTestId("pc-grad-off").getAttribute("aria-pressed")).toBe("true");

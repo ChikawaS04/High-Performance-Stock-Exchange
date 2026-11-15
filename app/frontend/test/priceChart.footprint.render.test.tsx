@@ -7,11 +7,13 @@ import { initialState, reducer } from "../src/state/reducer";
 import type { Action, AppState } from "../src/state/reducer";
 import type { ExecFrame, Side } from "../src/protocol/messages";
 import { SETTING_KEYS } from "../src/settings/persist";
+import { resetLastFolders } from "../src/settings/chartSettingsTree";
 
 // P19-6: the footprint chart type.
 
 afterEach(() => {
     cleanup();
+    resetLastFolders();
     localStorage.clear();
 });
 
@@ -115,17 +117,19 @@ describe("footprint chart type (P19-6)", () => {
         expect(screen.getByTestId("pc-size-note").textContent).toBe("1m and 5m only");
     });
 
-    it("stacks the three-type chart type row and the footprint bar size row so they fit the popup", () => {
+    it("keeps the chart type row and the footprint bar size row on one line in the landscape view", () => {
+        // The P19-10 and P20-7 stacking is retired: the settings view's content pane fits
+        // the page's four chart types and the bar size note beside their names.
         setPage("footprint");
         chart(session());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
-        expect(screen.getByTestId("pc-type-row").className).toContain("settings-pop__row--stack");
-        expect(screen.getByTestId("pc-size-row").className).toContain("settings-pop__row--stack");
+        expect(screen.getByTestId("pc-type-row").className).toBe("settings-pop__row");
+        expect(screen.getByTestId("pc-size-row").className).toBe("settings-pop__row");
         cleanup();
         chart(session(), "window");
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
-        expect(screen.getByTestId("pc-type-row").className).not.toContain("settings-pop__row--stack");
-        expect(screen.getByTestId("pc-size-row").className).not.toContain("settings-pop__row--stack");
+        expect(screen.getByTestId("pc-type-row").className).toBe("settings-pop__row");
+        expect(screen.getByTestId("pc-size-row").className).toBe("settings-pop__row");
     });
 
     it("draws cells, the imbalance tint and the open-close outline", () => {

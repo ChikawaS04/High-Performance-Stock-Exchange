@@ -7,6 +7,8 @@ import { FieldMenu } from "../src/components/FieldMenu";
 import { emptyBars } from "../src/bars";
 import { SETTING_KEYS } from "../src/settings/persist";
 import type { IndicatorDescriptor } from "../src/indicators/registry";
+import { resetLastFolders } from "../src/settings/chartSettingsTree";
+import { openFolder } from "./settingsFolders";
 
 // The price chart band toolbar (Charts follow-up, decisions 1 and 2).
 
@@ -14,6 +16,7 @@ afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
     localStorage.clear();
+    resetLastFolders();
 });
 
 const stored = (key: string): unknown => JSON.parse(localStorage.getItem(key) ?? "null");
@@ -98,6 +101,7 @@ describe("page band", () => {
         fireEvent.click(screen.getByTestId("pc-ind-pop-close"));
         expect(screen.queryByTestId("pc-ind-pop")).toBeNull();
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        openFolder("indicators/price");
         expect(screen.getByTestId("pc-ind-vwap-off").getAttribute("aria-pressed")).toBe("true");
         fireEvent.click(screen.getByTestId("pc-ind-vwap-on"));
         fireEvent.click(screen.getByTestId("pc-settings-close"));

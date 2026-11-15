@@ -7,6 +7,8 @@ import type { Action, AppState, OwnFill } from "../src/state/reducer";
 import type { BookFrame, ExecFrame, Side } from "../src/protocol/messages";
 import type { WorkingOrder } from "../src/ownExecutions";
 import { SETTING_KEYS } from "../src/settings/persist";
+import { resetLastFolders } from "../src/settings/chartSettingsTree";
+import { INDICATOR_FOLDERS, openFolder } from "./settingsFolders";
 import { DepthRecorder } from "../src/heatmap/depthRecorder";
 import { HEATMAP_TICK_NS, bucketStartNs } from "../src/heatmap/depthRing";
 import { gridFor, nextDomain, xOfNs, yOfPx } from "../src/heatmap/layout";
@@ -18,6 +20,7 @@ import { installFakeCanvas } from "./fakeCanvas";
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    resetLastFolders();
     vi.restoreAllMocks();
 });
 
@@ -175,6 +178,7 @@ describe("heatmap settings (D6)", () => {
         expect(screen.getByTestId("pc-bg-note").textContent).toBe("Heatmap draws on black");
         expect((screen.getByTestId("pc-bg-white") as HTMLButtonElement).disabled).toBe(true);
         expect(screen.queryByTestId("pc-size-row")).toBeNull();
+        openFolder("display/heatmap");
         expect((screen.getByTestId("pc-contrast-normal") as HTMLInputElement).checked).toBe(true);
         fireEvent.click(screen.getByTestId("pc-contrast-high"));
         expect(stored(SETTING_KEYS.priceChartHeatmapContrast)).toBe("high");
@@ -186,23 +190,32 @@ describe("heatmap settings (D6)", () => {
         setPage("candles");
         chart(session());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
-        expect(screen.getByTestId("pc-contrast-row").className).toContain("settings-pop__row--disabled");
         expect(screen.queryByTestId("pc-bg-note")).toBeNull();
+        openFolder("display/heatmap");
+        expect(screen.getByTestId("pc-contrast-row").className).toContain("settings-pop__row--disabled");
         cleanup();
         chart(session(), { surface: "window" });
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
-        expect(screen.queryByTestId("pc-sub-heatmap")).toBeNull();
+        expect(screen.queryByTestId("pc-folder-display-heatmap")).toBeNull();
     });
 
     it("offers VWAP, Executions and Orders, and blocks the bar indicators and the profile", () => {
         setPage("heatmap");
         chart(session());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        // Each indicator row lives in its folder (Price, Volume, Trading): gather them all.
+        const rowClass: Record<string, string> = {};
+        for (const f of INDICATOR_FOLDERS) {
+            openFolder(f);
+            for (const r of Array.from(screen.getByTestId("pc-settings-indicators").querySelectorAll("[data-testid$='-row']"))) {
+                rowClass[r.getAttribute("data-testid")!] = r.className;
+            }
+        }
         for (const id of ["vwap", "executions", "orders"]) {
-            expect(screen.getByTestId(`pc-ind-${id}-row`).className).not.toContain("settings-pop__row--disabled");
+            expect(rowClass[`pc-ind-${id}-row`]).not.toContain("settings-pop__row--disabled");
         }
         for (const id of ["volume", "cvd", "sma", "bollinger", "bidask", "volprofile"]) {
-            expect(screen.getByTestId(`pc-ind-${id}-row`).className).toContain("settings-pop__row--disabled");
+            expect(rowClass[`pc-ind-${id}-row`]).toContain("settings-pop__row--disabled");
         }
     });
 });

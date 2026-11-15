@@ -6,12 +6,15 @@ import { initialState, reducer } from "../src/state/reducer";
 import type { Action, AppState } from "../src/state/reducer";
 import type { ExecFrame } from "../src/protocol/messages";
 import { SETTING_KEYS } from "../src/settings/persist";
+import { resetLastFolders } from "../src/settings/chartSettingsTree";
+import { openFolder } from "./settingsFolders";
 
 // P19-9: Bollinger bands.
 
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    resetLastFolders();
 });
 
 const S = 1_000_000_000;
@@ -92,6 +95,7 @@ describe("Bollinger layer (P19-9)", () => {
         enable({});
         chart();
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        openFolder("indicators/price");
         fireEvent.click(screen.getByTestId("pc-ind-bollinger-params"));
         expect(screen.getByTestId("pc-param-bollinger-width-row").textContent).toContain("Std dev");
         const width = screen.getByTestId("pc-param-bollinger-width-input") as HTMLInputElement;

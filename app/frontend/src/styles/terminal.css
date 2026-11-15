@@ -3997,6 +3997,137 @@ body {
 /* Settings popup, chart variant: a touch wider for the colour chips. */
 .settings-pop--chart { width: 260px; }
 
+/* ---- Chart settings view (DESIGN_SYSTEM.md §10 settings view exception, §11.4) --
+   Portalled into the body and centred in the viewport on both chart surfaces, above
+   floating windows (200) and toasts (300), below the FieldMenu list portal (400). No
+   scrim: the backdrop is transparent and only catches an outside click. Landscape and
+   capped so it fits a 1280x720 viewport and does not grow on a 27 inch screen; the
+   head, breadcrumb and foot are fixed and only the tree and content scroll. */
+.settings-pop__backdrop--view { z-index: 350; }
+.settings-pop.settings-pop--view {
+    position: fixed;
+    inset: 0;
+    margin: auto;
+    z-index: 360;
+    width: min(680px, 100vw - 48px);
+    height: min(460px, 100vh - 48px);
+    display: flex;
+    flex-direction: column;
+}
+.settings-pop--view > .settings-pop__head,
+.settings-pop--view > .settings-pop__foot { flex: none; }
+.settings-pop--view > .settings-pop__foot { border-top: 1px solid #000000; }
+
+.settings-view__body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+/* Tree: the darker §10 header tone, a black divider, folders as plain buttons. */
+.settings-view__tree {
+    flex: none;
+    width: 168px;
+    overflow-y: auto;
+    padding: 6px 0;
+    background: var(--pop-head);
+    border-right: 1px solid #000000;
+}
+.settings-view__node {
+    appearance: none;
+    display: block;
+    width: 100%;
+    padding: 5px 10px 5px 10px;
+    border: 0;
+    border-left: 2px solid transparent;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 400;
+    text-align: left;
+    cursor: pointer;
+}
+.settings-view__node--sub { padding-left: 22px; font-size: 11px; }
+.settings-view__node:hover { background: rgba(255, 255, 255, 0.05); color: #ffffff; }
+.settings-view__node--trail { color: #ffffff; }
+.settings-view__node--on {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+    border-left-color: var(--quote-bid);
+}
+.settings-view__node--dim { opacity: 0.4; }
+
+/* Right pane: the breadcrumb over the scrolling content. */
+.settings-view__main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.settings-view__crumbs {
+    flex: none;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    min-height: 30px;
+    padding: 0 12px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.45);
+}
+.settings-view__crumb-item { display: inline-flex; align-items: center; }
+.settings-view__sep { margin: 0 6px; color: var(--dim, #8f8f8f); font-size: 11px; }
+.settings-view__crumb {
+    appearance: none;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 11px;
+    cursor: pointer;
+}
+.settings-view__crumb:hover { color: #ffffff; text-decoration: underline; }
+.settings-view__crumb--on { color: #ffffff; }
+.settings-view__content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px 12px 10px;
+}
+
+/* A parent folder's listing: its subfolders as entries. */
+.settings-view__entries { display: flex; flex-direction: column; }
+.settings-view__entry {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 30px;
+    padding: 0 6px;
+    border: 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+    background: transparent;
+    color: #ffffff;
+    font-family: var(--sans);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+.settings-view__entry:hover { background: rgba(255, 255, 255, 0.05); }
+.settings-view__entry--dim .settings-view__entry-name { opacity: 0.5; }
+.settings-view__entry-name { flex: 1; }
+.settings-view__entry-note { margin-left: 0; }
+.settings-view__entry-caret { color: var(--text); font-size: 10px; }
+
+/* The palette layer: covers the dialog, passes clicks through except on a palette. */
+.settings-view__layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+.settings-view__layer > .color-pop { pointer-events: auto; }
+
 /* Display sub-labels (Candles, Line): dim small caps over their rows. */
 .settings-pop__sub {
     padding: 8px 0 2px;
@@ -4029,12 +4160,6 @@ body {
 /* Toggle labels that are words, not units, read in sans (§11.3: White / Black). */
 .settings-toggle__opt--sans { font-family: var(--sans); }
 
-/* A setting row whose control stacks under its name (the swatch grids). */
-.settings-pop__row--stack {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 7px;
-}
 /* Disabled row (fill colour while area fill is off). */
 .settings-pop__row--disabled { opacity: 0.4; pointer-events: none; }
 
@@ -4681,13 +4806,9 @@ body {
     paint-order: stroke;
 }
 
-/* P20-7 visual check: the page's four chart types wrap inside a stacked row, and a
-   row's name (with a long "Not in this chart type" note) shrinks and wraps rather
-   than pushing its control past the popup's edge. */
-.settings-pop__row--stack .settings-radio {
-    flex-wrap: wrap;
-    row-gap: 6px;
-}
+/* P20-7 visual check: a row's name (with a long "Not in this chart type" note) shrinks
+   and wraps rather than pushing its control past the popup's edge (the band's narrow
+   Indicators popup still needs this). */
 .settings-pop__row > .settings-pop__name {
     min-width: 0;
 }

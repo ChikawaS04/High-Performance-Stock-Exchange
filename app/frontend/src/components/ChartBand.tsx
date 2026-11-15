@@ -13,7 +13,9 @@
  *  - Indicators: a raised charcoal button with the indicator icon, opening a §10
  *    popup anchored under it that holds the same IndicatorRows as the gear's
  *    Indicators category.
- *  - A divider, then the §11.1 settings gear, unchanged.
+ *  - A divider, then the §11.1 settings gear. It opens the centred settings view
+ *    (ChartSettingsPopup, portalled into the page body); closing the view returns
+ *    focus to the gear.
  * The band controls are shortcuts to the persisted keys the gear popup writes, so the
  * two always agree. One band popup or menu is open at a time.
  *
@@ -89,6 +91,13 @@ export function ChartBand({
     const offered = chartTypesFor(surface);
     const typeOptions = ALL_TYPE_OPTIONS.filter((o) => offered.some((t) => t === o.value));
 
+    const gearRef = useRef<HTMLButtonElement>(null);
+    // Closing the settings view hands focus back to the gear. If the band is gone (the
+    // floating window closed under it) the ref is null and nothing happens.
+    const closeSettings = (): void => {
+        setOpen(null);
+        gearRef.current?.focus();
+    };
     const viewRef = useRef<HTMLDivElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
     const viewStyle = useListPlacement(open === "view", viewRef, viewMenuRef);
@@ -230,6 +239,7 @@ export function ChartBand({
                 <span className="price-chart__divider" aria-hidden="true" />
 
                 <button
+                    ref={gearRef}
                     type="button"
                     className="term-gear"
                     aria-label="Chart settings"
@@ -241,7 +251,7 @@ export function ChartBand({
                     <GearIcon />
                 </button>
 
-                {open === "settings" ? renderSettings(close) : null}
+                {open === "settings" ? renderSettings(closeSettings) : null}
 
                 {onClose ? (
                     <button

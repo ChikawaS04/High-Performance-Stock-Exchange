@@ -6,6 +6,8 @@ import { emptyBars } from "../src/bars";
 import type { IndicatorDescriptor } from "../src/indicators/registry";
 import { INDICATORS } from "../src/indicators/registry";
 import { SETTING_KEYS } from "../src/settings/persist";
+import { resetLastFolders } from "../src/settings/chartSettingsTree";
+import { openFolder } from "./settingsFolders";
 
 // P19-7: indicator parameters in the gear popup. A fixture registry carries the
 // params, since the shipped indicators that have them arrive in P19-8 and P19-9.
@@ -13,6 +15,7 @@ import { SETTING_KEYS } from "../src/settings/persist";
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    resetLastFolders();
 });
 
 const FIXTURE: readonly IndicatorDescriptor[] = [
@@ -37,18 +40,26 @@ function chart(surface: "page" | "window" = "page") {
 const stored = (key: string): unknown => JSON.parse(localStorage.getItem(key) ?? "null");
 const input = (id: string): HTMLInputElement => screen.getByTestId(`pc-param-band-${id}-input`) as HTMLInputElement;
 
-function openParams(): void {
+/** Open the gear's settings view on the Other folder, where the fixture's Band lives. */
+function openOther(): void {
     fireEvent.click(screen.getByTestId("pc-settings-gear"));
+    openFolder("indicators/other");
+}
+
+function openParams(): void {
+    openOther();
     fireEvent.click(screen.getByTestId("pc-ind-band-params"));
 }
 
 describe("indicator parameters (P19-7)", () => {
     it("shows a disclosure only on indicators with params, collapsed", () => {
         chart();
-        fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        openOther();
         expect(screen.getByTestId("pc-ind-band-params").textContent).toBe("▸");
-        expect(screen.queryByTestId("pc-ind-vwap-params")).toBeNull();
         expect(screen.queryByTestId("pc-param-band-length-row")).toBeNull();
+        openFolder("indicators/price");
+        expect(screen.queryByTestId("pc-ind-vwap-params")).toBeNull();
+        expect(screen.getByTestId("pc-ind-sma-params").textContent).toBe("▸");
     });
 
     it("expands to one row per param with the stored or default value", () => {

@@ -7,12 +7,15 @@ import { PriceChart } from "../src/components/PriceChart";
 import { initialState, reducer } from "../src/state/reducer";
 import type { Action, AppState } from "../src/state/reducer";
 import { SETTING_KEYS } from "../src/settings/persist";
+import { resetLastFolders } from "../src/settings/chartSettingsTree";
+import { openFolder } from "./settingsFolders";
 
 // Wicks and colours (Charts follow-up, decisions 5 and 6).
 
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    resetLastFolders();
 });
 
 const CSS = readFileSync(resolve(__dirname, "../src/styles/terminal.css"), "utf-8");
@@ -88,6 +91,7 @@ describe("wicks", () => {
     it("Wicks in the gear popup persists Grey", () => {
         renderChart(twoWay());
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        openFolder("display/candles");
         fireEvent.click(screen.getByTestId("pc-wicks-grey"));
         expect(localStorage.getItem(SETTING_KEYS.priceChartWicks)).toBe(JSON.stringify("grey"));
         expect(screen.getByTestId("price-chart-wick").getAttribute("stroke")).toBe("#8f8f8f");
@@ -137,32 +141,31 @@ describe("chosen candle colours", () => {
 });
 
 describe("gear popup colours", () => {
-    function openGear(state: AppState = upDown()) {
+    /** Open the gear's settings view on a folder (the candle colours by default). */
+    function openGear(state: AppState = upDown(), folder = "display/candles") {
         renderChart(state);
         fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        openFolder(folder);
     }
 
-    it("orders Display as Background, Chart type, Bar size, Candles rows, Line rows", () => {
-        openGear();
-        const panel = screen.getByTestId("pc-settings").querySelector(".settings-pop__panel")!;
-        const names = Array.from(panel.querySelectorAll(".settings-pop__name, .settings-pop__sub")).map((n) => n.textContent);
-        expect(names).toEqual([
-            "Background",
-            "Chart type",
-            "Bar size",
-            "Candles",
-            "Up candle",
-            "Down candle",
-            "Wicks",
-            "Line",
-            "Line color",
-            "Area fill",
-            "Fill color",
-            // P20-5: the page's popup adds the heatmap rows (disabled outside heatmap mode).
-            "Heatmap",
-            "Contrast",
-            "Trades",
-        ]);
+    const rowNames = (): (string | null)[] =>
+        Array.from(screen.getByTestId("pc-settings-content").querySelectorAll(".settings-pop__name")).map((n) => n.firstChild!.textContent);
+
+    it("orders Display as Chart, Candles, Line and Heatmap, each folder's rows in the old order", () => {
+        openGear(upDown(), "display");
+        const entries = Array.from(screen.getByTestId("pc-settings-content").querySelectorAll(".settings-view__entry-name"));
+        // P20-5: the page adds the Heatmap folder (dim outside heatmap mode).
+        expect(entries.map((e) => e.textContent)).toEqual(["Chart", "Candles", "Line", "Heatmap"]);
+        const expected: Record<string, string[]> = {
+            "display/chart": ["Background", "Chart type", "Bar size"],
+            "display/candles": ["Up candle", "Down candle", "Wicks"],
+            "display/line": ["Line color", "Area fill", "Fill color"],
+            "display/heatmap": ["Contrast", "Trades"],
+        };
+        for (const [folder, names] of Object.entries(expected)) {
+            openFolder(folder);
+            expect(rowNames(), folder).toEqual(names);
+        }
         expect(screen.getByTestId("pc-reset-colors").textContent).toBe("Reset colors");
     });
 
@@ -206,16 +209,20 @@ describe("gear popup colours", () => {
     it("the candle rows are disabled in line mode and the line rows in candle mode", () => {
         openGear();
         expect(screen.getByTestId("pc-up-row").className).not.toContain("--disabled");
+        openFolder("display/line");
         expect((screen.getByTestId("pc-line-chip") as HTMLButtonElement).disabled).toBe(true);
+        openFolder("display/chart");
         fireEvent.click(screen.getByTestId("pc-type-line"));
+        openFolder("display/candles");
         expect(screen.getByTestId("pc-up-row").className).toContain("--disabled");
         expect(screen.getByTestId("pc-wicks-row").className).toContain("--disabled");
+        openFolder("display/line");
         expect((screen.getByTestId("pc-line-chip") as HTMLButtonElement).disabled).toBe(false);
     });
 
     it("Fill color keeps Match line", () => {
         localStorage.setItem(SETTING_KEYS.priceChartChartType, JSON.stringify("line"));
-        openGear();
+        openGear(upDown(), "display/line");
         expect(screen.getByTestId("pc-fill-chip").textContent).toContain("Match line");
         fireEvent.click(screen.getByTestId("pc-fill-chip"));
         fireEvent.click(screen.getByTestId("pc-fill-#3b93ff"));

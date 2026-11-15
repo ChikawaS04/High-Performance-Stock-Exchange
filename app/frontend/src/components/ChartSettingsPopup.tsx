@@ -1,32 +1,40 @@
 /**
- * The price chart's settings popup (P17-9, P17 D10; Charts follow-up decision 6).
+ * The price chart's settings view (P17-9, P17 D10; reworked into the centred folder
+ * view, DESIGN_SYSTEM.md §10 settings view exception and §11.4).
  *
- * DESIGN_SYSTEM.md §10 chrome filled per §11.4: categories are disclosure buttons,
- * rows put the name on the left and a §11.2 radio set, §11.3 toggle or colour chip on
- * the right, a transparent backdrop catches an outside click. Every control persists
- * (§13). The band's chart type, bar size and Indicators controls are shortcuts to the
- * same persisted keys, so the popup and the band always agree.
+ * Placement. Rendered into document.body and centred in the viewport on both surfaces,
+ * so the floating window on the Trading page can never clip it. It sits above floating
+ * windows and toasts (z 350 backdrop, 360 dialog) and below the FieldMenu list portal
+ * (400), which must open over it. No scrim and no blur: the chart stays fully visible
+ * and live behind it. A transparent backdrop catches an outside click to close; the ×
+ * and Done close it too.
  *
- * Display, in order: Background, Chart type, Bar size (bar chart types only; in
- * footprint 5s and 15s show disabled with the note "1m and 5m only", P19-6), then a
- * "Candles" sub-label with Up candle, Down candle and Wicks, then a "Line" sub-label
- * with Line color, Area fill and Fill color. Rows that draw nothing in the current
- * chart type show disabled (the candle rows in line mode, the line rows in candle
- * mode, P17 D7 amended); Fill color is also disabled while Area fill is off. Each
- * colour row is a chip that opens the shared palette (ColorPalette). One palette is
- * open at a time.
+ * Escape (capture phase, stopped there so the floating window behind never also
+ * closes): with a colour palette open it closes only the palette; with a FieldMenu
+ * list open it is left to the FieldMenu, which consumes it; otherwise it closes the
+ * view.
  *
- * P20-5: in heatmap mode (Charts page only) the Background row shows disabled with the
- * note "Heatmap draws on black" (P20-0 F6), the bar size row is hidden and the candle
- * and line rows show disabled. A "Heatmap" sub-label adds Contrast (Low, Normal,
- * High) and Trades (On, Off), on the page only and disabled outside heatmap mode.
+ * Layout: a fixed header, a body of two panes (the folder tree on the left, the
+ * breadcrumb and the selected folder's content on the right), and a fixed footer
+ * (Reset colors, Done). Only the tree and the content scroll (.term-scroll). The
+ * folders come from settingsTree (src/settings/chartSettingsTree.ts): a parent shows
+ * its subfolders as entries, a leaf its rows. Dim folders stay navigable and their
+ * rows show disabled, as before. The view reopens at the last folder viewed on its
+ * surface (session memory only).
  *
- * Indicators: the shared IndicatorRows (the band's Indicators popup renders the same
- * component). Footer: a "Reset colors" text button left of Done restores up, down,
- * line, fill and wicks to their defaults.
+ * Rows keep their §11 look and every test id: Chart (Background, Chart type, Bar
+ * size for the bar chart types, with 5s and 15s disabled in footprint), Candles (Up,
+ * Down, Wicks), Line (Line color, Area fill, Fill color), Heatmap on the page
+ * (Contrast, Trades; P20-5), and the indicator groups through the shared
+ * IndicatorRows. Colour chips open the shared palette in a layer inside the dialog,
+ * outside the scrolling pane, so it is never clipped. One palette is open at a time.
+ *
+ * Focus moves to the current folder's tree button on open. The band returns it to the
+ * gear on close.
  */
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { BAR_SIZE_IDS, hasFootprint } from "../bars";
 import type { BarSizeId } from "../bars";
@@ -40,7 +48,9 @@ import type { IndicatorParams } from "../indicatorParams";
 import { HEAT_CONTRASTS } from "../heatmap/layout";
 import type { HeatContrast } from "../heatmap/layout";
 import type { HeatmapSettings } from "../heatmap/heatmapSettings";
-import { ColorRow } from "./ColorPalette";
+import { crumbs, flatten, lastFolder, onCount, resolveFolder, setLastFolder, settingsTree } from "../settings/chartSettingsTree";
+import type { Folder } from "../settings/chartSettingsTree";
+import { ColorRow, PaletteLayerContext } from "./ColorPalette";
 import { IndicatorRows, settingsRowClass } from "./IndicatorRows";
 
 export type { ChartBg, FillChoice } from "../chartColors";
@@ -52,6 +62,11 @@ const CHART_TYPE_LABEL: Readonly<Record<ChartType, string>> = {
     heatmap: "Heatmap",
 };
 const CONTRAST_LABEL: Readonly<Record<HeatContrast, string>> = { low: "Low", normal: "Normal", high: "High" };
+
+/** A folder path as a test id fragment: "display/candles" -> "display-candles", "" -> "root". */
+export function folderTestId(path: string): string {
+    return path === "" ? "root" : path.replace(/\//g, "-");
+}
 
 export interface ChartSettingsPopupProps {
     readonly surface: ChartSurface;
@@ -67,7 +82,7 @@ export interface ChartSettingsPopupProps {
     /** Indicator parameters (P19-7), edited here only. */
     readonly params?: IndicatorParams;
     readonly setParam?: (id: string, paramId: string, value: number) => void;
-    /** The heatmap's Contrast and Trades (P20-5); absent, the Heatmap rows are not shown. */
+    /** The heatmap's Contrast and Trades (P20-5); absent, the Heatmap folder is not shown. */
     readonly heatmap?: HeatmapSettings;
 }
 
@@ -86,9 +101,49 @@ export function ChartSettingsPopup({
     setParam,
     heatmap,
 }: ChartSettingsPopupProps) {
-    const [displayOpen, setDisplayOpen] = useState(true);
-    const [indicatorsOpen, setIndicatorsOpen] = useState(true);
     const [palette, setPalette] = useState<ColorSetting | null>(null);
+    const [path, setPath] = useState<string>(() => lastFolder(surface));
+    const [layer, setLayer] = useState<HTMLDivElement | null>(null);
+    const treeRef = useRef<HTMLDivElement>(null);
+
+    const heatmapOffered = heatmap !== undefined && chartTypesFor(surface).includes("heatmap");
+    const tree = useMemo(
+        () => settingsTree({ surface, chartType, registry, heatmapOffered }),
+        [surface, chartType, registry, heatmapOffered],
+    );
+    const current = resolveFolder(tree, path);
+    const trail = crumbs(tree, current.path);
+
+    const go = (to: string): void => {
+        setPalette(null);
+        setPath(to);
+        setLastFolder(surface, to);
+    };
+
+    // Escape: the innermost open thing first, and never the floating window behind.
+    const paletteRef = useRef(palette);
+    paletteRef.current = palette;
+    const closeRef = useRef(onClose);
+    closeRef.current = onClose;
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent): void => {
+            if (e.key !== "Escape") return;
+            // An open FieldMenu list (a parameter combobox) closes itself and consumes
+            // the key, so the view and the window behind stay open.
+            if (document.querySelector(".field-menu__menu--portal") !== null) return;
+            e.stopPropagation();
+            if (paletteRef.current !== null) setPalette(null);
+            else closeRef.current();
+        };
+        document.addEventListener("keydown", onKey, true);
+        return () => document.removeEventListener("keydown", onKey, true);
+    }, []);
+
+    // Focus moves into the view on open: the current folder's tree button.
+    useEffect(() => {
+        const btn = treeRef.current?.querySelector<HTMLButtonElement>('[aria-current="true"]');
+        btn?.focus();
+    }, []);
 
     const { bg, setBg, lineColor, gradientOn, setGradientOn, fill, wicks, setWicks, recent, pick } = colors;
     const candles = chartType === "candles";
@@ -98,7 +153,6 @@ export function ChartSettingsPopup({
     // The line rows apply in line mode only; the heatmap has its own rows and ground (P20-5).
     const lineMode = chartType === "line";
     const heatmapMode = chartType === "heatmap";
-    const heatmapOffered = heatmap !== undefined && chartTypesFor(surface).includes("heatmap");
     const shown = effectiveCandleColors(bg, colors.candleUp, colors.candleDown);
 
     const colorRow = (setting: ColorSetting, label: string, prefix: string, hex: string, value: string, disabled: boolean) => (
@@ -118,288 +172,340 @@ export function ChartSettingsPopup({
         />
     );
 
-    return (
+    const chartRows = (
         <>
-            <div className="settings-pop__backdrop" data-testid="pc-settings-backdrop" onClick={onClose} />
-            <div className="settings-pop settings-pop--chart" role="dialog" aria-label="Chart settings" data-testid="pc-settings">
-                <div className="settings-pop__head">
-                    <span className="settings-pop__title">Settings</span>
+            <div className={settingsRowClass(heatmapMode)} data-testid="pc-bg-row">
+                <span className="settings-pop__name">
+                    Background
+                    {heatmapMode ? (
+                        <span className="settings-pop__note" data-testid="pc-bg-note">
+                            Heatmap draws on black
+                        </span>
+                    ) : null}
+                </span>
+                <span className="settings-toggle" role="group" aria-label="Chart background">
                     <button
                         type="button"
-                        className="settings-pop__x"
-                        aria-label="Close"
-                        data-testid="pc-settings-close"
-                        onClick={onClose}
+                        className="settings-toggle__opt settings-toggle__opt--sans"
+                        aria-pressed={bg === "black"}
+                        disabled={heatmapMode}
+                        data-testid="pc-bg-black"
+                        onClick={() => setBg("black")}
                     >
+                        Black
+                    </button>
+                    <button
+                        type="button"
+                        className="settings-toggle__opt settings-toggle__opt--sans"
+                        aria-pressed={bg === "white"}
+                        disabled={heatmapMode}
+                        data-testid="pc-bg-white"
+                        onClick={() => setBg("white")}
+                    >
+                        White
+                    </button>
+                </span>
+            </div>
+
+            <div className={settingsRowClass(false)} data-testid="pc-type-row">
+                <span className="settings-pop__name">Chart type</span>
+                <span className="settings-radio" role="radiogroup" aria-label="Chart type">
+                    {chartTypesFor(surface).map((t) => (
+                        <label key={t} className="settings-radio__opt">
+                            <input
+                                type="radio"
+                                name={`pc-chart-type-${surface}`}
+                                checked={chartType === t}
+                                onChange={() => setChartType(t)}
+                                data-testid={`pc-type-${t}`}
+                            />
+                            {CHART_TYPE_LABEL[t]}
+                        </label>
+                    ))}
+                </span>
+            </div>
+
+            {bars ? (
+                <div className={settingsRowClass(false)} data-testid="pc-size-row">
+                    <span className="settings-pop__name">
+                        Bar size
+                        {footprint ? (
+                            <span className="settings-pop__note" data-testid="pc-size-note">
+                                1m and 5m only
+                            </span>
+                        ) : null}
+                    </span>
+                    <span className="settings-radio" role="radiogroup" aria-label="Bar size">
+                        {BAR_SIZE_IDS.map((s) => {
+                            const off = footprint && !hasFootprint(s);
+                            return (
+                                <label key={s} className={off ? "settings-radio__opt settings-radio__opt--disabled" : "settings-radio__opt"}>
+                                    <input
+                                        type="radio"
+                                        name={`pc-bar-size-${surface}`}
+                                        checked={barSize === s}
+                                        disabled={off}
+                                        onChange={() => setBarSize(s)}
+                                        data-testid={`pc-size-${s}`}
+                                    />
+                                    {s}
+                                </label>
+                            );
+                        })}
+                    </span>
+                </div>
+            ) : null}
+        </>
+    );
+
+    const candleRows = (
+        <>
+            {colorRow("up", "Up candle", "pc-up", shown.up, shown.up, !bars)}
+            {colorRow("down", "Down candle", "pc-down", shown.down, shown.down, !bars)}
+            <div className={settingsRowClass(!candles)} data-testid="pc-wicks-row">
+                <span className="settings-pop__name">Wicks</span>
+                <span className="settings-toggle" role="group" aria-label="Wicks">
+                    <button
+                        type="button"
+                        className="settings-toggle__opt settings-toggle__opt--sans"
+                        aria-pressed={wicks === "body"}
+                        disabled={!candles}
+                        data-testid="pc-wicks-body"
+                        onClick={() => setWicks("body")}
+                    >
+                        Match body
+                    </button>
+                    <button
+                        type="button"
+                        className="settings-toggle__opt settings-toggle__opt--sans"
+                        aria-pressed={wicks === "grey"}
+                        disabled={!candles}
+                        data-testid="pc-wicks-grey"
+                        onClick={() => setWicks("grey")}
+                    >
+                        Grey
+                    </button>
+                </span>
+            </div>
+        </>
+    );
+
+    const lineRows = (
+        <>
+            {colorRow("line", "Line color", "pc-line", lineColor, lineColor, !lineMode)}
+            <div className={settingsRowClass(!lineMode)} data-testid="pc-grad-row">
+                <span className="settings-pop__name">Area fill</span>
+                <span className="settings-toggle" role="group" aria-label="Area fill">
+                    <button
+                        type="button"
+                        className="settings-toggle__opt settings-toggle__opt--sans"
+                        aria-pressed={gradientOn}
+                        disabled={!lineMode}
+                        data-testid="pc-grad-on"
+                        onClick={() => setGradientOn(true)}
+                    >
+                        On
+                    </button>
+                    <button
+                        type="button"
+                        className="settings-toggle__opt settings-toggle__opt--sans"
+                        aria-pressed={!gradientOn}
+                        disabled={!lineMode}
+                        data-testid="pc-grad-off"
+                        onClick={() => setGradientOn(false)}
+                    >
+                        Off
+                    </button>
+                </span>
+            </div>
+            {colorRow("fill", "Fill color", "pc-fill", fill === "line" ? lineColor : fill, fill, !lineMode || !gradientOn)}
+            {!lineMode ? (
+                <div className="settings-pop__note settings-pop__note--line" data-testid="pc-line-note">
+                    Line rows apply in line mode
+                </div>
+            ) : null}
+        </>
+    );
+
+    const heatmapRows =
+        heatmap === undefined ? null : (
+            <>
+                <div className={settingsRowClass(!heatmapMode)} data-testid="pc-contrast-row">
+                    <span className="settings-pop__name">Contrast</span>
+                    <span className="settings-radio" role="radiogroup" aria-label="Heatmap contrast">
+                        {HEAT_CONTRASTS.map((c) => (
+                            <label key={c} className={heatmapMode ? "settings-radio__opt" : "settings-radio__opt settings-radio__opt--disabled"}>
+                                <input
+                                    type="radio"
+                                    name={`pc-heat-contrast-${surface}`}
+                                    checked={heatmap.contrast === c}
+                                    disabled={!heatmapMode}
+                                    onChange={() => heatmap.setContrast(c)}
+                                    data-testid={`pc-contrast-${c}`}
+                                />
+                                {CONTRAST_LABEL[c]}
+                            </label>
+                        ))}
+                    </span>
+                </div>
+                <div className={settingsRowClass(!heatmapMode)} data-testid="pc-trades-row">
+                    <span className="settings-pop__name">Trades</span>
+                    <span className="settings-toggle" role="group" aria-label="Heatmap trades">
+                        <button
+                            type="button"
+                            className="settings-toggle__opt settings-toggle__opt--sans"
+                            aria-pressed={heatmap.trades}
+                            disabled={!heatmapMode}
+                            data-testid="pc-trades-on"
+                            onClick={() => heatmap.setTrades(true)}
+                        >
+                            On
+                        </button>
+                        <button
+                            type="button"
+                            className="settings-toggle__opt settings-toggle__opt--sans"
+                            aria-pressed={!heatmap.trades}
+                            disabled={!heatmapMode}
+                            data-testid="pc-trades-off"
+                            onClick={() => heatmap.setTrades(false)}
+                        >
+                            Off
+                        </button>
+                    </span>
+                </div>
+            </>
+        );
+
+    /** A parent folder's listing: its subfolders as entries. */
+    const entries = (f: Folder) => (
+        <div className="settings-view__entries" role="list">
+            {f.children.map((c) => {
+                const n = c.indicatorIds.length > 0 ? onCount(c, indicators) : null;
+                const summary = c.note ?? (n !== null ? `${n} on` : null);
+                return (
+                    <div key={c.path} role="listitem">
+                        <button
+                            type="button"
+                            className={c.dim ? "settings-view__entry settings-view__entry--dim" : "settings-view__entry"}
+                            data-testid={`pc-entry-${folderTestId(c.path)}`}
+                            onClick={() => go(c.path)}
+                        >
+                            <span className="settings-view__entry-name">{c.label}</span>
+                            {summary !== null ? <span className="settings-pop__note settings-view__entry-note">{summary}</span> : null}
+                            <span className="settings-view__entry-caret" aria-hidden="true">
+                                {"▸"}
+                            </span>
+                        </button>
+                    </div>
+                );
+            })}
+        </div>
+    );
+
+    const content = (f: Folder) => {
+        if (f.children.length > 0 || f.indicatorIds.length === 0) {
+            switch (f.path) {
+                case "display/chart":
+                    return chartRows;
+                case "display/candles":
+                    return candleRows;
+                case "display/line":
+                    return lineRows;
+                case "display/heatmap":
+                    return heatmapRows;
+                default:
+                    return entries(f);
+            }
+        }
+        return (
+            <div data-testid="pc-settings-indicators">
+                <IndicatorRows
+                    surface={surface}
+                    chartType={chartType}
+                    indicators={indicators}
+                    setIndicators={setIndicators}
+                    registry={registry}
+                    ids={f.indicatorIds}
+                    showParams
+                    params={params}
+                    setParam={setParam}
+                />
+            </div>
+        );
+    };
+
+    const inTrail = (p: string): boolean => trail.some((t) => t.path === p);
+
+    return createPortal(
+        <>
+            <div className="settings-pop__backdrop settings-pop__backdrop--view" data-testid="pc-settings-backdrop" onClick={onClose} />
+            <div
+                className="settings-pop settings-pop--chart settings-pop--view"
+                role="dialog"
+                aria-label="Chart settings"
+                data-testid="pc-settings"
+                data-surface={surface}
+            >
+                <div className="settings-pop__head">
+                    <span className="settings-pop__title">Settings</span>
+                    <button type="button" className="settings-pop__x" aria-label="Close" data-testid="pc-settings-close" onClick={onClose}>
                         {"×"}
                     </button>
                 </div>
 
-                <div className="settings-pop__body">
-                    <button
-                        type="button"
-                        className="settings-pop__cat"
-                        aria-expanded={displayOpen}
-                        aria-controls={`pc-settings-display-${surface}`}
-                        onClick={() => setDisplayOpen((o) => !o)}
-                    >
-                        <span>Display</span>
-                        <span className="settings-pop__caret" aria-hidden="true">{"▸"}</span>
-                    </button>
+                <div className="settings-view__body">
+                    <nav className="settings-view__tree term-scroll" aria-label="Settings folders" data-testid="pc-settings-tree" ref={treeRef}>
+                        {flatten(tree).map(({ folder: f, depth }) => {
+                            const selected = f.path === current.path;
+                            const cls = [
+                                "settings-view__node",
+                                depth > 0 ? "settings-view__node--sub" : "",
+                                selected ? "settings-view__node--on" : "",
+                                !selected && inTrail(f.path) ? "settings-view__node--trail" : "",
+                                f.dim ? "settings-view__node--dim" : "",
+                            ]
+                                .filter((c) => c !== "")
+                                .join(" ");
+                            return (
+                                <button
+                                    key={f.path}
+                                    type="button"
+                                    className={cls}
+                                    aria-current={selected ? "true" : undefined}
+                                    data-testid={f.path === "indicators" ? "pc-settings-indicators-cat" : `pc-folder-${folderTestId(f.path)}`}
+                                    onClick={() => go(f.path)}
+                                >
+                                    {f.label}
+                                </button>
+                            );
+                        })}
+                    </nav>
 
-                    {displayOpen && (
-                        <div className="settings-pop__panel" id={`pc-settings-display-${surface}`}>
-                            <div className={settingsRowClass(heatmapMode, heatmapMode)} data-testid="pc-bg-row">
-                                <span className="settings-pop__name">
-                                    Background
-                                    {heatmapMode ? (
-                                        <span className="settings-pop__note" data-testid="pc-bg-note">
-                                            Heatmap draws on black
+                    <div className="settings-view__main">
+                        <nav className="settings-view__crumbs" aria-label="Breadcrumb" data-testid="pc-settings-crumbs">
+                            {trail.map((f, i) => (
+                                <span key={f.path} className="settings-view__crumb-item">
+                                    {i > 0 ? (
+                                        <span className="settings-view__sep" aria-hidden="true">
+                                            {"›"}
                                         </span>
                                     ) : null}
-                                </span>
-                                <span className="settings-toggle" role="group" aria-label="Chart background">
                                     <button
                                         type="button"
-                                        className="settings-toggle__opt settings-toggle__opt--sans"
-                                        aria-pressed={bg === "black"}
-                                        disabled={heatmapMode}
-                                        data-testid="pc-bg-black"
-                                        onClick={() => setBg("black")}
+                                        className={i === trail.length - 1 ? "settings-view__crumb settings-view__crumb--on" : "settings-view__crumb"}
+                                        aria-current={i === trail.length - 1 ? "page" : undefined}
+                                        data-testid={`pc-crumb-${i}`}
+                                        onClick={() => go(f.path)}
                                     >
-                                        Black
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="settings-toggle__opt settings-toggle__opt--sans"
-                                        aria-pressed={bg === "white"}
-                                        disabled={heatmapMode}
-                                        data-testid="pc-bg-white"
-                                        onClick={() => setBg("white")}
-                                    >
-                                        White
+                                        {f.label}
                                     </button>
                                 </span>
-                            </div>
-
-                            {/* Three types do not fit beside the name in the popup's width, so the
-                                page's row stacks its radios under the name (P19-10 visual check); with
-                                the heatmap's fourth they wrap to a second line (P20-7 visual check).
-                                In heatmap mode the Background row stacks too, for its note. */}
-                            <div className={settingsRowClass(false, chartTypesFor(surface).length > 2)} data-testid="pc-type-row">
-                                <span className="settings-pop__name">Chart type</span>
-                                <span className="settings-radio" role="radiogroup" aria-label="Chart type">
-                                    {chartTypesFor(surface).map((t) => (
-                                        <label key={t} className="settings-radio__opt">
-                                            <input
-                                                type="radio"
-                                                name={`pc-chart-type-${surface}`}
-                                                checked={chartType === t}
-                                                onChange={() => setChartType(t)}
-                                                data-testid={`pc-type-${t}`}
-                                            />
-                                            {CHART_TYPE_LABEL[t]}
-                                        </label>
-                                    ))}
-                                </span>
-                            </div>
-
-                            {bars ? (
-                                <div className={settingsRowClass(false, footprint)} data-testid="pc-size-row">
-                                    <span className="settings-pop__name">
-                                        Bar size
-                                        {footprint ? (
-                                            <span className="settings-pop__note" data-testid="pc-size-note">
-                                                1m and 5m only
-                                            </span>
-                                        ) : null}
-                                    </span>
-                                    <span className="settings-radio" role="radiogroup" aria-label="Bar size">
-                                        {BAR_SIZE_IDS.map((s) => {
-                                            const off = footprint && !hasFootprint(s);
-                                            return (
-                                                <label
-                                                    key={s}
-                                                    className={off ? "settings-radio__opt settings-radio__opt--disabled" : "settings-radio__opt"}
-                                                >
-                                                    <input
-                                                        type="radio"
-                                                        name={`pc-bar-size-${surface}`}
-                                                        checked={barSize === s}
-                                                        disabled={off}
-                                                        onChange={() => setBarSize(s)}
-                                                        data-testid={`pc-size-${s}`}
-                                                    />
-                                                    {s}
-                                                </label>
-                                            );
-                                        })}
-                                    </span>
-                                </div>
-                            ) : null}
-
-                            <div className="settings-pop__sub" data-testid="pc-sub-candles">
-                                Candles
-                            </div>
-                            {colorRow("up", "Up candle", "pc-up", shown.up, shown.up, !bars)}
-                            {colorRow("down", "Down candle", "pc-down", shown.down, shown.down, !bars)}
-                            <div className={settingsRowClass(!candles)} data-testid="pc-wicks-row">
-                                <span className="settings-pop__name">Wicks</span>
-                                <span className="settings-toggle" role="group" aria-label="Wicks">
-                                    <button
-                                        type="button"
-                                        className="settings-toggle__opt settings-toggle__opt--sans"
-                                        aria-pressed={wicks === "body"}
-                                        disabled={!candles}
-                                        data-testid="pc-wicks-body"
-                                        onClick={() => setWicks("body")}
-                                    >
-                                        Match body
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="settings-toggle__opt settings-toggle__opt--sans"
-                                        aria-pressed={wicks === "grey"}
-                                        disabled={!candles}
-                                        data-testid="pc-wicks-grey"
-                                        onClick={() => setWicks("grey")}
-                                    >
-                                        Grey
-                                    </button>
-                                </span>
-                            </div>
-
-                            <div className="settings-pop__sub" data-testid="pc-sub-line">
-                                Line
-                            </div>
-                            {colorRow("line", "Line color", "pc-line", lineColor, lineColor, !lineMode)}
-                            <div className={settingsRowClass(!lineMode)} data-testid="pc-grad-row">
-                                <span className="settings-pop__name">Area fill</span>
-                                <span className="settings-toggle" role="group" aria-label="Area fill">
-                                    <button
-                                        type="button"
-                                        className="settings-toggle__opt settings-toggle__opt--sans"
-                                        aria-pressed={gradientOn}
-                                        disabled={!lineMode}
-                                        data-testid="pc-grad-on"
-                                        onClick={() => setGradientOn(true)}
-                                    >
-                                        On
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="settings-toggle__opt settings-toggle__opt--sans"
-                                        aria-pressed={!gradientOn}
-                                        disabled={!lineMode}
-                                        data-testid="pc-grad-off"
-                                        onClick={() => setGradientOn(false)}
-                                    >
-                                        Off
-                                    </button>
-                                </span>
-                            </div>
-                            {colorRow(
-                                "fill",
-                                "Fill color",
-                                "pc-fill",
-                                fill === "line" ? lineColor : fill,
-                                fill,
-                                !lineMode || !gradientOn,
-                            )}
-                            {!lineMode ? (
-                                <div className="settings-pop__note settings-pop__note--line" data-testid="pc-line-note">
-                                    Line rows apply in line mode
-                                </div>
-                            ) : null}
-
-                            {heatmapOffered ? (
-                                <>
-                                    <div className="settings-pop__sub" data-testid="pc-sub-heatmap">
-                                        Heatmap
-                                    </div>
-                                    <div className={settingsRowClass(!heatmapMode)} data-testid="pc-contrast-row">
-                                        <span className="settings-pop__name">Contrast</span>
-                                        <span className="settings-radio" role="radiogroup" aria-label="Heatmap contrast">
-                                            {HEAT_CONTRASTS.map((c) => (
-                                                <label
-                                                    key={c}
-                                                    className={
-                                                        heatmapMode ? "settings-radio__opt" : "settings-radio__opt settings-radio__opt--disabled"
-                                                    }
-                                                >
-                                                    <input
-                                                        type="radio"
-                                                        name={`pc-heat-contrast-${surface}`}
-                                                        checked={heatmap.contrast === c}
-                                                        disabled={!heatmapMode}
-                                                        onChange={() => heatmap.setContrast(c)}
-                                                        data-testid={`pc-contrast-${c}`}
-                                                    />
-                                                    {CONTRAST_LABEL[c]}
-                                                </label>
-                                            ))}
-                                        </span>
-                                    </div>
-                                    <div className={settingsRowClass(!heatmapMode)} data-testid="pc-trades-row">
-                                        <span className="settings-pop__name">Trades</span>
-                                        <span className="settings-toggle" role="group" aria-label="Heatmap trades">
-                                            <button
-                                                type="button"
-                                                className="settings-toggle__opt settings-toggle__opt--sans"
-                                                aria-pressed={heatmap.trades}
-                                                disabled={!heatmapMode}
-                                                data-testid="pc-trades-on"
-                                                onClick={() => heatmap.setTrades(true)}
-                                            >
-                                                On
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="settings-toggle__opt settings-toggle__opt--sans"
-                                                aria-pressed={!heatmap.trades}
-                                                disabled={!heatmapMode}
-                                                data-testid="pc-trades-off"
-                                                onClick={() => heatmap.setTrades(false)}
-                                            >
-                                                Off
-                                            </button>
-                                        </span>
-                                    </div>
-                                </>
-                            ) : null}
+                            ))}
+                        </nav>
+                        <div className="settings-view__content term-scroll" data-testid="pc-settings-content" data-folder={current.path}>
+                            <PaletteLayerContext.Provider value={layer}>{content(current)}</PaletteLayerContext.Provider>
                         </div>
-                    )}
-
-                    <button
-                        type="button"
-                        className="settings-pop__cat"
-                        aria-expanded={indicatorsOpen}
-                        aria-controls={`pc-settings-indicators-${surface}`}
-                        data-testid="pc-settings-indicators-cat"
-                        onClick={() => setIndicatorsOpen((o) => !o)}
-                    >
-                        <span>Indicators</span>
-                        <span className="settings-pop__caret" aria-hidden="true">{"▸"}</span>
-                    </button>
-
-                    {indicatorsOpen && (
-                        <div
-                            className="settings-pop__panel"
-                            id={`pc-settings-indicators-${surface}`}
-                            data-testid="pc-settings-indicators"
-                        >
-                            <IndicatorRows
-                                surface={surface}
-                                chartType={chartType}
-                                indicators={indicators}
-                                setIndicators={setIndicators}
-                                registry={registry}
-                                showParams
-                                params={params}
-                                setParam={setParam}
-                            />
-                        </div>
-                    )}
+                    </div>
                 </div>
 
                 <div className="settings-pop__foot settings-pop__foot--split">
@@ -418,7 +524,11 @@ export function ChartSettingsPopup({
                         Done
                     </button>
                 </div>
+
+                {/* The palette layer: palettes render here, outside the scrolling pane. */}
+                <div className="settings-view__layer" ref={setLayer} />
             </div>
-        </>
+        </>,
+        document.body,
     );
 }

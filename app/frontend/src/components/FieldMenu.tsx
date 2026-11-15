@@ -117,6 +117,12 @@ export function FieldMenu({
     const anchorRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLUListElement>(null);
     const close = (): void => setOpen(false);
+    // Escape that closes an open list is consumed, so a popup or floating window
+    // around the menu stays open (the chart settings view); a closed menu lets it pass.
+    const closeOnEscape = (e: { stopPropagation: () => void }): void => {
+        if (open) e.stopPropagation();
+        close();
+    };
 
     const showList = open && !disabled;
     const listStyle = useListPlacement(showList, anchorRef, listRef);
@@ -153,7 +159,7 @@ export function FieldMenu({
                     onClick={() => setOpen(true)}
                     onBlur={close}
                     onKeyDown={(e) => {
-                        if (e.key === "Escape") close();
+                        if (e.key === "Escape") closeOnEscape(e);
                     }}
                 />
             ) : (
@@ -168,7 +174,7 @@ export function FieldMenu({
                     onClick={() => setOpen((o) => !o)}
                     onBlur={close}
                     onKeyDown={(e) => {
-                        if (e.key === "Escape") close();
+                        if (e.key === "Escape") closeOnEscape(e);
                     }}
                 >
                     {triggerIcon !== undefined ? <span className="field-menu__icon">{triggerIcon}</span> : null}

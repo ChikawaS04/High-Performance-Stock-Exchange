@@ -18,6 +18,8 @@ const REGIONS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
     "fix-inspector__list": { "FixInspector.tsx": 1 },
     "fix-inspector__detail": { "FixInspector.tsx": 1 },
     "open-orders__scroll": { "OpenOrders.tsx": 1, "ExecutionsTable.tsx": 1 },
+    "settings-view__tree": { "ChartSettingsPopup.tsx": 1 },
+    "settings-view__content": { "ChartSettingsPopup.tsx": 1 },
 };
 
 /** Scrolling classes that deliberately hide their scrollbar (no themed bar to show). */
