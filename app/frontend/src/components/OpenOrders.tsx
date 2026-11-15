@@ -47,6 +47,9 @@
  *    "Order is no longer active" with Confirm Cancel disabled.
  *    Cancel by Order ID follows the same rule (UI polish follow-up): Enter in its
  *    Order ID field does nothing; only a click on Confirm Cancel sends.
+ *    Cancel by Order ID is a topmost popup (DESIGN_SYSTEM.md §10): rendered into the
+ *    page body above everything else in the terminal, and a click outside it plays
+ *    the alert sound instead of closing it. Escape and the exit still close it.
  *  - D6: a status filter single-select (the shared FieldMenu) in the header band,
  *    left of the caret. The predicate is the pure blotterFilter module.
  *
@@ -61,6 +64,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { isCancellable } from "../state/reducer";
 import type { MarketOrder, MyOrder } from "../state/reducer";
@@ -83,6 +87,7 @@ import {
     type StatusFilter,
 } from "../blotterFilter";
 import { OWNER_LABELS } from "../participants";
+import { playAlertSound } from "../alertSound";
 import { SETTING_KEYS, oneOf } from "../settings/persist";
 import { usePersistentSetting } from "../settings/usePersistentSetting";
 
@@ -220,16 +225,21 @@ export function OpenOrders({
         };
         const onKey = (e: KeyboardEvent): void => {
             if (e.key === "Escape") {
+                // A popup's Escape closes only the popup (as Modify order's does): it is
+                // caught in the capture phase and stopped, so a floating window behind
+                // (the price chart's, which closes on Escape) stays open.
+                if (modalOpen || confirmOpen) e.stopPropagation();
                 setMenuOpen(false);
                 setModalOpen(false);
                 setConfirmId(null);
             }
         };
+        const popup = modalOpen || confirmOpen;
         document.addEventListener("mousedown", onDown);
-        document.addEventListener("keydown", onKey);
+        document.addEventListener("keydown", onKey, popup);
         return () => {
             document.removeEventListener("mousedown", onDown);
-            document.removeEventListener("keydown", onKey);
+            document.removeEventListener("keydown", onKey, popup);
         };
     }, [menuOpen, modalOpen, confirmOpen]);
 
@@ -484,12 +494,13 @@ export function OpenOrders({
                 </div>
             ) : null}
 
-            {modalOpen ? (
+            {modalOpen ? createPortal(
                 <div
-                    className="cxid-overlay"
+                    className="cxid-overlay confirm-topmost"
                     data-testid="cancel-by-id-overlay"
                     onMouseDown={(e) => {
-                        if (e.target === e.currentTarget) closeModal();
+                        // Topmost: a click anywhere outside the popup is refused with the alert.
+                        if (e.target === e.currentTarget) playAlertSound();
                     }}
                 >
                     <div
@@ -551,7 +562,8 @@ export function OpenOrders({
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body,
             ) : null}
         </div>
     );

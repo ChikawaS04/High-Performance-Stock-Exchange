@@ -333,7 +333,8 @@ An action that cannot be undone is confirmed in a popup that states exactly what
 will do.
 
 - **The action happens only on a click of the primary action.** Escape, the `×` and
-  a click outside the popup close it without acting.
+  a click outside the popup close it without acting, except in the two topmost
+  popups below, where a click outside is refused.
 - **Enter never confirms**, in every confirmation popup, so a keystroke can never
   cancel an order. This includes the text field of Cancel by Order ID.
 - **Cancel order** (the blotter row Cancel) shows the order ID, side, remaining
@@ -352,6 +353,20 @@ will do.
   in a floating window cannot clip it, and its Escape closes only the popup.
 - A bulk cancel, if one is added, states how many orders it will cancel.
 
+### Topmost confirmation popups
+
+**Order Confirmation** and **Cancel by Order ID** take topmost priority: they render
+into the page body at `z-index: 1000` (`.confirm-topmost`), above everything else in
+the terminal, the settings view, floating windows, toasts and the pick-list portal
+included. While either is open, a click anywhere outside it is refused: the popup stays
+open and the **alert sound** plays, the way a desktop modal dialog answers a click
+behind it. A page cannot play the operating system's own alert sound, so the terminal
+synthesises a short chime close to the Windows default beep (Web Audio, about 300 ms).
+Cancel (Order Confirmation), the `×` and Escape (Cancel by Order ID) still close them.
+The row Cancel confirmation and Modify order keep the plain §10 behaviour. In the
+blotter's popups (Cancel by Order ID and the row Cancel), as in Modify order, Escape
+closes only the popup, never a floating window behind it.
+
 ### Settings view (exception: centred, portalled, no scrim)
 
 The price chart's settings open as a **settings view**: the §10 chrome (two-tone, the
@@ -361,16 +376,20 @@ with more than a handful of rows.
 
 - **Centred and portalled.** Rendered into the page body and centred in the viewport
   on every surface, so a floating window (§14) can never clip it. It stacks above
-  floating windows (200) and toasts (300), at `350` for its backdrop and `360` for the
-  view, and below the §11.5 pick-list portal (400), which must open over it.
+  floating windows (200), at `350` for its backdrop and `360` for the
+  view, below toasts (370), so a toast stays clickable while the view is open, and
+  below the §11.5 pick-list portal (400), which must open over it.
 - **No scrim, no blur.** The exception to the scrim rule above: the chart behind stays
   fully visible and live, because the reason to open the view is to watch the chart
   change while editing. A transparent full-viewport backdrop still catches an outside
-  click to close. While the view is open that backdrop also covers a toast, so a click
-  on a toast closes the view rather than reaching the toast.
+  click to close.
 - **Closing.** The backdrop, the `×`, Done, and Escape. Escape closes the innermost open
   thing first (an open colour palette, then an open pick-list) and is consumed there,
   so it never also closes the floating window behind.
+- **Draggable by its header.** The header band is the drag handle (a move cursor; the
+  `×` keeps its own): the view follows the pointer and stops with its whole frame
+  still inside the viewport, and a smaller window pulls it back inside. Every open
+  starts centred; the dragged place is not remembered.
 - **Landscape and capped.** `width: min(680px, 100vw - 48px)`,
   `height: min(460px, 100vh - 48px)`: wider than tall, it fits a 1280x720 viewport
   with margin, and it does not grow on a 27 inch screen (27% by 32% at 2560x1440). The

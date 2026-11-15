@@ -31,9 +31,14 @@
  *
  * Focus moves to the current folder's tree button on open. The band returns it to the
  * gear on close.
+ *
+ * Dragging: the header is the handle. A press on it (not on the ×) moves the view with
+ * the pointer, clamped so the whole view stays inside the viewport, and a window
+ * resize clamps it again. Every open starts centred; the offset is not remembered.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { BAR_SIZE_IDS, hasFootprint } from "../bars";
@@ -66,6 +71,28 @@ const CONTRAST_LABEL: Readonly<Record<HeatContrast, string>> = { low: "Low", nor
 /** A folder path as a test id fragment: "display/candles" -> "display-candles", "" -> "root". */
 export function folderTestId(path: string): string {
     return path === "" ? "root" : path.replace(/\//g, "-");
+}
+
+export interface Offset {
+    readonly x: number;
+    readonly y: number;
+}
+
+/**
+ * Clamp a drag offset so a view whose centred rect is `base` stays inside a viewport
+ * of `vw` x `vh`. A view larger than the viewport on an axis stays centred on it.
+ */
+export function clampOffset(
+    want: Offset,
+    base: { readonly left: number; readonly top: number; readonly width: number; readonly height: number },
+    vw: number,
+    vh: number,
+): Offset {
+    const axis = (d: number, start: number, size: number, room: number): number => {
+        if (size >= room) return 0;
+        return Math.min(room - size - start, Math.max(-start, d));
+    };
+    return { x: axis(want.x, base.left, base.width, vw), y: axis(want.y, base.top, base.height, vh) };
 }
 
 export interface ChartSettingsPopupProps {
@@ -105,6 +132,44 @@ export function ChartSettingsPopup({
     const [path, setPath] = useState<string>(() => lastFolder(surface));
     const [layer, setLayer] = useState<HTMLDivElement | null>(null);
     const treeRef = useRef<HTMLDivElement>(null);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
+    const offsetRef = useRef(offset);
+    offsetRef.current = offset;
+    const drag = useRef<{ readonly px: number; readonly py: number; readonly from: Offset } | null>(null);
+
+    /** The view's centred rect: its current rect less the drag offset. */
+    const centredRect = () => {
+        const r = dialogRef.current!.getBoundingClientRect();
+        const o = offsetRef.current;
+        return { left: r.left - o.x, top: r.top - o.y, width: r.width, height: r.height };
+    };
+    const onHeadDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+        if (e.button !== 0 || (e.target as Element).closest(".settings-pop__x") !== null) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        drag.current = { px: e.clientX, py: e.clientY, from: offsetRef.current };
+    };
+    const onHeadMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
+        const d = drag.current;
+        if (d === null || dialogRef.current === null) return;
+        const want = { x: d.from.x + e.clientX - d.px, y: d.from.y + e.clientY - d.py };
+        setOffset(clampOffset(want, centredRect(), window.innerWidth, window.innerHeight));
+    };
+    const onHeadUp = (e: ReactPointerEvent<HTMLDivElement>): void => {
+        if (drag.current === null) return;
+        drag.current = null;
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+    };
+    // A smaller window must never push the view off screen.
+    useEffect(() => {
+        const onResize = (): void => {
+            if (dialogRef.current === null) return;
+            setOffset((o) => clampOffset(o, centredRect(), window.innerWidth, window.innerHeight));
+        };
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, []);
 
     const heatmapOffered = heatmap !== undefined && chartTypesFor(surface).includes("heatmap");
     const tree = useMemo(
@@ -445,8 +510,17 @@ export function ChartSettingsPopup({
                 aria-label="Chart settings"
                 data-testid="pc-settings"
                 data-surface={surface}
+                ref={dialogRef}
+                style={offset.x === 0 && offset.y === 0 ? undefined : { transform: `translate(${offset.x}px, ${offset.y}px)` }}
             >
-                <div className="settings-pop__head">
+                <div
+                    className="settings-pop__head"
+                    data-testid="pc-settings-head"
+                    onPointerDown={onHeadDown}
+                    onPointerMove={onHeadMove}
+                    onPointerUp={onHeadUp}
+                    onPointerCancel={onHeadUp}
+                >
                     <span className="settings-pop__title">Settings</span>
                     <button type="button" className="settings-pop__x" aria-label="Close" data-testid="pc-settings-close" onClick={onClose}>
                         {"×"}

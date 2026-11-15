@@ -431,3 +431,55 @@ describe("the settings view: keyboard", () => {
         }
     });
 });
+
+describe("the settings view: dragging (by its header)", () => {
+    const style = (): string => screen.getByTestId("pc-settings").style.transform;
+
+    /** Lay the view out as a browser would: 680 x 460 centred in jsdom's 1024 x 768, moved by its transform. */
+    function layOut(): void {
+        const dialog = screen.getByTestId("pc-settings");
+        dialog.getBoundingClientRect = () => {
+            const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(dialog.style.transform);
+            const x = 172 + (m !== null ? Number(m[1]) : 0);
+            const y = 154 + (m !== null ? Number(m[2]) : 0);
+            return { left: x, top: y, right: x + 680, bottom: y + 460, width: 680, height: 460, x, y, toJSON: () => ({}) } as DOMRect;
+        };
+    }
+
+    it("moves with the header, clamped to the viewport, and not from the ×", () => {
+        open();
+        layOut();
+        const head = screen.getByTestId("pc-settings-head");
+        expect(style()).toBe("");
+        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 110, clientY: 60 });
+        expect(style()).toBe("translate(100px, 50px)");
+        // Past the edges it stops with the whole view still on screen.
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: -900, clientY: -900 });
+        expect(style()).toBe("translate(-172px, -154px)");
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 900, clientY: 900 });
+        expect(style()).toBe("translate(172px, 154px)");
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 10, clientY: 10 });
+        expect(style()).toBe("");
+        fireEvent.pointerUp(head, { pointerId: 1 });
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 300, clientY: 300 });
+        expect(style()).toBe(""); // released: no longer dragging
+        // A press on the × is a close, not a drag.
+        fireEvent.pointerDown(screen.getByTestId("pc-settings-close"), { button: 0, pointerId: 2, clientX: 10, clientY: 10 });
+        fireEvent.pointerMove(head, { pointerId: 2, clientX: 200, clientY: 200 });
+        expect(style()).toBe("");
+    });
+
+    it("opens centred again after it was dragged", () => {
+        open();
+        layOut();
+        const head = screen.getByTestId("pc-settings-head");
+        fireEvent.pointerDown(head, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+        fireEvent.pointerMove(head, { pointerId: 1, clientX: 40, clientY: 40 });
+        fireEvent.pointerUp(head, { pointerId: 1 });
+        expect(style()).toBe("translate(40px, 40px)");
+        fireEvent.click(screen.getByTestId("pc-settings-done"));
+        fireEvent.click(screen.getByTestId("pc-settings-gear"));
+        expect(style()).toBe("");
+    });
+});

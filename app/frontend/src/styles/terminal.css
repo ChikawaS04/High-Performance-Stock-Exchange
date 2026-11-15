@@ -4120,6 +4120,15 @@ body {
 .settings-view__entry-note { margin-left: 0; }
 .settings-view__entry-caret { color: var(--text); font-size: 10px; }
 
+/* The header is the drag handle (DESIGN_SYSTEM.md §10 settings view): the view moves
+   by its header and stays inside the viewport. The × keeps its own cursor. */
+.settings-pop--view > .settings-pop__head {
+    cursor: move;
+    user-select: none;
+    touch-action: none;
+}
+.settings-pop--view > .settings-pop__head .settings-pop__x { cursor: pointer; }
+
 /* The palette layer: covers the dialog, passes clicks through except on a palette. */
 .settings-view__layer {
     position: absolute;
@@ -4591,7 +4600,10 @@ body {
     position: fixed;
     right: 12px;
     bottom: 28px;                    /* clears the 18px footer bar */
-    z-index: 300;
+    /* Above the chart settings view and its click-catching backdrop (350/360), so a
+       toast stays clickable while the view is open; below the pick-list portal (400)
+       and the topmost confirmation popups (1000). */
+    z-index: 370;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -4815,4 +4827,12 @@ body {
 .settings-pop__row > .settings-toggle,
 .settings-pop__row > .settings-radio {
     flex-shrink: 0;
+}
+
+/* Topmost confirmation popups (DESIGN_SYSTEM.md §10): Order Confirmation and Cancel by
+   Order ID sit above everything else in the terminal, settings views, floating
+   windows, toasts and the pick-list portal included. A click on the scrim outside
+   them plays the alert sound instead of closing them. */
+.confirm-topmost {
+    z-index: 1000;
 }

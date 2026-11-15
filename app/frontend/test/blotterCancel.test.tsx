@@ -131,7 +131,7 @@ describe("Cancel by Order ID (follow-up: Enter never confirms)", () => {
         expect(screen.queryByTestId("cancel-by-id-overlay")).toBeNull();
     });
 
-    it("closes without sending on Escape, the exit, and an outside click", () => {
+    it("closes without sending on Escape and the exit; an outside click is refused", () => {
         const onCancel = vi.fn();
         render(<OpenOrders orders={[]} onCancel={onCancel} />);
 
@@ -144,9 +144,11 @@ describe("Cancel by Order ID (follow-up: Enter never confirms)", () => {
         fireEvent.click(screen.getByTestId("cancel-by-id-close"));
         expect(screen.queryByTestId("cancel-by-id-overlay")).toBeNull();
 
+        // Topmost (§10): a click outside it plays the alert and leaves it open
+        // (topmostConfirm.render.test.tsx checks the sound).
         openById();
         fireEvent.mouseDown(screen.getByTestId("cancel-by-id-overlay"));
-        expect(screen.queryByTestId("cancel-by-id-overlay")).toBeNull();
+        expect(screen.getByTestId("cancel-by-id-overlay")).not.toBeNull();
 
         expect(onCancel).not.toHaveBeenCalled();
     });

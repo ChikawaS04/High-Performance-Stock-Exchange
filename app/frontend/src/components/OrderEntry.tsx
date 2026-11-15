@@ -51,11 +51,13 @@
  */
 
 import { forwardRef, useImperativeHandle, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { formatPrice, parsePrice, EMPTY_PRICE } from "../format";
 import { NA } from "../protocol/messages";
 import { TICK_PX } from "../prices";
 import { FieldMenu } from "./FieldMenu";
+import { playAlertSound } from "../alertSound";
 import type { MenuOption } from "./FieldMenu";
 import type { OrderIntent, OrdType, Side, TimeInForce } from "../protocol/messages";
 
@@ -226,6 +228,11 @@ const QTY_MENU: readonly MenuOption[] = QTY_OPTIONS.map((n) => ({ value: String(
  * limit. "Send Order" dispatches it; "Cancel" and the exit drop it. Two-tone popup
  * chrome with a silver primary action and all-white text, the same blueprint as the
  * blotter's Cancel-by-ID dialog.
+ *
+ * A topmost popup (DESIGN_SYSTEM.md §10): rendered into the page body above everything
+ * else in the terminal (settings views, floating windows, toasts, pick-lists), and a
+ * click outside it plays the alert sound instead of closing it; Cancel and the exit
+ * close it.
  */
 function OrderConfirm({
     intent,
@@ -245,12 +252,13 @@ function OrderConfirm({
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
           });
-    return (
+    return createPortal(
         <div
-            className="order-confirm__overlay"
+            className="order-confirm__overlay confirm-topmost"
             data-testid="order-confirm-overlay"
             onMouseDown={(e) => {
-                if (e.target === e.currentTarget) onCancel();
+                // Topmost: a click anywhere outside the popup is refused with the alert.
+                if (e.target === e.currentTarget) playAlertSound();
             }}
         >
             <div
@@ -323,7 +331,8 @@ function OrderConfirm({
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 }
 
