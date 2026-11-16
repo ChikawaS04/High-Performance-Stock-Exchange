@@ -40,7 +40,7 @@ function CostCell({ value, text, testId }: { readonly value: number | null; read
 export function ExecutionsTable({ rows }: ExecutionsTableProps) {
     if (rows.length === 0) {
         return (
-            <div className="open-orders__empty" data-testid="executions-empty">
+            <div className="open-orders__empty term-empty" data-testid="executions-empty">
                 No executions yet
             </div>
         );

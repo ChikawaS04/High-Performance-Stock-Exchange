@@ -307,7 +307,7 @@ export function TradeTape({ tape }: TradeTapeProps) {
                 </div>
 
                 {shown.length === 0 ? (
-                    <div className="trade-tape__empty" data-testid="tape-empty">
+                    <div className="trade-tape__empty term-empty" data-testid="tape-empty">
                         {emptyMessage}
                     </div>
                 ) : (

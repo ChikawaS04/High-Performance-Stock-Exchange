@@ -1137,13 +1137,12 @@ export function PriceChart({
                         data-chart-type={chartType}
                     >
                         <rect x={0} y={0} width={VIEW_W} height={VIEW_H} fill={ink.bg} />
+                        {/* The shared empty state (term-empty-svg); the chart lays out 1:1. */}
                         <text
-                            className="price-chart__empty"
+                            className="price-chart__empty term-empty-svg"
                             x={VIEW_W / 2}
                             y={VIEW_H / 2}
                             textAnchor="middle"
-                            fill={ink.axis}
-                            fontSize="11"
                         >
                             {heatMode ? "No depth yet" : "No trades yet"}
                         </text>

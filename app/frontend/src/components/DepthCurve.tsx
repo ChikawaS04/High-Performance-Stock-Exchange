@@ -37,6 +37,7 @@
  */
 
 import { useState } from "react";
+import type { CSSProperties } from "react";
 
 import { buildDepthCurve, cumulate, type CurvePoint, type CumLevel } from "../depth";
 import { midpointPx, midpointLabel, formatPrice } from "../format";
@@ -187,13 +188,14 @@ export function DepthCurve({ book, onPriceSelect, depth, variant = "full", unitP
                     aria-label="Cumulative depth chart (no depth)"
                     data-testid="depth-curve"
                 >
+                    {/* The shared empty state (term-empty-svg): family, weight, ink and size
+                        from the tokens, sized in CSS pixels through --svg-scale. */}
                     <text
-                        className="depth-curve__empty"
+                        className="depth-curve__empty term-empty-svg"
                         x={viewW / 2}
                         y={viewH / 2}
                         textAnchor="middle"
-                        fill="var(--faint)"
-                        fontSize="12"
+                        style={{ "--svg-scale": scale } as CSSProperties}
                     >
                         No depth
                     </text>

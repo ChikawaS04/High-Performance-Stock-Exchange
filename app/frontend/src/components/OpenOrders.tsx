@@ -323,7 +323,7 @@ export function OpenOrders({
                 {tab === "executions" ? (
                     <ExecutionsTable rows={executions} />
                 ) : rows.length === 0 ? (
-                    <div className="open-orders__empty" data-testid="open-orders-empty">
+                    <div className="open-orders__empty term-empty" data-testid="open-orders-empty">
                         {emptyBlotterMessage(ownerFilter, "ALL")}
                     </div>
                 ) : (
@@ -353,7 +353,7 @@ export function OpenOrders({
                                 <tr className="open-orders__filter-empty-row">
                                     <td
                                         colSpan={10}
-                                        className="open-orders__filter-empty"
+                                        className="open-orders__filter-empty term-empty"
                                         data-testid="open-orders-filter-empty"
                                     >
                                         {emptyBlotterMessage(ownerFilter, statusFilter)}

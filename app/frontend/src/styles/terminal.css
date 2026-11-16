@@ -1141,7 +1141,7 @@ body {
 }
 
 /* The mid marker is a price: --num + tabular so it reads like every other price.
-   The empty-state text (.depth-curve__empty) is a status word and stays sans. */
+   The empty-state text (.depth-curve__empty) takes the shared .term-empty-svg. */
 .depth-curve__mid-label {
     font-family: var(--num);
     font-variant-numeric: tabular-nums;
@@ -1413,11 +1413,10 @@ body {
    tag (BUY/SELL shows only on own trades, where the aggressor side is derivable),
    so the blue marker was redundant and is removed. No blue anywhere on the tape. */
 
+/* Layout only: ink, family and size come from the shared .term-empty. */
 .trade-tape__empty,
 .open-orders__empty {
     padding: 14px 8px;
-    color: var(--text-faint);
-    font-size: 12px;
 }
 
 .trade-tape__empty {
@@ -2425,8 +2424,6 @@ body {
 
 .fix-inspector__empty {
     padding: 14px 10px;
-    color: #ffffff;
-    font-size: 12px;
 }
 
 /* ---- navbar (P10-1: NavLink tabs between the strip and the routed body) ---- */
@@ -2675,7 +2672,7 @@ body {
 }
 
 /* Axis labels are prices and times: --num + tabular, like every other number. The
-   empty-state word (.price-chart__empty) is a status, not a value, so it stays sans. */
+   empty-state word (.price-chart__empty) takes the shared .term-empty-svg. */
 .price-chart__y-label,
 .price-chart__x-label {
     font-family: var(--num);
@@ -3243,10 +3240,6 @@ body {
 }
 .open-orders__filter-empty {
     padding: 14px 8px;
-    color: #8f8f8f;                 /* --dim (DESIGN_SYSTEM.md §2) */
-    font-family: var(--sans);
-    font-size: 12px;
-    text-align: left;
 }
 
 /* The cancel menu is the shared white list (.field-menu__menu--anchored, §9). */
@@ -3276,7 +3269,6 @@ body {
     margin: 0;
     padding: 0 12px;
     background: transparent;
-    color: var(--text);
     display: flex;
     align-items: center;
 }
@@ -3314,13 +3306,16 @@ body {
     text-align: right;
 }
 
-/* Data cells: bright white, normal weight, no per-side colour. */
+/* Data cells: bright white, normal weight, no per-side colour. The filter's empty
+   line shares the cell layout but takes its ink and alignment from .term-empty. */
 .open-orders .open-orders__table td {
     height: var(--blotter-row-h);
     padding: 6px 12px;
+    border-bottom: none;
+}
+.open-orders .open-orders__table td:not(.term-empty) {
     text-align: left;
     color: #ffffff;
-    border-bottom: none;
 }
 .open-orders .open-orders__time,
 .open-orders .open-orders__price,
@@ -4871,4 +4866,50 @@ body {
    them plays the alert sound instead of closing them. */
 .confirm-topmost {
     z-index: 1000;
+}
+
+/* ==========================================================================
+   Standard empty state (UI polish): one look for every empty or placeholder line
+   ("No trades yet", "No orders yet", "Select a message", "No depth", ...). IBM Plex
+   Sans 400, --dim, sentence case, centred in its panel body, sized by --empty-size
+   (12px; a small panel may set 11px). Placed last so it wins over the panel rules,
+   which keep only their layout (padding, floors, flex fill, the tape's sunken well).
+   ========================================================================== */
+:root {
+    --empty-size: 12px;
+    /* SVG empties sit on the chart grounds; a white ground darkens the ink below. */
+    --empty-ink: var(--dim, #8f8f8f);
+}
+/* td.term-empty ties the table-cell rules (.open-orders__table td) and wins by
+   source order, so an empty line inside a table reads the same as one outside. */
+.term-empty,
+td.term-empty {
+    font-family: var(--sans);
+    font-weight: 400;
+    font-size: var(--empty-size);
+    font-style: normal;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--dim, #8f8f8f);
+    text-align: center;
+    justify-content: center;
+}
+/* The SVG empties (price chart, depth curve) take the same family, weight and size.
+   The size is divided by the drawing's render scale (--svg-scale, set inline where
+   the viewBox is scaled) so the text renders at --empty-size CSS pixels. */
+.term-empty-svg {
+    font-family: var(--sans);
+    font-weight: 400;
+    font-size: calc(var(--empty-size) / var(--svg-scale, 1));
+    fill: var(--empty-ink);
+}
+/* --dim on white is about 3.3:1; #6b6b6b is about 5.3:1. Same per-ground scoping as
+   the chart tokens. */
+.price-chart--white,
+.depth-overlay__body--light {
+    --empty-ink: #6b6b6b;
+}
+/* The FIX inspector's message list is the one small panel. */
+.fix-inspector__list {
+    --empty-size: 11px;
 }
