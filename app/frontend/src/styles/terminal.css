@@ -2614,6 +2614,16 @@ body {
     color: #8f8f8f;
 }
 
+/* Chg from open: direction colour on the value only, the tape's tick colours (§2),
+   never the bid blue or ask red. The nested percent keeps the dim sub ink, as the
+   header Chg does. Flat stays white. */
+.session-stats__value--up {
+    color: var(--tick-up);
+}
+.session-stats__value--down {
+    color: var(--tick-down);
+}
+
 /* ---- price chart page: panel ticket density (P13-5) ---------------------- */
 /* The panel mounts the SAME <OrderEntry> the Trading page does, with no new prop
    and no behavioural branch (P13 D3); compactness is expressed here instead.

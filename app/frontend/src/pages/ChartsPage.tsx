@@ -140,6 +140,7 @@ export function ChartsPage({
                     sessionTradeCount={state.sessionTradeCount}
                     sessionNotional={state.sessionNotional}
                     sessionVolume={state.sessionVolume}
+                    openPx={openPx}
                 />
 
                 <OrderEntry

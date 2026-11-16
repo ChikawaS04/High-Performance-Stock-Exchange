@@ -29,7 +29,8 @@
  * and it yields the dash for both price and size.
  */
 
-import { formatPrice, EMPTY_PRICE, formatQty } from "./format";
+import { formatPrice, EMPTY_PRICE, formatQty, formatSignedDollar, formatSignedPercent, changeSign } from "./format";
+import type { ChangeSign } from "./format";
 import { vwapUnits } from "./bars";
 import type { TapeEntry } from "./state/reducer";
 
@@ -45,7 +46,15 @@ export interface SessionStatsInput {
     /** Session notional and volume (P17-8): the session VWAP is their ratio. */
     readonly sessionNotional: bigint;
     readonly sessionVolume: number;
+    /**
+     * The market open (the Alpaca open, integer units on the cent), the same open the
+     * chart's market-open reference line uses. Undefined until it is fetched.
+     */
+    readonly openPx?: number;
 }
+
+/** Direction of Chg from open; "none" while it shows the dash. */
+export type ChgFromOpenDir = ChangeSign | "none";
 
 /**
  * Render-ready strings, one per panel row (last trade contributes two). Every
@@ -60,6 +69,11 @@ export interface SessionStatsModel {
     readonly trades: string;
     readonly lastPrice: string;
     readonly lastSize: string;
+    /** Last trade minus the market open, signed dollars; the dash until both exist. */
+    readonly chgFromOpen: string;
+    /** The same move as a signed percent of the open; the dash until both exist. */
+    readonly chgFromOpenPct: string;
+    readonly chgFromOpenDir: ChgFromOpenDir;
 }
 
 /**
@@ -75,11 +89,16 @@ export interface SessionStatsModel {
  *     -> every price field the dash, trades "0"
  */
 export function buildSessionStats(input: SessionStatsInput): SessionStatsModel {
-    const { tape, sessionHighPx, sessionLowPx, sessionTradeCount, sessionNotional, sessionVolume } = input;
+    const { tape, sessionHighPx, sessionLowPx, sessionTradeCount, sessionNotional, sessionVolume, openPx } = input;
 
     // Newest-first, so the latest print is index 0. undefined only when no trade has
     // printed, which is the sole empty case either last-trade field has to handle.
     const last = tape.length > 0 ? tape[0] : undefined;
+
+    // Chg from open: integer units through the shared formatters, never float maths.
+    // The dash for both parts until the open is known and a trade has printed.
+    const known = last !== undefined && openPx !== undefined && openPx > 0;
+    const delta = known ? last.pricePx - openPx : 0;
 
     return {
         // No sentinel branch: formatPrice maps every negative value to the dash.
@@ -91,5 +110,8 @@ export function buildSessionStats(input: SessionStatsInput): SessionStatsModel {
         trades: formatQty(sessionTradeCount),
         lastPrice: last !== undefined ? formatPrice(last.pricePx) : EMPTY_PRICE,
         lastSize: last !== undefined ? formatQty(last.quantity) : EMPTY_PRICE,
+        chgFromOpen: known ? formatSignedDollar(delta) : EMPTY_PRICE,
+        chgFromOpenPct: known ? formatSignedPercent(delta, openPx) : EMPTY_PRICE,
+        chgFromOpenDir: known ? changeSign(delta) : "none",
     };
 }

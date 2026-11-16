@@ -30,8 +30,8 @@ function entry(partial: Partial<TapeEntry> = {}): TapeEntry {
     };
 }
 
-/** The five labels, in render order: the P13 D2 set plus VWAP between Low and Trades (P17-8). */
-const LABELS = ["High", "Low", "VWAP", "Trades", "Last trade"];
+/** The labels, in render order: the P13 D2 set, VWAP between Low and Trades (P17-8), Chg from open last. */
+const LABELS = ["High", "Low", "VWAP", "Trades", "Last trade", "Chg from open"];
 
 /** A traded session: newest first, so 150.25 x 4 is the last print. */
 const POPULATED: SessionStatsProps = {
@@ -63,7 +63,7 @@ function renderStats(over: Partial<SessionStatsProps> = {}) {
 }
 
 describe("<SessionStats /> populated session", () => {
-    it("renders the five labels in order", () => {
+    it("renders the labels in order", () => {
         renderStats();
         for (const label of LABELS) {
             expect(screen.getByText(label)).not.toBeNull();
@@ -155,6 +155,8 @@ describe("<SessionStats /> row stability", () => {
             "session-trades",
             "session-last-price",
             "session-last-size",
+            "session-chg-open",
+            "session-chg-open-pct",
         ];
 
         const { unmount } = render(<SessionStats {...UNSET} />);
@@ -167,5 +169,28 @@ describe("<SessionStats /> row stability", () => {
         for (const id of ids) {
             expect(screen.getByTestId(id)).not.toBeNull();
         }
+    });
+});
+
+describe("<SessionStats /> Chg from open", () => {
+    it("renders under Last trade, coloured up, with the percent nested inside", () => {
+        // POPULATED's last print is 150.25; an open of 150.00 is +0.25.
+        renderStats({ openPx: 1_500_000 });
+        const labels = Array.from(document.querySelectorAll(".session-stats__label")).map((el) => el.textContent);
+        expect(labels.indexOf("Chg from open")).toBe(labels.indexOf("Last trade") + 1);
+
+        const value = screen.getByTestId("session-chg-open");
+        expect(value.textContent).toContain("+0.25");
+        expect(value.classList.contains("session-stats__value--up")).toBe(true);
+        const pct = screen.getByTestId("session-chg-open-pct");
+        expect(value.contains(pct)).toBe(true);
+        expect(pct.textContent).toBe("+0.17%");
+    });
+
+    it("is the uncoloured dash before the open is known", () => {
+        renderStats();
+        const value = screen.getByTestId("session-chg-open");
+        expect(value.textContent).toContain(EMPTY_PRICE);
+        expect(value.className).toBe("session-stats__value");
     });
 });

@@ -29,6 +29,10 @@
  * timestamp on the last trade either, which is what keeps spreadBpsLabel and the
  * clock formatter out of this file (P13 D6).
  *
+ * Chg from open (UI polish) sits under Last trade: the last trade against the
+ * market open (openPx), coloured by direction with the tape's tick colours. It is
+ * not the header Chg, which is measured from the session's first fill.
+ *
  * P17-8 reopens the P13 D2 four-row lock for exactly one row: VWAP, between Low
  * and Trades. It is not a header duplicate (the strip shows no VWAP), so the D2
  * rule that the panel shows only what the strip does not still holds.
@@ -41,7 +45,15 @@
  */
 
 import { buildSessionStats } from "../sessionStats";
-import type { SessionStatsInput } from "../sessionStats";
+import type { ChgFromOpenDir, SessionStatsInput } from "../sessionStats";
+
+/** Direction colour for Chg from open: the tape's tick colours (§2), flat uncoloured. */
+const DIR_CLASS: Record<ChgFromOpenDir, string> = {
+    up: " session-stats__value--up",
+    down: " session-stats__value--down",
+    flat: "",
+    none: "",
+};
 
 /**
  * Exactly the pure helper's input. Declared as an alias rather than a duplicate
@@ -57,8 +69,17 @@ export function SessionStats({
                                  sessionTradeCount,
                                  sessionNotional,
                                  sessionVolume,
+                                 openPx,
                              }: SessionStatsProps) {
-    const m = buildSessionStats({ tape, sessionHighPx, sessionLowPx, sessionTradeCount, sessionNotional, sessionVolume });
+    const m = buildSessionStats({
+        tape,
+        sessionHighPx,
+        sessionLowPx,
+        sessionTradeCount,
+        sessionNotional,
+        sessionVolume,
+        openPx,
+    });
 
     return (
         <div className="session-stats">
@@ -91,6 +112,19 @@ export function SessionStats({
                         {m.lastPrice}
                         <span className="session-stats__value-sub" data-testid="session-last-size">
                             {m.lastSize}
+                        </span>
+                    </span>
+                </div>
+
+                <div className="session-stats__row">
+                    <span className="session-stats__label">Chg from open</span>
+                    <span
+                        className={`session-stats__value${DIR_CLASS[m.chgFromOpenDir]}`}
+                        data-testid="session-chg-open"
+                    >
+                        {m.chgFromOpen}
+                        <span className="session-stats__value-sub" data-testid="session-chg-open-pct">
+                            {m.chgFromOpenPct}
                         </span>
                     </span>
                 </div>

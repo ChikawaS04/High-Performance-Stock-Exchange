@@ -63,6 +63,10 @@ describe("buildSessionStats", () => {
             trades: "12",
             lastPrice: "150.25",
             lastSize: "4",
+            // No open passed: Chg from open is the dash.
+            chgFromOpen: EMPTY_PRICE,
+            chgFromOpenPct: EMPTY_PRICE,
+            chgFromOpenDir: "none",
         });
     });
 
@@ -202,5 +206,56 @@ describe("buildSessionStats VWAP (P17-8)", () => {
         // (1,500,000 x 1 + 1,500,001 x 1) / 2 = 1,500,000.5 -> 1,500,001 units = 150.0001
         const m = buildSessionStats(unsetInput({ sessionNotional: 3_000_001n, sessionVolume: 2 }));
         expect(m.vwap).toBe("150.0001");
+    });
+});
+
+describe("buildSessionStats Chg from open", () => {
+    const OPEN = 1_500_000; // $150.00, on the cent like the parsed Alpaca open
+
+    const withLast = (pricePx: number, openPx: number | undefined) =>
+        buildSessionStats(unsetInput({ tape: [entry({ pricePx })], sessionTradeCount: 1, openPx }));
+
+    it("is the signed dollar move and percent, up", () => {
+        const m = withLast(1_512_300, OPEN);
+        expect(m.chgFromOpen).toBe("+1.23");
+        expect(m.chgFromOpenPct).toBe("+0.82%");
+        expect(m.chgFromOpenDir).toBe("up");
+    });
+
+    it("is the signed dollar move and percent, down", () => {
+        const m = withLast(1_488_000, OPEN);
+        expect(m.chgFromOpen).toBe("-1.20");
+        expect(m.chgFromOpenPct).toBe("-0.80%");
+        expect(m.chgFromOpenDir).toBe("down");
+    });
+
+    it("is flat when the last trade is the open", () => {
+        const m = withLast(OPEN, OPEN);
+        expect(m.chgFromOpen).toBe("0.00");
+        expect(m.chgFromOpenPct).toBe("0.00%");
+        expect(m.chgFromOpenDir).toBe("flat");
+    });
+
+    it("is the dash while the open is unknown", () => {
+        for (const open of [undefined, 0, -1]) {
+            const m = withLast(1_512_300, open);
+            expect(m.chgFromOpen).toBe(EMPTY_PRICE);
+            expect(m.chgFromOpenPct).toBe(EMPTY_PRICE);
+            expect(m.chgFromOpenDir).toBe("none");
+        }
+    });
+
+    it("is the dash before the first trade", () => {
+        const m = buildSessionStats(unsetInput({ openPx: OPEN }));
+        expect(m.chgFromOpen).toBe(EMPTY_PRICE);
+        expect(m.chgFromOpenPct).toBe(EMPTY_PRICE);
+        expect(m.chgFromOpenDir).toBe("none");
+    });
+
+    it("reads the newest print, not the first fill", () => {
+        const m = buildSessionStats(
+            unsetInput({ tape: [entry({ pricePx: 1_501_000 }), entry({ pricePx: 1_400_000 })], openPx: OPEN }),
+        );
+        expect(m.chgFromOpen).toBe("+0.10");
     });
 });
