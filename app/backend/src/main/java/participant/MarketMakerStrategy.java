@@ -21,6 +21,11 @@ import java.util.List;
  * side, where {@code half = baseHalfSpreadTicks + volMultiplier * volatility}, the volatility being
  * the typical tick move between trades. A choppy market widens the maker out.
  *
+ * <p><b>Depth.</b> The default ladder is 20 levels a side (the server's BOOK depth), sized up
+ * outward from the touch. The position limit covers a whole side of it plus 3,000, so the full
+ * ladder rests on both sides while the inventory is within 3,000 of flat; past that, the outer
+ * levels on the side that would add inventory drop first.
+ *
  * <p>Every price is the on-tick centre plus a whole number of ticks. A quote outside the risk band,
  * or one that would take the position past its limit, is not sent.
  */
@@ -37,9 +42,45 @@ public final class MarketMakerStrategy implements Strategy {
             int maxSkewTicks,
             RiskLimits risk) {
 
+        /** Levels per side in the default ladder: the server's BOOK prefix depth (MAX_DEPTH_LEVELS). */
+        public static final int DEFAULT_LEVELS = 20;
+
+        /**
+         * Inventory range, either side of flat, in which the full default ladder still rests on
+         * both sides. It is the pre-deepening position limit, kept as the range in which the book
+         * stays full.
+         */
+        public static final long FULL_LADDER_INVENTORY = 3_000;
+
         public static Config defaults(long openUnits) {
-            return new Config(openUnits, 2, new long[] {100, 200, 300}, 1.0, 2, 10_000, 300, 10,
-                    new RiskLimits(openUnits, RiskLimits.DEFAULT_BAND_PERCENT, 3_000));
+            long[] qtys = defaultLevelQtys();
+            return new Config(openUnits, 2, qtys, 1.0, 2, 10_000, 300, 10,
+                    new RiskLimits(openUnits, RiskLimits.DEFAULT_BAND_PERCENT, defaultMaxPosition(qtys)));
+        }
+
+        /**
+         * The default ladder: 100, 200, ..., 1000 over the first ten levels, then 1000 for the
+         * remaining ten, so size steps up outward from the touch and then flattens. 15,500 a side.
+         */
+        static long[] defaultLevelQtys() {
+            long[] qtys = new long[DEFAULT_LEVELS];
+            for (int i = 0; i < DEFAULT_LEVELS; i++) {
+                qtys[i] = Math.min(100L * (i + 1), 1_000L);
+            }
+            return qtys;
+        }
+
+        /**
+         * RiskLimits counts the ladder's working quantity on a side as if it filled, so the limit
+         * must cover a whole side plus the inventory range: the sum of the ladder plus
+         * {@link #FULL_LADDER_INVENTORY} (18,500 for the default ladder).
+         */
+        static long defaultMaxPosition(long[] qtys) {
+            long side = 0;
+            for (long q : qtys) {
+                side += q;
+            }
+            return side + FULL_LADDER_INVENTORY;
         }
     }
 

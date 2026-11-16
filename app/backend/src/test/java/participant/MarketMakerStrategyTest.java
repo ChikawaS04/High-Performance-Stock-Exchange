@@ -5,6 +5,7 @@ import model.Side;
 import model.TimeInForce;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,21 +32,67 @@ class MarketMakerStrategyTest {
                 d.requoteMoveTicks(), d.requoteIntervalMillis(), skewClip, d.maxSkewTicks(), risk);
     }
 
+    /** The default ladder, inner first: 100 .. 1000 over ten levels, then 1000 for ten more. */
+    private static final List<Long> LADDER = List.of(100L, 200L, 300L, 400L, 500L, 600L, 700L, 800L, 900L, 1_000L,
+            1_000L, 1_000L, 1_000L, 1_000L, 1_000L, 1_000L, 1_000L, 1_000L, 1_000L, 1_000L);
+
     @Test
-    void theFirstTickLaddersThreeLevelsEachSideOfTheOpen() {
-        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+    void theFirstTickLaddersTwentyLevelsEachSideOfTheOpen() {
+        MarketMakerStrategy.Config cfg = MarketMakerStrategy.Config.defaults(OPEN);
+        MarketMakerStrategy m = maker(cfg);
         List<Action> out = m.onTick(emptyView(), 1_000);
 
-        assertEquals(List.of(OPEN - ticks(2), OPEN - ticks(3), OPEN - ticks(4)),
-                side(out, Side.BUY).stream().map(Action::priceUnits).toList());
-        assertEquals(List.of(OPEN + ticks(2), OPEN + ticks(3), OPEN + ticks(4)),
-                side(out, Side.SELL).stream().map(Action::priceUnits).toList());
-        assertEquals(List.of(100L, 200L, 300L), side(out, Side.BUY).stream().map(Action::qty).toList());
+        List<Long> bids = new ArrayList<>();
+        List<Long> asks = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            bids.add(OPEN - ticks(2 + i));
+            asks.add(OPEN + ticks(2 + i));
+        }
+        assertEquals(bids, side(out, Side.BUY).stream().map(Action::priceUnits).toList());
+        assertEquals(asks, side(out, Side.SELL).stream().map(Action::priceUnits).toList());
+        assertEquals(LADDER, side(out, Side.BUY).stream().map(Action::qty).toList());
+        assertEquals(LADDER, side(out, Side.SELL).stream().map(Action::qty).toList());
         for (Action a : out) {
             assertEquals(TimeInForce.GTC, a.tif());
             assertTrue(Prices.isOnTick(a.priceUnits()));
+            assertTrue(cfg.risk().inBand(a.priceUnits()), "inside the band: " + a.priceUnits());
             assertEquals(Bots.Owner.MAKER, Bots.owner(a.clOrdId()));
         }
+    }
+
+    @Test
+    void theDefaultLadderMatchesTheBookDepthAndItsLimitCoversAWholeSide() {
+        MarketMakerStrategy.Config cfg = MarketMakerStrategy.Config.defaults(OPEN);
+        assertEquals(event.BookSnapshotEvent.MAX_DEPTH_LEVELS, cfg.levelQtys().length);
+        long side = LADDER.stream().mapToLong(Long::longValue).sum();
+        assertEquals(15_500, side);
+        assertEquals(side + 3_000, cfg.risk().maxPosition());
+    }
+
+    @Test
+    void theFullLadderStillRestsOnBothSidesAtThreeThousandLong() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        List<Action> first = m.onTick(emptyView(), 1_000);
+        long innerBid = side(first, Side.BUY).get(0).clOrdId();
+        m.onExec(fill(9L, innerBid, Side.SELL, OPEN - ticks(2), 3_000, 0));
+        assertEquals(3_000, m.ownForTest().position());
+
+        List<Action> out = m.onTick(emptyView(), 20_000);
+        assertEquals(20, side(out, Side.BUY).size(), "3,000 + 15,500 is exactly the limit");
+        assertEquals(20, side(out, Side.SELL).size());
+    }
+
+    @Test
+    void pastTheInventoryRangeOnlyTheOuterLevelsOnTheAddingSideDrop() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        List<Action> first = m.onTick(emptyView(), 1_000);
+        long innerBid = side(first, Side.BUY).get(0).clOrdId();
+        m.onExec(fill(9L, innerBid, Side.SELL, OPEN - ticks(2), 4_500, 0));
+
+        List<Action> out = m.onTick(emptyView(), 20_000);
+        // 4,500 + the first 19 levels (14,500) is 19,000, past 18,500: the outer two drop.
+        assertEquals(LADDER.subList(0, 18), side(out, Side.BUY).stream().map(Action::qty).toList());
+        assertEquals(20, side(out, Side.SELL).size(), "selling reduces the position, so every offer rests");
     }
 
     @Test
@@ -63,7 +110,7 @@ class MarketMakerStrategyTest {
         m.onExec(print(last));
         List<Action> out = m.onTick(view(OPEN - ticks(2), OPEN + ticks(2), last), 2_000);
 
-        assertEquals(6, cancels(out).size(), "every quote from the first ladder");
+        assertEquals(40, cancels(out).size(), "every quote from the first ladder");
         assertEquals(last - ticks(2), side(out, Side.BUY).get(0).priceUnits());
         assertEquals(last + ticks(2), side(out, Side.SELL).get(0).priceUnits());
     }
@@ -91,11 +138,12 @@ class MarketMakerStrategyTest {
 
     @Test
     void quotesOutsideTheBandAreNotSent() {
-        RiskLimits narrow = new RiskLimits(OPEN, 1, 3_000);   // 150 ticks either side
+        // 150 ticks either side, with the default position limit so only the band trims.
+        RiskLimits narrow = new RiskLimits(OPEN, 1, MarketMakerStrategy.Config.defaults(OPEN).risk().maxPosition());
         MarketMakerStrategy m = maker(cfg(narrow, 300));
         List<Action> out = m.onTick(view(-1, -1, narrow.highest()), 1_000);
         assertTrue(side(out, Side.SELL).isEmpty(), "every offer would sit above the band");
-        assertEquals(3, side(out, Side.BUY).size());
+        assertEquals(20, side(out, Side.BUY).size());
     }
 
     @Test
@@ -111,7 +159,7 @@ class MarketMakerStrategyTest {
         MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
         List<Action> out = m.onTick(emptyView(), 1_000);
         List<Action> close = m.onSessionClose();
-        assertEquals(6, close.size());
+        assertEquals(40, close.size());
         assertEquals(news(out).stream().map(Action::clOrdId).toList(),
                 close.stream().map(Action::origClOrdId).toList());
     }
