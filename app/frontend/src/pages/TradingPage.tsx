@@ -36,7 +36,7 @@
  * is gone, matching the blotter. The panel wrapper just mounts the card.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AppState } from "../state/reducer";
 import { buildOwnExecutions } from "../ownExecutions";
@@ -54,6 +54,8 @@ import { OpenOrders } from "../components/OpenOrders";
 import { FixInspector } from "../components/FixInspector";
 import { PAGE_NAMES } from "../documentTitle";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { isFront, raise, remove, windowZ } from "../windowStack";
+import type { WindowStack } from "../windowStack";
 
 export interface TradingPageProps {
     readonly state: AppState;
@@ -85,6 +87,23 @@ export function TradingPage({
     const [inspectorOpen, setInspectorOpen] = useState(false);
     const [depthMaxed, setDepthMaxed] = useState(false);
     const entryRef = useRef<OrderEntryHandle>(null);
+
+    // Front-to-back order of the open floating windows (§14): opening a window or
+    // pressing anywhere in it brings it to the front. Not persisted (§13). The price
+    // window's open state lives in App, so arriving through "View in trading" mounts
+    // this page with it already open and in front.
+    const [stack, setStack] = useState<WindowStack>(() => (priceOverlayOpen ? ["price"] : []));
+    useEffect(() => {
+        setStack((s) => (priceOverlayOpen ? raise(s, "price") : remove(s, "price")));
+    }, [priceOverlayOpen]);
+    const openDepth = (): void => {
+        setDepthMaxed(true);
+        setStack((s) => raise(s, "depth"));
+    };
+    const closeDepth = (): void => {
+        setDepthMaxed(false);
+        setStack((s) => remove(s, "depth"));
+    };
 
     return (
         <>
@@ -126,7 +145,7 @@ export function TradingPage({
                                 type="button"
                                 className="depth-chart__maximize"
                                 data-testid="depth-chart-maximize"
-                                onClick={() => setDepthMaxed(true)}
+                                onClick={openDepth}
                                 aria-label="Maximize depth chart"
                             >
                                 <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -178,8 +197,11 @@ export function TradingPage({
 
             <DepthChartOverlay
                 open={depthMaxed}
-                onClose={() => setDepthMaxed(false)}
+                onClose={closeDepth}
                 book={state.book}
+                zIndex={windowZ(stack, "depth")}
+                inactive={!isFront(stack, "depth")}
+                onActivate={() => setStack((s) => raise(s, "depth"))}
                 onPriceSelect={(pricePx) => entryRef.current?.setPrice(pricePx)}
             />
 
@@ -198,6 +220,9 @@ export function TradingPage({
                 repricing={repricing}
                 sessionOpenPx={state.sessionOpenPx}
                 openPx={openPx}
+                zIndex={windowZ(stack, "price")}
+                inactive={!isFront(stack, "price")}
+                onActivate={() => setStack((s) => raise(s, "price"))}
             />
 
             <FixInspector

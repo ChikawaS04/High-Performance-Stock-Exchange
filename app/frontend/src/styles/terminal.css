@@ -4726,6 +4726,13 @@ body {
     -webkit-user-select: none !important;
 }
 
+/* Focus cue (§14): the window behind another shows its title in --dim; the front
+   window keeps the white title. Nothing else in the chrome changes. */
+.floating-window--inactive .depth-overlay__title,
+.floating-window--inactive .price-chart__title {
+    color: var(--dim, #8f8f8f);
+}
+
 /* Fit mode: the chart fills the window and lays out at its size (no fixed aspect). */
 .price-chart--fit {
     height: 100%;

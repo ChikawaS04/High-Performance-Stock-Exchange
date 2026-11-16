@@ -41,6 +41,10 @@ export interface DepthChartOverlayProps {
     readonly onClose: () => void;
     readonly book: BookState;
     readonly onPriceSelect?: (pricePx: number) => void;
+    /** Window stacking from the Trading page (windowStack). */
+    readonly zIndex?: number;
+    readonly inactive?: boolean;
+    readonly onActivate?: () => void;
 }
 
 type ChartBg = "dark" | "light";
@@ -52,7 +56,15 @@ const NOMINAL = { w: 1040, h: 560 } as const;
 /** Viewport pixels per chart unit in the window: the pre-resize default look. */
 const DEPTH_WINDOW_UNIT_PX = 1.4;
 
-export function DepthChartOverlay({ open, onClose, book, onPriceSelect }: DepthChartOverlayProps) {
+export function DepthChartOverlay({
+    open,
+    onClose,
+    book,
+    onPriceSelect,
+    zIndex,
+    inactive,
+    onActivate,
+}: DepthChartOverlayProps) {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [displayOpen, setDisplayOpen] = useState(true);
     // The chart background persists across page switches and restarts (UI polish D10).
@@ -84,6 +96,9 @@ export function DepthChartOverlay({ open, onClose, book, onPriceSelect }: DepthC
             dragSelector=".depth-overlay__head"
             storageKey={SETTING_KEYS.depthWindowGeometry}
             nominal={NOMINAL}
+            zIndex={zIndex}
+            inactive={inactive}
+            onActivate={onActivate}
         >
             <div className="depth-overlay__head" data-testid="depth-overlay-grip">
                 <span className="depth-overlay__title">Depth Chart</span>

@@ -17,6 +17,8 @@
  *   validated and clamped to the current viewport on restore; a missing or invalid
  *   value falls back to the nominal default, centred. Whether the window is open is
  *   the parent's business and is not persisted.
+ * - Stacking: the parent passes `zIndex` and `inactive` from its window stack and
+ *   raises the window through `onActivate`, called on any pointer-down inside it.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -36,6 +38,12 @@ export interface FloatingWindowProps {
     readonly storageKey: string;
     /** Default size before anything is saved, capped to the viewport. */
     readonly nominal: Size;
+    /** Stacking order from the parent (windowStack); absent, the CSS default applies. */
+    readonly zIndex?: number;
+    /** A press anywhere in the window (capture phase) asks the parent to raise it. */
+    readonly onActivate?: () => void;
+    /** Behind another window: the title dims (the focus cue). */
+    readonly inactive?: boolean;
     readonly children: ReactNode;
 }
 
@@ -66,6 +74,9 @@ export function FloatingWindow({
     dragSelector,
     storageKey,
     nominal,
+    zIndex,
+    onActivate,
+    inactive = false,
     children,
 }: FloatingWindowProps) {
     const [saved, setSaved] = usePersistentSetting<Rect | null>(storageKey, null, (v): v is Rect | null =>
@@ -142,11 +153,15 @@ export function FloatingWindow({
 
     return (
         <div
-            className={`floating-window ${className}`}
+            className={`floating-window ${className}${inactive ? " floating-window--inactive" : ""}`}
             role="dialog"
             aria-label={ariaLabel}
             data-testid={testId}
-            style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+            style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex }}
+            // Capture phase, so a press on any child (header, plot, gear, x, a popup,
+            // a resize handle) raises the window first. It only sets parent state: no
+            // stopPropagation, no preventDefault, so every gesture runs as before.
+            onPointerDownCapture={onActivate}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={end}

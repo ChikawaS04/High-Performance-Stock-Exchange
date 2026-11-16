@@ -56,6 +56,10 @@ export interface PriceChartOverlayProps {
     readonly quoteBars?: QuoteSet;
     readonly sessionOpenPx: number;
     readonly openPx?: number;
+    /** Window stacking from the Trading page (windowStack). */
+    readonly zIndex?: number;
+    readonly inactive?: boolean;
+    readonly onActivate?: () => void;
 }
 
 // Nominal window size before any resize (the pre-resize 760px width and its 12/5
@@ -77,6 +81,9 @@ export function PriceChartOverlay({
     quoteBars,
     sessionOpenPx,
     openPx,
+    zIndex,
+    inactive,
+    onActivate,
 }: PriceChartOverlayProps) {
     // Escape closes, matching the depth overlay and the FIX inspector.
     useEffect(() => {
@@ -104,6 +111,9 @@ export function PriceChartOverlay({
             dragSelector=".price-chart__band"
             storageKey={SETTING_KEYS.priceWindowGeometry}
             nominal={NOMINAL}
+            zIndex={zIndex}
+            inactive={inactive}
+            onActivate={onActivate}
         >
             <PriceChart
                 tape={tape}
