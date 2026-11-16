@@ -124,9 +124,17 @@ describe("FloatingWindow", () => {
         render(<Win />);
         const handle = screen.getByTestId("win-resize-e");
         fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 1200, clientY: 400 });
-        expect(document.body.classList.contains("floating-window--busy")).toBe(true);
+        expect(document.body.classList.contains("term-no-select")).toBe(true);
         fireEvent.pointerUp(handle, { pointerId: 1, clientX: 1200, clientY: 400 });
-        expect(document.body.classList.contains("floating-window--busy")).toBe(false);
+        expect(document.body.classList.contains("term-no-select")).toBe(false);
+    });
+
+    it("releases the selection lock when the window unmounts mid-gesture", () => {
+        const { unmount } = render(<Win />);
+        fireEvent.pointerDown(screen.getByTestId("win-resize-e"), { pointerId: 1, button: 0, clientX: 1200, clientY: 400 });
+        expect(document.body.classList.contains("term-no-select")).toBe(true);
+        unmount();
+        expect(document.body.classList.contains("term-no-select")).toBe(false);
     });
 
     it("restores saved geometry after a remount, clamped to the viewport", () => {

@@ -27,6 +27,7 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { EDGES, EDGE_CURSOR, clampRect, isRect, moveRect, resizeRect, restoreRect } from "../floatingWindow";
 import type { Edge, Rect, Size } from "../floatingWindow";
 import { usePersistentSetting } from "../settings/usePersistentSetting";
+import { lockSelection } from "../selectionLock";
 
 export interface FloatingWindowProps {
     readonly className: string;
@@ -49,8 +50,6 @@ export interface FloatingWindowProps {
 
 /** Elements inside the grip that must never start a drag. */
 const NO_DRAG = "button, input, .settings-pop, .settings-pop__backdrop";
-
-const BUSY_CLASS = "floating-window--busy";
 
 function viewport(): Size {
     return { w: window.innerWidth, h: window.innerHeight };
@@ -88,6 +87,8 @@ export function FloatingWindow({
     const rectRef = useRef(rect);
     rectRef.current = rect;
     const gesture = useRef<Gesture | null>(null);
+    // Release for the shared selection lock, held for the length of a gesture.
+    const unlock = useRef<(() => void) | null>(null);
 
     // A browser resize pulls the window back inside the new viewport.
     useEffect(() => {
@@ -97,11 +98,12 @@ export function FloatingWindow({
     }, []);
 
     // Never leave the page unselectable if the window unmounts mid-gesture.
-    useEffect(() => () => document.body.classList.remove(BUSY_CLASS), []);
+    useEffect(() => () => unlock.current?.(), []);
 
     const begin = (e: ReactPointerEvent<HTMLDivElement>, g: Gesture): void => {
         gesture.current = g;
-        document.body.classList.add(BUSY_CLASS);
+        unlock.current?.();
+        unlock.current = lockSelection();
         const el = e.currentTarget;
         try {
             el.setPointerCapture(e.pointerId);
@@ -141,7 +143,8 @@ export function FloatingWindow({
         const g = gesture.current;
         if (g === null || e.pointerId !== g.pointerId) return;
         gesture.current = null;
-        document.body.classList.remove(BUSY_CLASS);
+        unlock.current?.();
+        unlock.current = null;
         const el = e.currentTarget;
         try {
             if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);

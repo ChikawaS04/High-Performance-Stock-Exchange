@@ -225,3 +225,53 @@ describe("line mode zoom and pan", () => {
         expect(screen.getByTestId("price-chart-last")).not.toBeNull();
     });
 });
+
+describe("no text selection while dragging the plot", () => {
+    const locked = (): boolean => document.body.classList.contains("term-no-select");
+
+    it("holds the selection lock for the length of a pan and releases it on pointer up", () => {
+        renderChart(bars(300));
+        const down = fireEvent.pointerDown(svg(), { pointerId: 1, button: 0, clientX: 300, clientY: 120 });
+        // The lock alone stops selection. The press keeps its default action, so focus
+        // still leaves an open band dropdown or a ticket input exactly as before.
+        expect(down).toBe(true);
+        expect(locked()).toBe(true);
+        fireEvent.pointerMove(svg(), { pointerId: 1, clientX: 360, clientY: 120 });
+        expect(locked()).toBe(true);
+        fireEvent.pointerUp(svg(), { pointerId: 1, clientX: 360, clientY: 120 });
+        expect(locked()).toBe(false);
+    });
+
+    it("releases the lock on pointer cancel", () => {
+        renderChart(bars(300));
+        fireEvent.pointerDown(svg(), { pointerId: 1, button: 0, clientX: 300, clientY: 120 });
+        fireEvent.pointerCancel(svg(), { pointerId: 1 });
+        expect(locked()).toBe(false);
+    });
+
+    it("releases the lock when the chart unmounts mid-pan", () => {
+        const { unmount } = renderChart(bars(300));
+        fireEvent.pointerDown(svg(), { pointerId: 1, button: 0, clientX: 300, clientY: 120 });
+        fireEvent.pointerMove(svg(), { pointerId: 1, clientX: 360, clientY: 120 });
+        expect(locked()).toBe(true);
+        unmount();
+        expect(locked()).toBe(false);
+    });
+
+    it("a plain click under the pan threshold takes and releases the lock and never pans", () => {
+        renderChart(bars(300));
+        const before = wickXs();
+        fireEvent.pointerDown(svg(), { pointerId: 1, button: 0, clientX: 300, clientY: 120 });
+        fireEvent.pointerMove(svg(), { pointerId: 1, clientX: 302, clientY: 120 });
+        fireEvent.pointerUp(svg(), { pointerId: 1, clientX: 302, clientY: 120 });
+        expect(locked()).toBe(false);
+        expect(wickXs()).toEqual(before);
+    });
+
+    it("a press outside the plot (the price axis) takes no lock", () => {
+        renderChart(bars(300));
+        const down = fireEvent.pointerDown(svg(), { pointerId: 1, button: 0, clientX: L.PLOT_RIGHT + 30, clientY: 120 });
+        expect(down).toBe(true);
+        expect(locked()).toBe(false);
+    });
+});

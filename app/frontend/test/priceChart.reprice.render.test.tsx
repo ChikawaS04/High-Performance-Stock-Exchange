@@ -276,3 +276,29 @@ describe("drag to reprice in the floating window (P18-4)", () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 });
+
+describe("no text selection while dragging an order tag", () => {
+    const locked = (): boolean => document.body.classList.contains("term-no-select");
+
+    it("holds the selection lock from the tag press to the drop", () => {
+        renderChart();
+        const y0 = lineY(BUY.clOrdId);
+        const down = fireEvent.pointerDown(tag(BUY.clOrdId), { pointerId: 3, button: 0, clientX: 650, clientY: y0 });
+        // Lock only, no preventDefault: focus behaviour is unchanged.
+        expect(down).toBe(true);
+        expect(locked()).toBe(true);
+        fireEvent.pointerUp(svg(), { pointerId: 3, clientX: 650, clientY: y0 });
+        expect(locked()).toBe(false);
+    });
+
+    it("releases it on pointer cancel and on unmount mid-drag", () => {
+        const { unmount } = renderChart();
+        dragTag(BUY.clOrdId, yForPrice(1_000_200), 600, false);
+        fireEvent.pointerCancel(svg(), { pointerId: 3 });
+        expect(locked()).toBe(false);
+        dragTag(BUY.clOrdId, yForPrice(1_000_200), 600, false);
+        expect(locked()).toBe(true);
+        unmount();
+        expect(locked()).toBe(false);
+    });
+});

@@ -157,6 +157,7 @@ import { bubbleMarks, drawOverlay, hitBubble, quotePaths } from "../heatmap/over
 import type { BubbleMark } from "../heatmap/overlay";
 import { useHeatmapSettings } from "../heatmap/heatmapSettings";
 import { recordPaint } from "../heatmap/perfStats";
+import { lockSelection } from "../selectionLock";
 
 /** The nominal drawing size, used until the plot is measured. */
 const NOMINAL_W = 720;
@@ -433,6 +434,18 @@ export function PriceChart({
     // Drag to reprice (P18-4): the order-tag gesture, separate from the plot pan.
     const [orderDrag, setOrderDrag] = useState<RepriceDrag | null>(null);
     const orderDragRef = useRef<{ readonly pointerId: number; drag: RepriceDrag } | null>(null);
+    // The shared selection lock (selectionLock.ts), held for the length of a pan or
+    // tag drag so neither gesture selects page text; released on up, cancel, unmount.
+    const unlockRef = useRef<(() => void) | null>(null);
+    const holdSelection = (): void => {
+        unlockRef.current?.();
+        unlockRef.current = lockSelection();
+    };
+    const releaseSelection = (): void => {
+        unlockRef.current?.();
+        unlockRef.current = null;
+    };
+    useEffect(() => () => unlockRef.current?.(), []);
     const [modify, setModify] = useState<ModifyRequest | null>(null);
     const confirmedRef = useRef<ModifyRequest | null>(null);
 
@@ -925,6 +938,10 @@ export function PriceChart({
         if (e.button !== 0) return;
         const p = toView(e.clientX, e.clientY);
         if (p === null || !inPlot(p) || svgEl === null) return;
+        // The lock alone stops text selection: it is on the body before the press's
+        // default action runs. No preventDefault, which would also stop focus leaving
+        // (an open band dropdown would stay open, a ticket input would not blur).
+        holdSelection();
         const rect = svgEl.getBoundingClientRect();
         dragRef.current = {
             pointerId: e.pointerId,
@@ -959,6 +976,7 @@ export function PriceChart({
         const drag = startDrag({ clOrdId: o.clOrdId, side: o.side, pricePx: o.pricePx, draggable: o.draggable }, repricing);
         if (drag === null) return;
         e.stopPropagation();
+        holdSelection();
         orderDragRef.current = { pointerId: e.pointerId, drag };
         setOrderDrag(drag);
         setHover(null);
@@ -984,6 +1002,7 @@ export function PriceChart({
         if (od === null || od.pointerId !== e.pointerId) return false;
         orderDragRef.current = null;
         setOrderDrag(null);
+        releaseSelection();
         releaseCapture(e.pointerId);
         if (!commit) return true;
         const drop = dropDrag(od.drag);
@@ -1007,6 +1026,7 @@ export function PriceChart({
         if (d === null || d.pointerId !== e.pointerId) return;
         dragRef.current = null;
         setPanning(false);
+        releaseSelection();
         if (svgEl !== null && typeof svgEl.hasPointerCapture === "function" && svgEl.hasPointerCapture(e.pointerId)) {
             svgEl.releasePointerCapture(e.pointerId);
         }

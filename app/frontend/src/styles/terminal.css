@@ -4729,9 +4729,11 @@ body {
     stroke-linecap: square;
 }
 
-/* While a window is moved or resized, nothing on the page selects. */
-.floating-window--busy,
-.floating-window--busy * {
+/* The shared selection lock (src/selectionLock.ts): while a window is moved or
+   resized, the price chart is panned, or an order tag is dragged, nothing on the
+   page selects. */
+.term-no-select,
+.term-no-select * {
     user-select: none !important;
     -webkit-user-select: none !important;
 }
