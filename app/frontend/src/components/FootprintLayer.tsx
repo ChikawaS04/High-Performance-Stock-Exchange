@@ -3,7 +3,7 @@
  * this draws it.
  *
  * Each visible bar is a column of price rows in its slot. A row with trades shows
- * "sell x buy" in IBM Plex Mono tabular at 9px, in the chart's text ink. A row with a
+ * "sell x buy" in the number font (--num, IBM Plex Sans) tabular at 9px, in the chart's text ink. A row with a
  * diagonal imbalance is tinted with the dominant side's direction colour: the up
  * colour for buyers lifting offers, the down colour for sellers hitting bids, the
  * resolved colours including any user pick. The bar's open-close range is outlined in

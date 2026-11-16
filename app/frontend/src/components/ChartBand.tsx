@@ -6,7 +6,7 @@
  *    §11.5 list as a menu with one item, View in trading. Then a 1px divider.
  *  - Chart type: the compact white single-select (FieldMenu), the trigger showing the
  *    current type's icon and name, each option its icon and label.
- *  - Bar size: the compact single-select, mono options right-aligned. Hidden in line and
+ *  - Bar size: the compact single-select, number-font options right-aligned. Hidden in line and
  *    heatmap mode (P20-5): only the bar chart types draw bars.
  *    In footprint (Charts page only, P19-6) it offers only 1m and 5m, the sizes that
  *    keep per-price detail; FieldMenu has no disabled options, so the others are left out.

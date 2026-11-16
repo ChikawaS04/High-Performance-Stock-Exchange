@@ -40,7 +40,7 @@
  * Styling is the TWS charcoal card (DESIGN_SYSTEM.md §5): the component now owns the
  * card chrome (a --head SESSION band over a sunken --well body) alongside the five
  * label/value rows, so the panel reads identically wherever it mounts. Values render
- * in mono tabular like the rest of the charcoal terminal; this component only names
+ * in the number font (--num) tabular like the rest of the charcoal terminal; this component only names
  * the classes, the metrics live in the session-stats__* block.
  */
 

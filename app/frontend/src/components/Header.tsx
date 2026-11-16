@@ -14,8 +14,8 @@
  * connection is app state, not instrument data.
  *
  * Charcoal rework (P-UI): the strip is a thin (30px) panel-header band. ASML stays
- * bold but white; every value is white at the blotter row-data weight (IBM Plex
- * Mono, normal); labels are IBM Plex Sans, white by default. The green/red
+ * bold but white; every value is white at the blotter row-data weight (the number
+ * font --num, IBM Plex Sans, normal); labels are IBM Plex Sans, white by default. The green/red
  * switchers (Chg, Bid, Ask) keep their colours. A gear sits at the right edge in
  * the dropdown-caret colour; it opens a settings popup (DESIGN_SYSTEM.md
  * §10) whose Layout section lets you set the header labels to white or faint grey.

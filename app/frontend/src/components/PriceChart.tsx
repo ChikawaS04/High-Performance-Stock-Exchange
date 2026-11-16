@@ -265,7 +265,7 @@ function labelAnchor(x: number, left: number, right: number): "start" | "middle"
     return "middle";
 }
 
-/** Approximate rendered width of an x-axis label (10px mono, or the 10.5px sans date tile). */
+/** Approximate rendered width of an x-axis label (10px --num, or the 10.5px sans date tile). */
 function labelWidth(text: string, date: boolean): number {
     return date ? text.length * 6 + 12 : text.length * 6.1;
 }
@@ -337,7 +337,7 @@ const NO_DEPTH = new DepthRecorder();
 /** Order tag height, and the gap kept between a tag and the price axis. */
 const ORDER_TAG_H = 14;
 
-/** Approximate width of an order tag: 10px mono label plus padding and an arrow when pinned. */
+/** Approximate width of an order tag: 10px --num label plus padding and an arrow when pinned. */
 function orderTagWidth(label: string, pinned: boolean): number {
     return (label.length + (pinned ? 2 : 0)) * 6.1 + 10;
 }

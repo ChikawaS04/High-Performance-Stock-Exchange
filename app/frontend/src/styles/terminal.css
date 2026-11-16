@@ -74,6 +74,11 @@
     "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
     --sans: "IBM Plex Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* Numbers (UI polish): IBM Plex Sans, whose zero is plain and whose digits are all
+       600 units wide, so columns still line up. --mono stays only for the directROUTE
+       lockup and venue name (§15, locked) and the FIX inspector's raw message text. */
+    --num: "IBM Plex Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
     /* Height consumed above the workspace panels (title bar + header strip + nav
        band + workspace top padding). Reference only: no rule reads it today, since
@@ -169,14 +174,14 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
-/* All numeric values share one monospace, tabular treatment so columns lock. */
+/* All numeric values share one --num (Plex Sans), tabular treatment so columns lock. */
 .header__value,
 .depth-ladder,
 .trade-tape,
 .order-entry__input,
 .field-menu__input,
 .open-orders__table {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
 }
@@ -458,9 +463,9 @@ body {
     color: #8f8f8f;
 }
 
-/* Values: white, normal weight, mono tabular — the blotter row-data treatment. */
+/* Values: white, normal weight, --num tabular, the blotter row-data treatment. */
 .header__value {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-size: 11px;
     font-weight: 400;
     color: #ffffff;
@@ -971,7 +976,7 @@ body {
 /* Price keeps its heavier weight, now mono, coloured by side (the legible quote
    variants) so it contrasts with its own wash bar. */
 .depth-ladder__price {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
 }
@@ -984,12 +989,12 @@ body {
     color: var(--quote-bid);
 }
 
-/* Size + Total match the orders-panel row data: white, normal weight, mono tabular. */
+/* Size + Total match the orders-panel row data: white, normal weight, --num tabular. */
 .depth-ladder__qty,
 .depth-ladder__cum {
     text-align: right;
     min-width: 48px;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     color: #ffffff;
 }
@@ -1023,7 +1028,7 @@ body {
 }
 
 .depth-ladder__divider-value {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: #ffffff;
@@ -1126,19 +1131,19 @@ body {
 }
 
 /* Chrome labels are sans; every number on the chart (axis ticks, quotes, the mid
-   pill, wall sizes) is mono + tabular so digits line up, via the .n class. */
+   pill, wall sizes) is --num + tabular so digits line up, via the .n class. */
 .depth-curve__svg text {
     font-family: var(--sans);
 }
 .depth-curve__svg .n {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
 }
 
-/* The mid marker is a price: mono + tabular so it reads like every other price.
+/* The mid marker is a price: --num + tabular so it reads like every other price.
    The empty-state text (.depth-curve__empty) is a status word and stays sans. */
 .depth-curve__mid-label {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
 }
 
@@ -1287,7 +1292,7 @@ body {
 
 .trade-tape__row {
     height: var(--tape-row-h);
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 13px;
 }
@@ -1572,10 +1577,10 @@ body {
     color: var(--oe-faint);
 }
 .order-entry__chip-value {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;                 /* Plex Sans has no 500 (400, 600, 700 imported) */
     color: var(--oe-text);
 }
 .order-entry__chip--bid .order-entry__chip-value { color: var(--oe-bid); }
@@ -1660,7 +1665,7 @@ body {
     border-radius: var(--oe-rad);
     background: var(--oe-well);
     color: var(--oe-text);
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 14px;
     text-align: right;
@@ -1822,7 +1827,7 @@ body {
     white-space: nowrap;
 }
 .field-menu__opt--num {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     text-align: right;
 }
@@ -1883,7 +1888,7 @@ body {
     border-radius: var(--oe-rad);
     background: linear-gradient(var(--oe-raise-t), var(--oe-raise-b));
     color: var(--oe-dim);
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 10px;
     cursor: pointer;
@@ -1982,7 +1987,7 @@ body {
     border-radius: var(--radius);
     background: var(--bg);
     color: var(--text);
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 14px;
     text-align: right;
@@ -2285,7 +2290,7 @@ body {
     border-bottom: 1px solid rgba(255, 255, 255, 0.16);
     background: transparent;
     color: #ffffff;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-size: 11px;
     text-align: left;
     cursor: pointer;
@@ -2301,7 +2306,7 @@ body {
 }
 
 .fix-inspector__row-dir {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -2315,13 +2320,13 @@ body {
 }
 
 .fix-inspector__row-label {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-size: 11px;
     color: #ffffff;
 }
 
 .fix-inspector__row-time {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     color: #ffffff;
     font-size: 10px;
@@ -2368,7 +2373,7 @@ body {
 .fix-inspector__tags {
     width: 100%;
     border-collapse: collapse;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-size: 11px;
 }
 
@@ -2597,17 +2602,17 @@ body {
     display: inline-flex;
     align-items: baseline;
     gap: 6px;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;                 /* Plex Sans has no 500 (400, 600, 700 imported) */
     color: #ffffff;
 }
 
-/* Last-trade size, nested inside the price value. The faint mono sub, mirroring
+/* Last-trade size, nested inside the price value. The faint --num sub, mirroring
    the header strip's secondary numbers. */
 .session-stats__value-sub {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 11px;
     font-weight: 400;
@@ -2669,11 +2674,11 @@ body {
     aspect-ratio: 12 / 5;
 }
 
-/* Axis labels are prices and times: mono + tabular, like every other number. The
+/* Axis labels are prices and times: --num + tabular, like every other number. The
    empty-state word (.price-chart__empty) is a status, not a value, so it stays sans. */
 .price-chart__y-label,
 .price-chart__x-label {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     fill: var(--text-dim);
     font-size: 10px;
@@ -3276,11 +3281,11 @@ body {
     align-items: center;
 }
 
-/* Table: mono base so numeric columns read as data; sans only where noted. */
+/* Table: --num base so numeric columns read as data; sans only where noted. */
 .open-orders .open-orders__table {
     width: 100%;
     border-collapse: collapse;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
     font-size: 11px;
@@ -3465,7 +3470,7 @@ body {
     border-radius: 0;
     background: var(--well);
     color: #ffffff;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 13px;
     letter-spacing: 0.04em;
@@ -3619,7 +3624,7 @@ body {
     color: #ffffff;
 }
 .order-confirm__row dd.order-confirm__num {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.04em;
 }
@@ -3794,7 +3799,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 10px;
     color: #ffffff;
@@ -3841,7 +3846,7 @@ body {
     border: 1px solid transparent;
     background: transparent;
     color: #8f8f8f;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 10px;
     font-weight: 400;
@@ -4008,9 +4013,9 @@ body {
 }
 /* The svg keeps its 12/5 aspect (base rule above); nothing to add here. */
 
-/* Tag text: mono tabular like every other number. */
+/* Tag text: --num tabular like every other number. */
 .price-chart__tag {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 11px;
     font-weight: 600;
@@ -4209,7 +4214,7 @@ body {
     background: var(--well);
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
     color: var(--text);
-    font-family: var(--mono);
+    font-family: var(--num);
     font-size: 10px;
     cursor: pointer;
 }
@@ -4277,7 +4282,7 @@ body {
     background: var(--well);
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
     color: #ffffff;
-    font-family: var(--mono);
+    font-family: var(--num);
     font-size: 11px;
     outline: none;
 }
@@ -4297,11 +4302,11 @@ body {
 }
 .color-pop__match--on { border-color: var(--quote-bid); }
 
-/* Readout strip (P17 D11): top left of the price area, mono tabular ~10px. The
+/* Readout strip (P17 D11): top left of the price area, --num tabular ~10px. The
    key letters take the chart's dim ink and the values its text ink (set inline from
    the ground-aware ink model, since the chart has a black and a white ground). */
 .price-chart__readout {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 10px;
 }
@@ -4382,7 +4387,7 @@ body {
     stroke: #ffffff;
 }
 .price-chart__fill-count {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 9px;
 }
@@ -4418,7 +4423,7 @@ body {
     fill: var(--quote-ask);
 }
 .price-chart__order-text {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
     font-size: 10px;
     fill: #0b0b0b;
@@ -4433,11 +4438,11 @@ body {
 .price-chart__profile-row--va { fill-opacity: 0.45; }
 .price-chart__profile-row--poc { fill-opacity: 0.6; }
 
-/* Footprint (P19-6, DESIGN_SYSTEM.md §16): "sell x buy" cells in 9px mono tabular, a
+/* Footprint (P19-6, DESIGN_SYSTEM.md §16): "sell x buy" cells in 9px --num tabular, a
    low-alpha tint in the dominant side's direction colour on a diagonal imbalance (the
    fill is set inline from the resolved up or down colour), and the open-close outline. */
 .price-chart__fp-text {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: var(--num);
     font-size: 9px;
     font-variant-numeric: tabular-nums;
     pointer-events: none;
@@ -4682,7 +4687,7 @@ body {
 .order-toast__side--buy { color: var(--quote-bid); }
 .order-toast__side--sell { color: var(--quote-ask); }
 .order-toast__detail {
-    font-family: var(--mono);
+    font-family: var(--num);
     font-variant-numeric: tabular-nums;
 }
 

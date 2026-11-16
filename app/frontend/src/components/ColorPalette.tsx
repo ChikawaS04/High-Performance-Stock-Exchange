@@ -5,7 +5,7 @@
  * A colour row shows a chip: a swatch plus the hex (or "Match line" for a fill that
  * follows the line). The chip opens the palette as a small popup in the §10 chrome,
  * anchored under it: the 42-swatch grid in six columns, a Recent row of the last
- * four picks, and a Hex field (a sunken mono well) that takes #RRGGBB on Enter or
+ * four picks, and a Hex field (a sunken number-font well) that takes #RRGGBB on Enter or
  * blur and ignores anything else. Picking a swatch or a recent colour, or entering a
  * valid hex, applies it and closes the palette. Fill colour's palette leads with a
  * Match line choice.

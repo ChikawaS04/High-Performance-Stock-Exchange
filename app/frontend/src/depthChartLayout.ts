@@ -17,8 +17,11 @@ export const VIEW_H = 320;
 /** Rendered size of the depth chart mid label in CSS pixels, in every view. */
 export const MID_LABEL_PX = 13;
 
-/** Advance width of one IBM Plex Mono digit, as a fraction of the font size. */
-const MONO_ADVANCE = 0.6;
+/**
+ * Advance width of one digit in the number font (--num, IBM Plex Sans), as a fraction
+ * of the font size: every Plex Sans digit is 600 units on a 1000 unit em.
+ */
+const NUM_ADVANCE = 0.6;
 /** User-unit gap between the top of the viewBox and the tag box. */
 const TAG_TOP = 4;
 
@@ -49,7 +52,7 @@ export interface MidLabelLayout {
 export function midLabelLayout(scale: number, chars: number): MidLabelLayout {
     const fontSize = MID_LABEL_PX / (scale > 0 ? scale : 1);
     const boxH = fontSize * 1.5;
-    const boxW = Math.max(1, chars) * fontSize * MONO_ADVANCE + fontSize;
+    const boxW = Math.max(1, chars) * fontSize * NUM_ADVANCE + fontSize;
     const boxY = TAG_TOP;
     // Mono digits sit roughly 0.35em below the box centre line at the baseline.
     const textY = boxY + boxH / 2 + fontSize * 0.35;

@@ -119,7 +119,7 @@ describe("§11.5 dropdown lists escape their card", () => {
             expect(screen.getByTestId(`depth-select-opt-${v}`).classList.contains("field-menu__opt--num")).toBe(true);
         }
         const num = rule(".field-menu__opt--num");
-        expect(num).toContain("var(--mono)");
+        expect(num).toContain("var(--num)");
         expect(num).toContain("tabular-nums");
         expect(num).toContain("text-align: right");
     });
