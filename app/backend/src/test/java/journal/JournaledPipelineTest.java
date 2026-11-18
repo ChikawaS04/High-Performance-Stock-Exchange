@@ -14,12 +14,16 @@ import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import org.agrona.concurrent.YieldingIdleStrategy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import util.FailStop;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static journal.JournalTestSupport.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -159,6 +163,55 @@ class JournaledPipelineTest {
         assertFalse(engine.hasOpenOrder(3L), "command 3 was never applied");
         assertFalse(pipeline.shutdown());
         assertEquals(1, fatals.size(), "the stopped agent reports once");
+    }
+
+    /**
+     * P16-2: the pipeline runs, shuts down and recovers under every journal idle strategy in both
+     * Archive threading modes, and under every ring wait strategy.
+     */
+    @ParameterizedTest(name = "journal idle {0}, archive {1}, ring wait {2}")
+    @CsvSource({
+            "backoff,   shared,    blocking",
+            "sleeping,  shared,    blocking",
+            "yielding,  shared,    blocking",
+            "busy-spin, shared,    blocking",
+            "backoff,   dedicated, blocking",
+            "sleeping,  dedicated, blocking",
+            "yielding,  dedicated, blocking",
+            "busy-spin, dedicated, blocking",
+            "backoff,   shared,    yielding",
+            "backoff,   shared,    busy-spin",
+    })
+    void runsAndRecoversUnderEachWaitAndIdleSetting(String journalIdle, String archiveThreading, String ringWait) {
+        Map<String, String> env = new HashMap<>();
+        env.put(ExchangeConfig.EXCHANGE_DATA_DIR, root.resolve("data").toString());
+        env.put(ExchangeConfig.AERON_DIR, root.resolve("aeron").toString());
+        env.put(ExchangeConfig.JOURNAL_TERM_LENGTH, Integer.toString(SMALL));
+        env.put(ExchangeConfig.JOURNAL_SEGMENT_LENGTH, Integer.toString(SMALL));
+        env.put(ExchangeConfig.JOURNAL_IDLE_STRATEGY, journalIdle);
+        env.put(ExchangeConfig.JOURNAL_ARCHIVE_THREADING, archiveThreading);
+        env.put(ExchangeConfig.RING_WAIT_STRATEGY, ringWait);
+        ExchangeConfig config = ExchangeConfig.from(env);
+
+        JournaledPipeline first = new JournaledPipeline(config, new MatchingEngine(), capture);
+        CapturingExecutionHandler executions = new CapturingExecutionHandler();
+        first.outbound().handleEventsWith(executions);
+        first.start();
+        openSession(first);
+        publish(first.inboundRing(), limit(1L, 1L));
+        await(() -> first.appliedSeq() == OPEN + 1, "first run applied its commands");
+        await(() -> executions.snapshot().size() == 2, "both events reached the outbound ring");
+        assertTrue(first.shutdown());
+
+        MatchingEngine engine = new MatchingEngine();
+        JournaledPipeline second = new JournaledPipeline(config, engine, capture);
+        assertEquals(OPEN + 1, second.appliedSeq(), "recovered to the journal's last seq");
+        assertTrue(engine.hasOpenOrder(1L));
+        second.start();
+        publish(second.inboundRing(), limit(2L, 2L));
+        await(() -> second.appliedSeq() == OPEN + 2, "the next command follows on");
+        assertTrue(second.shutdown());
+        assertTrue(fatals.isEmpty(), fatals.toString());
     }
 
     @Test

@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -63,7 +64,10 @@ import java.util.concurrent.locks.LockSupport;
  *
  * Threading: the driver runs in SHARED mode on one thread. The Archive runs SHARED on one thread
  * by default, or DEDICATED (conductor, recorder and replayer on three threads) when
- * {@code JOURNAL_ARCHIVE_THREADING} says so (P15-13). The publications
+ * {@code JOURNAL_ARCHIVE_THREADING} says so (P15-13). {@code JOURNAL_IDLE_STRATEGY} (P16-2) sets
+ * how the driver's shared thread and every Archive thread idle: in SHARED mode the Archive's one
+ * thread, in DEDICATED mode its conductor, recorder and replayer threads alike. The default,
+ * backoff, sets nothing and leaves Aeron's own default in force. The publications
  * this class opens are each used by one writer thread; open and close are startup and shutdown
  * calls from one thread.
  */
@@ -189,9 +193,9 @@ public final class Journal implements AutoCloseable {
             CloseHelper.quietCloseAll(archive, aeron, driver);
             throw e;
         }
-        log.info("Journal started: archive={} aeron={} termLength={} segmentLength={} archiveThreading={}",
-                config.archiveDir(), config.aeronDir(), config.journalTermLength(), config.journalSegmentLength(),
-                config.archiveThreading().value());
+        log.info("Journal started: archive={} aeron={} termLength={} segmentLength={} archiveThreading={}"
+                        + " journalIdle={}", config.archiveDir(), config.aeronDir(), config.journalTermLength(),
+                config.journalSegmentLength(), config.archiveThreading().value(), journalIdleDescription(config));
         return new Journal(config, driver, aeron, archive, keepAliveIntervalMs);
     }
 
@@ -261,17 +265,28 @@ public final class Journal implements AutoCloseable {
                 + nl + "  4. Restart. If a snapshot is then beyond the journal, startup says which snapshots to move aside.";
     }
 
-    private static MediaDriver.Context driverContext(ExchangeConfig config) {
-        return new MediaDriver.Context()
+    /** The journal idle setting as the startup log states it. */
+    static String journalIdleDescription(ExchangeConfig config) {
+        ExchangeConfig.EngineIdle idle = config.journalIdle();
+        return idle == ExchangeConfig.EngineIdle.BACKOFF ? "backoff (Aeron default)" : idle.value();
+    }
+
+    static MediaDriver.Context driverContext(ExchangeConfig config) {
+        MediaDriver.Context context = new MediaDriver.Context()
                 .aeronDirectoryName(config.aeronDir().toString())
                 .dirDeleteOnStart(false)      // the driver deletes a stale dir itself and refuses a live one
                 .dirDeleteOnShutdown(true)
                 .threadingMode(ThreadingMode.SHARED)
                 .ipcTermBufferLength(config.journalTermLength());
+        Supplier<IdleStrategy> idle = WaitStrategies.journalIdle(config.journalIdle());
+        if (idle != null) {
+            context.sharedIdleStrategy(idle.get());   // SHARED: conductor, sender and receiver on one thread
+        }
+        return context;
     }
 
-    private static Archive.Context archiveContext(ExchangeConfig config) {
-        return new Archive.Context()
+    static Archive.Context archiveContext(ExchangeConfig config) {
+        Archive.Context context = new Archive.Context()
                 .archiveDir(config.archiveDir().toFile())
                 .deleteArchiveOnStart(false)
                 .segmentFileLength(config.journalSegmentLength())
@@ -282,6 +297,16 @@ public final class Journal implements AutoCloseable {
                 .recordingEventsEnabled(false)
                 .replicationChannel(IPC_CHANNEL)
                 .archiveClientContext(new AeronArchive.Context().controlResponseChannel(IPC_CHANNEL));
+        Supplier<IdleStrategy> idle = WaitStrategies.journalIdle(config.journalIdle());
+        if (idle != null) {
+            // SHARED uses the first for its one thread. DEDICATED uses it for the conductor and the
+            // other two for the recorder and replayer, set explicitly so no Aeron system property
+            // can give those two threads a different strategy.
+            context.idleStrategySupplier(idle)
+                    .recorderIdleStrategySupplier(idle)
+                    .replayerIdleStrategySupplier(idle);
+        }
+        return context;
     }
 
     /** {@code JOURNAL_ARCHIVE_THREADING} (P15-13); SHARED unless configured otherwise. */

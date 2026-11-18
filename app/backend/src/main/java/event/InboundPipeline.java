@@ -4,6 +4,7 @@ import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.ExceptionHandler;
 import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.WaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 
@@ -24,6 +25,9 @@ import java.util.concurrent.ThreadFactory;
  * P15-4: the live consumer is the journal sequencer, installed with a fail-stop exception
  * handler, because the Disruptor's default handler kills the consumer thread and leaves the
  * gateway blocked on a full ring with no exit.
+ *
+ * P16-2: the consumer's wait strategy is a constructor argument ({@code RING_WAIT_STRATEGY});
+ * the constructors without one keep {@link BlockingWaitStrategy}.
  */
 public final class InboundPipeline {
 
@@ -47,7 +51,13 @@ public final class InboundPipeline {
      * journaled pipeline's handler halts the venue or rethrows.
      */
     public InboundPipeline(EventHandler<OrderEvent> consumer, ExceptionHandler<OrderEvent> exceptionHandler) {
-        this(RING_SIZE, consumer);
+        this(consumer, exceptionHandler, new BlockingWaitStrategy());
+    }
+
+    /** As {@link #InboundPipeline(EventHandler, ExceptionHandler)}, with the consumer's wait strategy. */
+    public InboundPipeline(EventHandler<OrderEvent> consumer, ExceptionHandler<OrderEvent> exceptionHandler,
+                           WaitStrategy waitStrategy) {
+        this(RING_SIZE, consumer, waitStrategy);
         disruptor.setDefaultExceptionHandler(exceptionHandler);
     }
 
@@ -56,6 +66,10 @@ public final class InboundPipeline {
      * slot wrap-around on a tiny ring; production uses the canonical one.
      */
     InboundPipeline(int ringSize, EventHandler<OrderEvent> consumer) {
+        this(ringSize, consumer, new BlockingWaitStrategy());
+    }
+
+    private InboundPipeline(int ringSize, EventHandler<OrderEvent> consumer, WaitStrategy waitStrategy) {
         ThreadFactory threadFactory = r -> {
             Thread t = new Thread(r, "inbound-consumer");
             t.setDaemon(true); // a forgotten shutdown() must not wedge the JVM
@@ -67,7 +81,7 @@ public final class InboundPipeline {
                 ringSize,
                 threadFactory,
                 ProducerType.SINGLE,       // gateway is the only producer (SRS §5.2)
-                new BlockingWaitStrategy()  // demo default; revisit under JMH (Phase 6)
+                waitStrategy
         );
         disruptor.handleEventsWith(consumer);
     }

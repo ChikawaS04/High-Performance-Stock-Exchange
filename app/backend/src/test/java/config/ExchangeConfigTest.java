@@ -120,6 +120,34 @@ class ExchangeConfigTest {
     }
 
     @Test
+    void journalIdleStrategyDefaultsToBackoffAndAcceptsEachValue() {
+        assertEquals(ExchangeConfig.EngineIdle.BACKOFF, ExchangeConfig.from(Map.of()).journalIdle());
+        for (ExchangeConfig.EngineIdle idle : ExchangeConfig.EngineIdle.values()) {
+            assertEquals(idle, ExchangeConfig.from(Map.of("JOURNAL_IDLE_STRATEGY", idle.value())).journalIdle());
+        }
+        assertEquals(ExchangeConfig.EngineIdle.YIELDING,
+                ExchangeConfig.from(Map.of("JOURNAL_IDLE_STRATEGY", "YIELDING")).journalIdle(), "case-insensitive");
+        assertEquals(ExchangeConfig.EngineIdle.BACKOFF,
+                ExchangeConfig.from(Map.of("ENGINE_IDLE_STRATEGY", "busy-spin")).journalIdle(),
+                "independent of the engine's setting");
+        assertRejected(Map.of("JOURNAL_IDLE_STRATEGY", "noop"), "JOURNAL_IDLE_STRATEGY");
+        assertTrue(ExchangeConfig.from(Map.of()).toString().contains("journalIdle=backoff"));
+    }
+
+    @Test
+    void ringWaitStrategyDefaultsToBlockingAndAcceptsEachValue() {
+        assertEquals(ExchangeConfig.RingWait.BLOCKING, ExchangeConfig.from(Map.of()).ringWait());
+        for (ExchangeConfig.RingWait wait : ExchangeConfig.RingWait.values()) {
+            assertEquals(wait, ExchangeConfig.from(Map.of("RING_WAIT_STRATEGY", wait.value())).ringWait());
+        }
+        assertEquals(ExchangeConfig.RingWait.BUSY_SPIN,
+                ExchangeConfig.from(Map.of("RING_WAIT_STRATEGY", " Busy-Spin ")).ringWait(), "case-insensitive, trimmed");
+        assertRejected(Map.of("RING_WAIT_STRATEGY", "backoff"), "RING_WAIT_STRATEGY");
+        assertRejected(Map.of("RING_WAIT_STRATEGY", "sleeping"), "RING_WAIT_STRATEGY");
+        assertTrue(ExchangeConfig.from(Map.of()).toString().contains("ringWait=blocking"));
+    }
+
+    @Test
     void archiveThreadingDefaultsToSharedAndAcceptsEachValue() {
         assertEquals(ExchangeConfig.ArchiveThreading.SHARED, ExchangeConfig.from(Map.of()).archiveThreading());
         for (ExchangeConfig.ArchiveThreading threading : ExchangeConfig.ArchiveThreading.values()) {

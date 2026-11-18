@@ -33,6 +33,9 @@ public final class ExchangeConfig {
     public static final String JOURNAL_SEGMENT_LENGTH = "JOURNAL_SEGMENT_LENGTH";
     public static final String ENGINE_IDLE_STRATEGY   = "ENGINE_IDLE_STRATEGY";
     public static final String JOURNAL_ARCHIVE_THREADING = "JOURNAL_ARCHIVE_THREADING";
+    // P16-2: how the media driver and Archive threads idle, and how the three Disruptor rings wait.
+    public static final String JOURNAL_IDLE_STRATEGY  = "JOURNAL_IDLE_STRATEGY";
+    public static final String RING_WAIT_STRATEGY     = "RING_WAIT_STRATEGY";
     // Session reference data (P15-8). With DB_URL set, the database supplies all but the symbol, which names its row.
     public static final String SESSION_SYMBOL        = "SESSION_SYMBOL";
     public static final String SESSION_TICK_SIZE      = "SESSION_TICK_SIZE";
@@ -41,9 +44,12 @@ public final class ExchangeConfig {
     public static final String SESSION_TIME_ZONE      = "SESSION_TIME_ZONE";
 
     /**
-     * How the engine agent waits when the journal has nothing new (P15-4). BACKOFF, the default,
-     * spins and yields briefly after activity, then parks for up to 1 ms, so an idle venue uses
-     * almost no CPU on a shared host. BUSY_SPIN burns a core and is for benchmarks only.
+     * How an agent thread idles when it has no work. Used for the engine agent (P15-4,
+     * {@code ENGINE_IDLE_STRATEGY}) and for the media driver and Archive threads (P16-2,
+     * {@code JOURNAL_IDLE_STRATEGY}). BACKOFF, the default, spins and yields briefly after
+     * activity, then parks for up to 1 ms, so an idle venue uses almost no CPU on a shared host.
+     * For the journal threads BACKOFF means Aeron's own default, left untouched. BUSY_SPIN burns a
+     * core per thread.
      */
     public enum EngineIdle {
         BACKOFF("backoff"), SLEEPING("sleeping"), YIELDING("yielding"), BUSY_SPIN("busy-spin");
@@ -68,6 +74,24 @@ public final class ExchangeConfig {
         private final String value;
 
         ArchiveThreading(String value) { this.value = value; }
+
+        /** The environment variable's spelling. */
+        public String value() { return value; }
+    }
+
+    /**
+     * How the consumers of the inbound, outbound and snapshot Disruptor rings wait for the next
+     * event (P16-2). BLOCKING, the default, parks on a lock and condition, so an idle consumer
+     * costs no CPU but each wake-up goes through the scheduler. YIELDING spins briefly, then
+     * yields, and BUSY_SPIN spins: both keep each of the six consumer threads on a core while
+     * idle, which four cores cannot spare alongside a spinning engine.
+     */
+    public enum RingWait {
+        BLOCKING("blocking"), YIELDING("yielding"), BUSY_SPIN("busy-spin");
+
+        private final String value;
+
+        RingWait(String value) { this.value = value; }
 
         /** The environment variable's spelling. */
         public String value() { return value; }
@@ -107,6 +131,8 @@ public final class ExchangeConfig {
     private final int     journalSegmentLength;
     private final EngineIdle engineIdle;
     private final ArchiveThreading archiveThreading;
+    private final EngineIdle journalIdle;
+    private final RingWait ringWait;
     private final String  sessionSymbol;
     private final long    sessionTickSize;
     private final long    sessionLotSize;
@@ -128,6 +154,8 @@ public final class ExchangeConfig {
         this.journalSegmentLength = lengthValue(env, JOURNAL_SEGMENT_LENGTH, DEFAULT_JOURNAL_SEGMENT_LENGTH);
         this.engineIdle           = engineIdleValue(env, ENGINE_IDLE_STRATEGY, EngineIdle.BACKOFF);
         this.archiveThreading     = archiveThreadingValue(env, JOURNAL_ARCHIVE_THREADING, ArchiveThreading.SHARED);
+        this.journalIdle          = engineIdleValue(env, JOURNAL_IDLE_STRATEGY, EngineIdle.BACKOFF);
+        this.ringWait             = ringWaitValue(env, RING_WAIT_STRATEGY, RingWait.BLOCKING);
         this.sessionSymbol        = symbolValue(env, SESSION_SYMBOL, DEFAULT_SESSION_SYMBOL);
         this.sessionTickSize      = longValue(env, SESSION_TICK_SIZE, DEFAULT_SESSION_TICK_SIZE, 1L);
         this.sessionLotSize       = longValue(env, SESSION_LOT_SIZE, DEFAULT_SESSION_LOT_SIZE, 1L);
@@ -217,6 +245,12 @@ public final class ExchangeConfig {
     /** How the Archive runs its conductor, recorder and replayer. */
     public ArchiveThreading archiveThreading() { return archiveThreading; }
 
+    /** The media driver's and the Archive's idle strategy; BACKOFF keeps Aeron's default. */
+    public EngineIdle journalIdle() { return journalIdle; }
+
+    /** The wait strategy of every consumer of the three Disruptor rings. */
+    public RingWait ringWait() { return ringWait; }
+
     @Override
     public String toString() {
         return "ExchangeConfig{port=" + port
@@ -232,6 +266,8 @@ public final class ExchangeConfig {
                 + ", journalSegmentLength=" + journalSegmentLength
                 + ", engineIdle=" + engineIdle.value()
                 + ", archiveThreading=" + archiveThreading.value()
+                + ", journalIdle=" + journalIdle.value()
+                + ", ringWait=" + ringWait.value()
                 + ", sessionSymbol=" + sessionSymbol
                 + ", sessionTickSize=" + sessionTickSize
                 + ", sessionLotSize=" + sessionLotSize
@@ -326,6 +362,16 @@ public final class ExchangeConfig {
             if (threading.value().equals(wanted)) return threading;
         }
         throw new IllegalArgumentException(name + " must be shared or dedicated: " + value);
+    }
+
+    private static RingWait ringWaitValue(Map<String, String> env, String name, RingWait fallback) {
+        String value = raw(env, name);
+        if (value == null) return fallback;
+        String wanted = value.toLowerCase(Locale.ROOT);
+        for (RingWait wait : RingWait.values()) {
+            if (wait.value().equals(wanted)) return wait;
+        }
+        throw new IllegalArgumentException(name + " must be blocking, yielding or busy-spin: " + value);
     }
 
     private static boolean booleanValue(Map<String, String> env, String name, boolean fallback) {

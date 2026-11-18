@@ -5,7 +5,10 @@ import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
-import com.lmax.disruptor.util.DaemonThreadFactory;
+import com.lmax.disruptor.WaitStrategy;
+
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Snapshot Disruptor wiring (Phase 4 decision 3): the second outbound buffer,
@@ -17,10 +20,14 @@ import com.lmax.disruptor.util.DaemonThreadFactory;
  * single-writer principle (SRS §5.2) holds across both outbound rings.
  *
  * Deliberately mirrors OutboundPipeline: same ring size, same wait strategy, same
- * lifecycle surface. BlockingWaitStrategy is a demo default (revisit under JMH).
+ * lifecycle surface. BlockingWaitStrategy is the default (P16-2 makes it a setting).
  *
  * P15-4: a consumer exception is logged and that consumer moves on to the next snapshot
  * ({@link LogAndContinueExceptionHandler}), so a failing subscriber can never stall the engine.
+ *
+ * P16-2: the consumers' wait strategy is a constructor argument ({@code RING_WAIT_STRATEGY}); the
+ * no-argument constructor keeps {@link BlockingWaitStrategy}. Consumer threads are named
+ * {@value #THREAD_NAME_PREFIX}1, 2 and so on, in the order the consumers were registered.
  */
 public final class SnapshotPipeline {
 
@@ -29,13 +36,21 @@ public final class SnapshotPipeline {
     private final Disruptor<BookSnapshotEvent> disruptor;
     private final RingBuffer<BookSnapshotEvent> ringBuffer;
 
+    /** Consumer threads are named this plus 1, 2, ... in registration order. */
+    public static final String THREAD_NAME_PREFIX = "snapshot-consumer-";
+
     public SnapshotPipeline() {
+        this(new BlockingWaitStrategy());
+    }
+
+    /** With the wait strategy every consumer of this ring uses. */
+    public SnapshotPipeline(WaitStrategy waitStrategy) {
         disruptor = new Disruptor<>(
                 new BookSnapshotEventFactory(),
                 RING_SIZE,
-                DaemonThreadFactory.INSTANCE,
+                namedDaemonThreads(),
                 ProducerType.SINGLE,
-                new BlockingWaitStrategy()
+                waitStrategy
         );
         disruptor.setDefaultExceptionHandler(new LogAndContinueExceptionHandler<>(
                 "snapshot", s -> "BOOK lastSeq=" + s.lastSeq + " timestamp=" + s.timestamp));
@@ -46,6 +61,16 @@ public final class SnapshotPipeline {
     @SafeVarargs
     public final void handleEventsWith(EventHandler<BookSnapshotEvent>... handlers) {
         disruptor.handleEventsWith(handlers);
+    }
+
+    /** Daemon threads, so a forgotten shutdown cannot wedge the JVM, each with a numbered name. */
+    private static ThreadFactory namedDaemonThreads() {
+        AtomicInteger count = new AtomicInteger();
+        return r -> {
+            Thread t = new Thread(r, THREAD_NAME_PREFIX + count.incrementAndGet());
+            t.setDaemon(true);
+            return t;
+        };
     }
 
     public void start() {

@@ -22,10 +22,7 @@ import io.aeron.Image;
 import org.agrona.concurrent.AgentRunner;
 import org.agrona.concurrent.AgentTerminationException;
 import org.agrona.concurrent.BackoffIdleStrategy;
-import org.agrona.concurrent.BusySpinIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
-import org.agrona.concurrent.SleepingMillisIdleStrategy;
-import org.agrona.concurrent.YieldingIdleStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import recovery.RecoveryException;
@@ -223,9 +220,9 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             Image image = launched.subscribe(recorded);
             RecordingPositionGate gate = launched.recordingPositionGate(recorded);
 
-            this.outbound = new OutboundPipeline();
+            this.outbound = new OutboundPipeline(WaitStrategies.ringWait(config.ringWait()));
             this.outbound.handleEventsWith(recorder, new FailStopExceptionHandler<>("outbound-recorder", this.failStop));
-            this.snapshots = new SnapshotPipeline();
+            this.snapshots = new SnapshotPipeline(WaitStrategies.ringWait(config.ringWait()));
             this.handler = new MatchingEngineHandler(engine, outbound.getRingBuffer(), snapshots.getRingBuffer());
             // Without this the engine reports nothing: fills surface through the listener seam.
             engine.setExecutionListener(handler);
@@ -267,7 +264,8 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             this.agent = new EngineAgent(image, gate, applier, recorded.joinPosition(), null);
             this.agentRunner = new AgentRunner(idleStrategy(config.engineIdle()),
                     t -> this.failStop.fatal("engine-agent", unwrap(t)), null, agent);
-            this.inbound = new InboundPipeline(sequencer, new FailStopExceptionHandler<>("sequencer", this.failStop));
+            this.inbound = new InboundPipeline(sequencer, new FailStopExceptionHandler<>("sequencer", this.failStop),
+                    WaitStrategies.ringWait(config.ringWait()));
             this.outboundHistory = new OutboundHistory(launched.archive(), outboundRecorded,
                     launched.recordingPositionGate(outboundRecorded), this::publishedSeq);
             this.journal = launched;
@@ -410,14 +408,9 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         }
     }
 
+    /** {@code ENGINE_IDLE_STRATEGY}; the mapping lives in {@link WaitStrategies} (P16-2). */
     static IdleStrategy idleStrategy(ExchangeConfig.EngineIdle idle) {
-        switch (idle) {
-            case BACKOFF:   return new BackoffIdleStrategy();
-            case SLEEPING:  return new SleepingMillisIdleStrategy(1);
-            case YIELDING:  return new YieldingIdleStrategy();
-            case BUSY_SPIN: return new BusySpinIdleStrategy();
-            default:        throw new IllegalArgumentException("Unmapped engine idle: " + idle);
-        }
+        return WaitStrategies.engineIdle(idle);
     }
 
     private static Throwable unwrap(Throwable t) {
@@ -620,12 +613,14 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             replayedCommands = replayed;
             log.info("Recovered in {} ms: {}, replayed {} commands (seq {} to {}); inbound recording {} joined at"
                             + " position {}; outbound recording ends at seq {}, published {} events above it; outbound"
-                            + " seq {}, next trade id {}, engine idle {}",
+                            + " seq {}, next trade id {}; engine idle {}, journal idle {}, archive threading {},"
+                            + " ring wait {}",
                     (System.nanoTime() - constructedNanos) / 1_000_000L,
                     recoveredSnapshotSeq < 0 ? "no snapshot" : "snapshot at seq " + recoveredSnapshotSeq,
                     replayed, replayFromSeq + 1, applier.appliedSeq(), inboundRecorded.recordingId(),
                     inboundRecorded.joinPosition(), outboundFloor, regenerated - outboundFloor, regenerated,
-                    engine.getNextTradeId(), config.engineIdle().value());
+                    engine.getNextTradeId(), config.engineIdle().value(), Journal.journalIdleDescription(config),
+                    config.archiveThreading().value(), config.ringWait().value());
             recovered = true;
         } catch (Throwable t) {
             recoveryFailure = t;
