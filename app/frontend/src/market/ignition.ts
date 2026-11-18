@@ -1,32 +1,78 @@
 /**
- * Pure Alpaca-snapshot parsing for the ignition price (P11-1).
+ * Pure ignition-price logic (P11-1, reworked P16-3).
  *
- * No network, no React. Turns an Alpaca snapshot object into the official market
- * open in long integer units of $0.0001, or null when the value is absent or
- * unusable.
+ * No network, no React. Since P16-3 the venue fetches the market open from Alpaca and serves it at
+ * GET /market/ignition as {"symbol":"ASML","openPx":<units>,"date":YYYYMMDD}, already in long integer
+ * units of $0.0001 and on the one-cent tick, so no unit conversion is left here. The parser checks the
+ * body's shape and returns openPx, or null when anything is off, which the header renders as the
+ * EMPTY_PRICE sentinel.
  *
- * The open arrives as a USD JSON number (e.g. 149.8). It is converted to units at
- * the edge by rendering a two-decimal dollar string and reusing the audited
- * parsePrice parser, so the whole price path stays integer-only (never o * 10000
- * in floating point). Rounding to the nearest cent happens at the toFixed(2) edge;
- * equity opens are quoted to the cent, and any extra precision Alpaca returns is
- * rounded there. A missing dailyBar, a missing or non-number o, a non-finite o, an
- * o <= 0, or anything parsePrice rejects all yield null, which the header then
- * renders as the EMPTY_PRICE sentinel.
+ * The retry rule for the hook lives here too: a 503 means "not cached yet" and is retried after its
+ * Retry-After, clamped to 1 to 60 s, up to MAX_ATTEMPTS calls in all; any other failure gets one retry
+ * after OTHER_RETRY_MS, as in P11.
  */
 
-import { parsePrice } from "../format";
-
-/** The subset of the Alpaca snapshot we read: dailyBar.o (USD open). */
-export interface AlpacaSnapshot {
-    readonly dailyBar?: { readonly o?: unknown };
+/** The venue's /market/ignition body. */
+export interface IgnitionBody {
+    readonly symbol: string;
+    readonly openPx: number;
+    readonly date: number;
 }
 
-/** Official market open in long units of $0.0001 from an Alpaca snapshot, or null. */
-export function parseIgnitionOpen(snapshot: unknown): number | null {
-    const o = (snapshot as AlpacaSnapshot | null)?.dailyBar?.o;
-    if (typeof o !== "number" || !Number.isFinite(o) || o <= 0) {
-        return null;
+/** Units per cent: every open the venue serves is a multiple of this. */
+const CENT_UNITS = 100;
+
+/** Official market open in long units of $0.0001 from a /market/ignition body, or null. */
+export function parseIgnitionOpen(body: unknown): number | null {
+    if (typeof body !== "object" || body === null) return null;
+    const b = body as Partial<Record<keyof IgnitionBody, unknown>>;
+    if (typeof b.symbol !== "string" || b.symbol.length === 0) return null;
+    const px = b.openPx;
+    if (typeof px !== "number" || !Number.isSafeInteger(px) || px <= 0 || px % CENT_UNITS !== 0) return null;
+    const date = b.date;
+    if (typeof date !== "number" || !Number.isInteger(date) || date < 10_000_000 || date > 99_999_999) return null;
+    return px;
+}
+
+/** What one fetch of /market/ignition came to. */
+export type IgnitionResult =
+    | { readonly kind: "ok"; readonly openPx: number }
+    /** 503: nothing cached yet; retryAfterS is the header's whole seconds, or null when absent or unreadable. */
+    | { readonly kind: "unavailable"; readonly retryAfterS: number | null }
+    /** Anything else: a network error, another status, an unusable body. */
+    | { readonly kind: "failed" };
+
+/** Calls at most, in all, before the hook gives up. */
+export const MAX_ATTEMPTS = 10;
+/** Delay before the single retry after a failure other than a 503. */
+export const OTHER_RETRY_MS = 2000;
+export const MIN_RETRY_AFTER_S = 1;
+export const MAX_RETRY_AFTER_S = 60;
+
+/** A Retry-After header as whole seconds, or null when absent or not a non-negative integer. */
+export function parseRetryAfter(header: string | null): number | null {
+    if (header === null) return null;
+    const trimmed = header.trim();
+    if (!/^\d{1,9}$/.test(trimmed)) return null;
+    return Number(trimmed);
+}
+
+/**
+ * Milliseconds until the next attempt after a failed one, or null to stop.
+ *
+ * @param result         the failed attempt's result (never "ok")
+ * @param attemptsMade   calls made so far, including this one
+ * @param otherRetryUsed whether the one retry for a non-503 failure has been spent
+ */
+export function nextRetryDelayMs(
+    result: Exclude<IgnitionResult, { kind: "ok" }>,
+    attemptsMade: number,
+    otherRetryUsed: boolean,
+): number | null {
+    if (attemptsMade >= MAX_ATTEMPTS) return null;
+    if (result.kind === "unavailable") {
+        const s = result.retryAfterS ?? MIN_RETRY_AFTER_S;
+        return Math.min(MAX_RETRY_AFTER_S, Math.max(MIN_RETRY_AFTER_S, s)) * 1000;
     }
-    return parsePrice(o.toFixed(2));
+    return otherRetryUsed ? null : OTHER_RETRY_MS;
 }

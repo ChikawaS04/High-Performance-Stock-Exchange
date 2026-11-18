@@ -129,16 +129,13 @@ If unset, `useOrderBook` falls back to that same default, so the app works out o
 against a local backend on the default port. Point `VITE_WS_URL` elsewhere to target a
 different host/port.
 
-For the header Open field (P11), the Vite dev server proxies `/alpaca` to Alpaca. Put
-your Alpaca market-data credentials in `frontend/.env.local` (gitignored), which the dev
-server reads server-side; they are never bundled into the client:
-
-```
-ALPACA_KEY_ID=your-key-id
-ALPACA_SECRET_KEY=your-secret-key
-```
-
-Without them the Open field shows the empty marker and everything else runs unchanged.
+For the header Open field (P11), the terminal fetches the venue's `GET /market/ignition`
+(P16-3). The venue holds the Alpaca market-data credentials as backend environment variables,
+`ALPACA_KEY_ID` and `ALPACA_SECRET_KEY` (locally at Windows user scope; restart the IDE and
+terminals after setting them), and caches the open. The frontend holds no credential and
+`vite.config.ts` loads none. Without them the route is a 404, the Open field shows the empty
+marker, and everything else runs unchanged. The bots still read the keys from
+`frontend/.env.local` until P16-5.
 
 ---
 
@@ -289,13 +286,15 @@ These are real properties of the running system, documented rather than glossed:
   WebSocket direction, where both arrive as inbound WebSocket messages. Inbound entries show
   the real echoed FIX bytes the server parsed (P7-2); outbound entries show the actual EXEC
   JSON, labelled as such, never a fabricated FIX message.
-- **The Open field is the instrument's official daily open, pulled once from Alpaca.** On app
-  load a dedicated hook fetches the snapshot open (`dailyBar.o`) once, converts it to integer
-  units of $0.0001 at the edge (reusing `parsePrice`), and shows it in the header Open field.
+- **The Open field is the instrument's official daily open, from Alpaca through the venue.** On
+  app load a dedicated hook fetches `GET /market/ignition`, which the venue answers with the open
+  already in integer units of $0.0001 (it converts Alpaca's `dailyBar.o` exactly, rounding to the
+  cent), and shows it in the header Open field. A 503 means the venue has not cached it yet: the
+  hook waits the `Retry-After` (1 to 60 s) and tries again, up to 10 calls in all.
   It is a distinct quantity from Chg: Chg is the session change against the engine's first
   trade and is not re-anchored to the market open, so the header never conflates the two
-  opens. If Alpaca is unreachable, the credentials are missing, or the value is unusable, Open
-  shows the empty marker and Chg is unaffected. The fetch is off the socket entirely and never
+  opens. If the venue cannot reach Alpaca, the credentials are unset, or the value is unusable,
+  Open shows the empty marker and Chg is unaffected. The fetch is off the socket entirely and never
   runs on the hot path, and it is fetched once per app open (it does not roll across a
   trading-day boundary without a reload).
 - **No server reject feedback for malformed input.** Bad orders are logged and dropped
@@ -509,13 +508,10 @@ If every step behaves as above, the round-trip is proven end to end and Phase 5 
   stay exact.
 - **No reject feedback path.** Malformed input is guarded client-side; the server silently
   drops bad frames.
-- **Ignition price is a dev-time integration.** Alpaca credentials are held server-side by
-  the Vite dev-server proxy (read from `.env.local`, never `VITE_`-prefixed, so they never
-  enter the client bundle), and the client fetches a same-origin relative path (`/alpaca/...`)
-  so browser CORS does not arise. This works under `npm run dev` only: a static `vite build`
-  has no dev server and therefore no proxy, so a real deployment would need a small backend
-  proxy holding the credentials. `VITE_IGNITION_SYMBOL` and the header's `SYMBOL` both
-  default to `ASML` and should be kept in step.
+- **The ignition price follows the venue's session symbol.** The venue fetches the open for
+  its `SESSION_SYMBOL` (default `ASML`), and the header's `SYMBOL` should be kept in step with
+  it. The credentials live only in the venue's environment, so a static build works as well as
+  `npm run dev`.
 - **Line mode is capped at the last 200 prints; candles at 500 bars per size.** Line mode
   plots the capped reducer tape, so on a long session it and the side panel's (uncapped)
   high and low can legitimately disagree. Candle mode reads the bars slice, which is
@@ -543,9 +539,9 @@ app/frontend/
 ├── package.json
 ├── tsconfig.json                 # app TS config
 ├── tsconfig.node.json            # Vite / node-side TS config
-├── vite.config.ts                # dev server, Alpaca proxy, vitest config
+├── vite.config.ts                # dev server, venue proxy, vitest config
 ├── .env                          # VITE_-prefixed only; safe to commit
-├── .env.local                    # Alpaca credentials; never VITE_-prefixed, never committed
+├── .env.local                    # local overrides, never committed (the bots read Alpaca keys here until P16-5)
 ├── src/
 │   ├── main.tsx                  # createRoot + BrowserRouter
 │   ├── App.tsx                   # composition root: socket, header strip, navbar, routes
@@ -624,10 +620,10 @@ app/frontend/
 │   │   ├── reducer.ts            # pure reducer, AppState, session aggregates
 │   │   ├── useOrderBook.ts       # socket lifecycle, capped-backoff reconnect
 │   │   ├── useRepriceTimer.ts    # the reprice timeout at the component edge (P18-5)
-│   │   └── useIgnitionPrice.ts   # one-shot Alpaca market-open fetch (P11)
+│   │   └── useIgnitionPrice.ts   # market-open fetch from /market/ignition (P11, P16-3)
 │   ├── market/
-│   │   ├── alpacaClient.ts
-│   │   └── ignition.ts
+│   │   ├── ignitionClient.ts     # fetch of /market/ignition, never throws
+│   │   └── ignition.ts           # pure body parser and retry rule
 │   └── styles/
 │       └── terminal.css          # the whole theme: base layer + slate retheme layer
 └── test/                         # flat; see the naming convention below

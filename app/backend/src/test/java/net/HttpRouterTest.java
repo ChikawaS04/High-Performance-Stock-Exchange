@@ -20,6 +20,7 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.ReferenceCountUtil;
+import market.IgnitionSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -271,6 +272,100 @@ class HttpRouterTest {
     void apiIs404WithoutAHandler() {
         assertStatus(get("/api"), HttpResponseStatus.NOT_FOUND);
         assertStatus(get("/api/trades?date=20261102"), HttpResponseStatus.NOT_FOUND);
+    }
+
+    // --- /market/ignition (P16-3) ---
+
+    /** A source with a settable body; counts wakes. */
+    private static final class StubIgnition implements IgnitionSource {
+        byte[] body;
+        int retryAfter = 42;
+        int wakes;
+
+        @Override public byte[] body() { return body; }
+        @Override public int retryAfterSeconds() { return retryAfter; }
+        @Override public void requestFetch() { wakes++; }
+    }
+
+    private static final String IGNITION_BODY = "{\"symbol\":\"ASML\",\"openPx\":1498000,\"date\":20261118}";
+
+    private EmbeddedChannel ignitionChannel(StubIgnition ignition) {
+        channel.finishAndReleaseAll();
+        channel = new EmbeddedChannel(DefaultChannelId.newInstance(),
+                new HttpRouter("/ws", status, mapper, null, ignition));
+        return channel;
+    }
+
+    @Test
+    void ignitionIs404WithoutASource() {
+        assertStatus(get("/market/ignition"), HttpResponseStatus.NOT_FOUND);
+    }
+
+    @Test
+    void aCachedIgnitionValueIs200WithItsBodyAndNoStore() {
+        StubIgnition ignition = new StubIgnition();
+        ignition.body = IGNITION_BODY.getBytes(StandardCharsets.UTF_8);
+        ignitionChannel(ignition);
+        FullHttpResponse response = exchange(get("/market/ignition"));
+        try {
+            assertEquals(HttpResponseStatus.OK, response.status());
+            assertEquals(IGNITION_BODY, body(response));
+            assertEquals("application/json", response.headers().get(HttpHeaderNames.CONTENT_TYPE));
+            assertEquals("no-store", response.headers().get(HttpHeaderNames.CACHE_CONTROL));
+            assertEquals(IGNITION_BODY.length(), response.headers().getInt(HttpHeaderNames.CONTENT_LENGTH));
+        } finally {
+            response.release();
+        }
+        assertEquals(0, ignition.wakes, "a cached value wakes nothing");
+        // The same bytes serve the next request unchanged.
+        FullHttpResponse again = exchange(get("/market/ignition"));
+        try {
+            assertEquals(IGNITION_BODY, body(again));
+        } finally {
+            again.release();
+        }
+    }
+
+    @Test
+    void anEmptyCacheIs503UpstreamUnavailableWithRetryAfterAndWakesTheFetch() {
+        StubIgnition ignition = new StubIgnition();
+        ignitionChannel(ignition);
+        FullHttpResponse response = exchange(get("/market/ignition"));
+        try {
+            assertEquals(HttpResponseStatus.SERVICE_UNAVAILABLE, response.status());
+            assertEquals("{\"error\":\"UPSTREAM_UNAVAILABLE\"}", body(response));
+            assertEquals("42", response.headers().get(HttpHeaderNames.RETRY_AFTER));
+            assertEquals("no-store", response.headers().get(HttpHeaderNames.CACHE_CONTROL));
+        } finally {
+            response.release();
+        }
+        assertEquals(1, ignition.wakes);
+        assertTrue(channel.isOpen(), "keep-alive holds");
+    }
+
+    @Test
+    void anotherMethodOnIgnitionIs405WithAllowGet() {
+        StubIgnition ignition = new StubIgnition();
+        ignitionChannel(ignition);
+        FullHttpResponse response = exchange(request(HttpVersion.HTTP_1_1, HttpMethod.POST, "/market/ignition"));
+        try {
+            assertEquals(HttpResponseStatus.METHOD_NOT_ALLOWED, response.status());
+            assertEquals("GET", response.headers().get(HttpHeaderNames.ALLOW));
+        } finally {
+            response.release();
+        }
+        assertEquals(0, ignition.wakes);
+    }
+
+    @Test
+    void ignitionMatchesOnThePathOnly() {
+        StubIgnition ignition = new StubIgnition();
+        ignition.body = IGNITION_BODY.getBytes(StandardCharsets.UTF_8);
+        ignitionChannel(ignition);
+        assertStatus(get("/market/ignition?x=1"), HttpResponseStatus.OK);
+        assertStatus(get("/market/ignition/"), HttpResponseStatus.NOT_FOUND);
+        assertStatus(get("/market"), HttpResponseStatus.NOT_FOUND);
+        assertStatus(get("/health"), HttpResponseStatus.OK);
     }
 
     // --- /api (P15-12) ---

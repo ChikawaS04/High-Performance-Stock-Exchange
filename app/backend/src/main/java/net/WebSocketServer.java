@@ -3,6 +3,7 @@ package net;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import gateway.OrderGateway;
 import http.ApiHandler;
+import market.IgnitionService;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -30,7 +31,7 @@ import util.BookFrameCache;
 import util.VenueStatus;
 
 /**
- * Netty WebSocket server (SRS §3.6). Exposes {@code /ws} and, through {@link HttpRouter}, {@code /health} and {@code /api} on the same port (P15-7, P15-12); registers handshaken clients in a
+ * Netty WebSocket server (SRS §3.6). Exposes {@code /ws} and, through {@link HttpRouter}, {@code /health}, {@code /market/ignition} and {@code /api} on the same port (P15-7, P16-3, P15-12); registers handshaken clients in a
  * shared {@link ChannelGroup}, and feeds inbound manual orders to the FIX gateway (P4-5).
  *
  * <p><b>Single-writer invariant (decision 2).</b> The worker group is <b>one thread</b>, so every
@@ -76,6 +77,9 @@ public final class WebSocketServer {
     /** The {@code /api} routes (P15-12); null when this server serves none. Closed by {@link #stop()}. */
     private final ApiHandler api;
 
+    /** The {@code /market/ignition} source (P16-3); null when this server serves none. Closed by {@link #stop()}. */
+    private final IgnitionService ignition;
+
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock) {
         this(port, gateway, clock, null);
     }
@@ -106,12 +110,23 @@ public final class WebSocketServer {
      */
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend,
                            VenueStatus status, ApiHandler api) {
+        this(port, gateway, clock, resend, status, api, null);
+    }
+
+    /**
+     * @param api      the {@code /api} routes, as in the six-argument constructor
+     * @param ignition what {@code GET /market/ignition} serves (P16-3); null means this server answers it
+     *                 with 404. The server owns it from here and closes it in {@link #stop()}, after the api
+     */
+    public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend,
+                           VenueStatus status, ApiHandler api, IgnitionService ignition) {
         this.port = port;
         this.gateway = gateway;
         this.clock = clock;
         this.resend = resend;
         this.status = status;
         this.api = api;
+        this.ignition = ignition;
     }
 
     /** Shared connected-client registry; P4-6's publisher writes execution/book frames to this. */
@@ -172,7 +187,7 @@ public final class WebSocketServer {
                         p.addLast(new HttpServerCodec());
                         p.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH));
                         // Exact /ws passes to the handshake; /health and every other path end here.
-                        p.addLast(new HttpRouter(WEBSOCKET_PATH, status, objectMapper, api));
+                        p.addLast(new HttpRouter(WEBSOCKET_PATH, status, objectMapper, api, ignition));
                         p.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH));
                         p.addLast(new WebSocketHeartbeatHandler(HEARTBEAT_INTERVAL_SECONDS));
                         p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock, bookFrameCache,
@@ -201,6 +216,9 @@ public final class WebSocketServer {
         }
         if (api != null) {
             api.close();      // no more /api reads; an answer still in flight is dropped with its channel
+        }
+        if (ignition != null) {
+            ignition.close(); // no more upstream calls
         }
         boolean terminated = true;
         if (workerGroup != null) {

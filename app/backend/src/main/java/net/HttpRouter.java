@@ -21,6 +21,7 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.QueryStringDecoder;
+import market.IgnitionSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.ClearingStatus;
@@ -43,6 +44,11 @@ import java.util.concurrent.RejectedExecutionException;
  *   <li>Every other route matches on the path only. {@code GET /health} answers 200 with a small
  *       JSON body, or 503 with the same body when the venue is not running; another method on
  *       {@code /health} gets 405 with {@code Allow: GET}.</li>
+ *   <li>{@code GET /market/ignition} (P16-3) answers 200 with the cached ignition price, or 503
+ *       {@code UPSTREAM_UNAVAILABLE} with {@code Retry-After} while nothing is cached, which also wakes
+ *       the fetch thread. It reads one volatile field and never waits, so it is answered synchronously
+ *       on the event loop. Another method gets 405 with {@code Allow: GET}. With no source (the Alpaca
+ *       keys unset) it is a 404, as {@code /health} is with no status.</li>
  *   <li>{@code /api} and every path under it go to the {@link ApiHandler} (P15-12): a route that is
  *       not one of its own is a 404, another method on a route a 405 with {@code Allow: GET}. With no
  *       handler (no database configured) all of {@code /api} is a 404, as {@code /health} is with no
@@ -80,6 +86,10 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
     private static final byte[] NOT_FOUND = "{\"error\":\"NOT_FOUND\"}".getBytes(StandardCharsets.UTF_8);
     private static final byte[] METHOD_NOT_ALLOWED = "{\"error\":\"METHOD_NOT_ALLOWED\"}".getBytes(StandardCharsets.UTF_8);
     private static final byte[] BAD_REQUEST = "{\"error\":\"BAD_REQUEST\"}".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] UPSTREAM_UNAVAILABLE =
+            "{\"error\":\"UPSTREAM_UNAVAILABLE\"}".getBytes(StandardCharsets.UTF_8);
+
+    static final String IGNITION_PATH = "/market/ignition";
 
     static final String API_PATH = "/api";
     /** Requests held behind an outstanding /api answer on one channel, at most. */
@@ -89,6 +99,7 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
     private final VenueStatus status;
     private final ObjectMapper objectMapper;
     private final ApiHandler api;
+    private final IgnitionSource ignition;
 
     /** True while an /api answer for this channel is outstanding; event loop only. */
     private boolean awaitingApi;
@@ -108,10 +119,20 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
      * @param api the {@code /api} routes; null means the server serves none, and all of {@code /api} is a 404
      */
     public HttpRouter(String webSocketPath, VenueStatus status, ObjectMapper objectMapper, ApiHandler api) {
+        this(webSocketPath, status, objectMapper, api, null);
+    }
+
+    /**
+     * @param ignition what {@code /market/ignition} serves (P16-3); null means the server serves no such
+     *                 route, and it answers 404
+     */
+    public HttpRouter(String webSocketPath, VenueStatus status, ObjectMapper objectMapper, ApiHandler api,
+                      IgnitionSource ignition) {
         this.webSocketPath = webSocketPath;
         this.status = status;
         this.objectMapper = objectMapper;
         this.api = api;
+        this.ignition = ignition;
     }
 
     @Override
@@ -150,11 +171,36 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             health(ctx, req);
             return;
         }
+        if (IGNITION_PATH.equals(path) && ignition != null) {
+            ignition(ctx, req);
+            return;
+        }
         if (api != null && (API_PATH.equals(path) || path.startsWith(API_PATH + "/"))) {
             api(ctx, req, path);
             return;
         }
         send(ctx, req, HttpResponseStatus.NOT_FOUND, NOT_FOUND, HttpUtil.isKeepAlive(req));
+    }
+
+    private void ignition(ChannelHandlerContext ctx, FullHttpRequest req) {
+        boolean keepAlive = HttpUtil.isKeepAlive(req);
+        if (!HttpMethod.GET.equals(req.method())) {
+            FullHttpResponse response = response(req, HttpResponseStatus.METHOD_NOT_ALLOWED, METHOD_NOT_ALLOWED);
+            response.headers().set(HttpHeaderNames.ALLOW, HttpMethod.GET.name());
+            write(ctx, response, keepAlive);
+            return;
+        }
+        byte[] body = ignition.body();
+        FullHttpResponse response;
+        if (body == null) {
+            ignition.requestFetch();
+            response = response(req, HttpResponseStatus.SERVICE_UNAVAILABLE, UPSTREAM_UNAVAILABLE);
+            response.headers().set(HttpHeaderNames.RETRY_AFTER, ignition.retryAfterSeconds());
+        } else {
+            response = response(req, HttpResponseStatus.OK, body);
+        }
+        response.headers().set(HttpHeaderNames.CACHE_CONTROL, HttpHeaderValues.NO_STORE);
+        write(ctx, response, keepAlive);
     }
 
     private void api(ChannelHandlerContext ctx, FullHttpRequest req, String path) {

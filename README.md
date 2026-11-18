@@ -793,9 +793,10 @@ The order ticket carries side, time in force, order type (limit or midpoint peg)
 one-cent tick, quantity and an optional iceberg display quantity. The depth views are fed only by
 BOOK frames; on connect the venue sends the current book, so a terminal that connects after a
 restart shows the recovered book at once. The FIX inspector shows the real bytes the parser
-consumed. An optional reference market-open line comes from the Alpaca market data API through the
-Vite dev proxy only (credentials in `app/frontend/.env.local`, never committed, never `VITE_`
-prefixed). The terminal does not use RESEND or SESSION frames (see
+consumed. An optional reference market-open line comes from the venue's `GET /market/ignition`, which
+fetches the open from the Alpaca market data API with credentials held only by the backend
+(`ALPACA_KEY_ID` and `ALPACA_SECRET_KEY` in the venue's environment; without them the route is a
+404 and the Open field shows the dash). The terminal does not use RESEND or SESSION frames (see
 [Known limitations](#known-limitations)), so its bars, volume profile and CVD cover the
 browser session since the tab loaded. Order flow reads each fill's `aggressorSide` from the
 wire, never inferring side from price.

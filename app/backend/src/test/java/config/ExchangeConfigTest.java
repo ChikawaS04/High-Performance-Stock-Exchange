@@ -201,6 +201,58 @@ class ExchangeConfigTest {
         assertRejected(Map.of("SESSION_TIME_ZONE", "Mars/Olympus"), "SESSION_TIME_ZONE");
     }
 
+    // --- Alpaca settings for the ignition price (P16-3) ---
+
+    @Test
+    void alpacaSettingsDefaultToOffWithTheProductionDataUrl() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.of());
+        assertNull(cfg.alpacaKeyId());
+        assertNull(cfg.alpacaSecretKey());
+        assertFalse(cfg.ignitionEnabled());
+        assertEquals("https://data.alpaca.markets", cfg.alpacaDataUrl());
+    }
+
+    @Test
+    void bothKeysEnableTheIgnitionPrice() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.of(
+                "ALPACA_KEY_ID", "test-key-id", "ALPACA_SECRET_KEY", "test-secret",
+                "ALPACA_DATA_URL", "http://127.0.0.1:9999/"));
+        assertTrue(cfg.ignitionEnabled());
+        assertEquals("test-key-id", cfg.alpacaKeyId());
+        assertEquals("test-secret", cfg.alpacaSecretKey());
+        assertEquals("http://127.0.0.1:9999", cfg.alpacaDataUrl(), "the trailing slash is dropped");
+    }
+
+    @Test
+    void oneKeyWithoutTheOtherRefusesStartupNamingTheMissingOne() {
+        assertRejected(Map.of("ALPACA_KEY_ID", "test-key-id"), "ALPACA_SECRET_KEY");
+        assertRejected(Map.of("ALPACA_SECRET_KEY", "test-secret"), "ALPACA_KEY_ID");
+        assertFalse(ExchangeConfig.from(Map.of("ALPACA_KEY_ID", " ", "ALPACA_SECRET_KEY", "")).ignitionEnabled(),
+                "blank keys count as unset");
+    }
+
+    @Test
+    void aMalformedDataUrlIsRejected() {
+        assertRejected(Map.of("ALPACA_DATA_URL", "data.alpaca.markets"), "ALPACA_DATA_URL");
+        assertRejected(Map.of("ALPACA_DATA_URL", "ftp://data.alpaca.markets"), "ALPACA_DATA_URL");
+        assertRejected(Map.of("ALPACA_DATA_URL", "https://data.alpaca.markets?x=1"), "ALPACA_DATA_URL");
+        assertRejected(Map.of("ALPACA_DATA_URL", "https://user:pw@data.alpaca.markets"), "ALPACA_DATA_URL");
+        assertRejected(Map.of("ALPACA_DATA_URL", "https://exa mple.com"), "ALPACA_DATA_URL");
+    }
+
+    @Test
+    void toStringMasksBothAlpacaKeys() {
+        String shown = ExchangeConfig.from(Map.of(
+                "ALPACA_KEY_ID", "test-key-id", "ALPACA_SECRET_KEY", "test-secret")).toString();
+        assertFalse(shown.contains("test-key-id"), shown);
+        assertFalse(shown.contains("test-secret"), shown);
+        assertTrue(shown.contains("alpacaKeyId=***"), shown);
+        assertTrue(shown.contains("alpacaSecretKey=***"), shown);
+        assertTrue(shown.contains("alpacaDataUrl=https://data.alpaca.markets"), shown);
+        String unset = ExchangeConfig.from(Map.of()).toString();
+        assertTrue(unset.contains("alpacaKeyId=<unset>") && unset.contains("alpacaSecretKey=<unset>"), unset);
+    }
+
     private static void assertRejected(Map<String, String> env, String variable) {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(env));
         assertTrue(e.getMessage().contains(variable), e.getMessage());

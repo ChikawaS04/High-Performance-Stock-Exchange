@@ -1,5 +1,7 @@
 package config;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.time.DateTimeException;
 import java.time.ZoneId;
@@ -16,7 +18,8 @@ import java.util.regex.Pattern;
  * environment. A blank value counts as unset. A malformed value fails fast with an
  * {@link IllegalArgumentException} naming the variable.
  *
- * No credential has a default, and {@link #toString()} never prints the database password.
+ * No credential has a default, and {@link #toString()} never prints the database password or
+ * either Alpaca key.
  */
 public final class ExchangeConfig {
 
@@ -42,6 +45,10 @@ public final class ExchangeConfig {
     public static final String SESSION_LOT_SIZE       = "SESSION_LOT_SIZE";
     public static final String SESSION_PRICE_SCALE    = "SESSION_PRICE_SCALE";
     public static final String SESSION_TIME_ZONE      = "SESSION_TIME_ZONE";
+    // The ignition price (P16-3): the venue fetches the market open from Alpaca, so no browser holds the keys.
+    public static final String ALPACA_KEY_ID          = "ALPACA_KEY_ID";
+    public static final String ALPACA_SECRET_KEY      = "ALPACA_SECRET_KEY";
+    public static final String ALPACA_DATA_URL        = "ALPACA_DATA_URL";
 
     /**
      * How an agent thread idles when it has no work. Used for the engine agent (P15-4,
@@ -110,6 +117,8 @@ public final class ExchangeConfig {
     public static final long   DEFAULT_SESSION_PRICE_SCALE    = 10_000L;
     /** The business day follows New York: the terminal's market data is US equities (Alpaca). */
     public static final String DEFAULT_SESSION_TIME_ZONE      = "America/New_York";
+    /** Alpaca's market data API. Tests point {@code ALPACA_DATA_URL} at a local stub. */
+    public static final String DEFAULT_ALPACA_DATA_URL        = "https://data.alpaca.markets";
 
     /** Aeron's bounds for both term and segment lengths (64 KiB to 1 GiB, powers of two). */
     static final int MIN_LENGTH = 64 * 1024;
@@ -138,6 +147,9 @@ public final class ExchangeConfig {
     private final long    sessionLotSize;
     private final long    sessionPriceScale;
     private final ZoneId  sessionTimeZone;
+    private final String  alpacaKeyId;
+    private final String  alpacaSecretKey;
+    private final String  alpacaDataUrl;
 
     private ExchangeConfig(Map<String, String> env) {
         this.port                 = intValue(env, EXCHANGE_PORT, DEFAULT_PORT, 1, 65_535);
@@ -161,6 +173,15 @@ public final class ExchangeConfig {
         this.sessionLotSize       = longValue(env, SESSION_LOT_SIZE, DEFAULT_SESSION_LOT_SIZE, 1L);
         this.sessionPriceScale    = longValue(env, SESSION_PRICE_SCALE, DEFAULT_SESSION_PRICE_SCALE, 1L);
         this.sessionTimeZone      = zoneValue(env, SESSION_TIME_ZONE, DEFAULT_SESSION_TIME_ZONE);
+        this.alpacaKeyId          = stringValue(env, ALPACA_KEY_ID, null);
+        this.alpacaSecretKey      = stringValue(env, ALPACA_SECRET_KEY, null);
+        this.alpacaDataUrl        = baseUrlValue(env, ALPACA_DATA_URL, DEFAULT_ALPACA_DATA_URL);
+        if ((alpacaKeyId == null) != (alpacaSecretKey == null)) {
+            String missing = alpacaKeyId == null ? ALPACA_KEY_ID : ALPACA_SECRET_KEY;
+            String present = alpacaKeyId == null ? ALPACA_SECRET_KEY : ALPACA_KEY_ID;
+            throw new IllegalArgumentException(present + " is set but " + missing
+                    + " is not: set both for the ignition price, or neither to run without it");
+        }
         if (journalSegmentLength < journalTermLength) {
             throw new IllegalArgumentException(JOURNAL_SEGMENT_LENGTH + "=" + journalSegmentLength
                     + " is smaller than " + JOURNAL_TERM_LENGTH + "=" + journalTermLength);
@@ -251,6 +272,18 @@ public final class ExchangeConfig {
     /** The wait strategy of every consumer of the three Disruptor rings. */
     public RingWait ringWait() { return ringWait; }
 
+    /** Alpaca key id, or null when unset. A credential: log {@link #toString()}, never this value. */
+    public String alpacaKeyId() { return alpacaKeyId; }
+
+    /** Alpaca secret key, or null when unset. A credential: log {@link #toString()}, never this value. */
+    public String alpacaSecretKey() { return alpacaSecretKey; }
+
+    /** Base URL of Alpaca's market data API, without a trailing slash. */
+    public String alpacaDataUrl() { return alpacaDataUrl; }
+
+    /** Whether both Alpaca keys are set, so the venue serves {@code /market/ignition} (P16-3). */
+    public boolean ignitionEnabled() { return alpacaKeyId != null; }
+
     @Override
     public String toString() {
         return "ExchangeConfig{port=" + port
@@ -273,6 +306,9 @@ public final class ExchangeConfig {
                 + ", sessionLotSize=" + sessionLotSize
                 + ", sessionPriceScale=" + sessionPriceScale
                 + ", sessionTimeZone=" + sessionTimeZone
+                + ", alpacaKeyId=" + (alpacaKeyId == null ? "<unset>" : "***")
+                + ", alpacaSecretKey=" + (alpacaSecretKey == null ? "<unset>" : "***")
+                + ", alpacaDataUrl=" + alpacaDataUrl
                 + '}';
     }
 
@@ -305,6 +341,26 @@ public final class ExchangeConfig {
         } catch (DateTimeException e) {
             throw new IllegalArgumentException(name + " is not a time zone id: " + value, e);
         }
+    }
+
+    /** An absolute http or https URL with a host and no query or fragment; a trailing slash is dropped. */
+    private static String baseUrlValue(Map<String, String> env, String name, String fallback) {
+        String value = stringValue(env, name, fallback);
+        URI uri;
+        try {
+            uri = new URI(value);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException(name + " is not a URL: " + value);
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if (!(scheme.equals("http") || scheme.equals("https")) || uri.getHost() == null
+                || uri.getRawQuery() != null || uri.getRawFragment() != null || uri.getRawUserInfo() != null) {
+            throw new IllegalArgumentException(name + " must be an http or https URL with a host and no query: " + value);
+        }
+        while (value.endsWith("/")) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return value;
     }
 
     private static Path pathValue(Map<String, String> env, String name, Path fallback) {

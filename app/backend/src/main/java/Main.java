@@ -5,6 +5,7 @@ import engine.MatchingEngine;
 import gateway.OrderGateway;
 import http.ApiService;
 import journal.JournaledPipeline;
+import market.IgnitionService;
 import market.MarketDataService;
 import net.ResendService;
 import net.WebSocketServer;
@@ -82,6 +83,10 @@ import java.util.concurrent.CountDownLatch;
  * The read-only {@code /api} reports (P15-12) run on their own executor with their own connections,
  * never on an event loop; without {@code DB_URL} the server answers all of {@code /api} with 404.
  *
+ * <p><b>Ignition price (P16-3).</b> With {@code ALPACA_KEY_ID} and {@code ALPACA_SECRET_KEY} set,
+ * {@code GET /market/ignition} serves the session symbol's market open, fetched from Alpaca on its own
+ * thread and cached; without them the route is a 404.
+ *
  * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), stop clearing, stop the Reporter, then drain the
  * pipeline by progress, write a snapshot of the final state and close the journal, so the next
  * start replays nothing. Shutdown does not close the session: a restart is not the end of the
@@ -142,7 +147,13 @@ public final class Main {
         // The pipeline is what GET /health reports (P15-7). With a database, /api serves the reports (P15-12);
         // the server owns the api and closes it when it stops.
         ApiService api = config.dbUrl() == null ? null : ApiService.forVenue(config);
-        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend, pipeline, api);
+        // With the Alpaca keys set, /market/ignition serves the market open (P16-3). Started now, so the
+        // first terminal usually finds it cached; the server owns it and closes it when it stops.
+        IgnitionService ignition = IgnitionService.forVenue(config);
+        if (ignition != null) {
+            ignition.start();
+        }
+        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend, pipeline, api, ignition);
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
 
         // --- 4. Subscribers (must precede start). Independent consumers, each with its own
@@ -180,8 +191,9 @@ public final class Main {
             return;
         }
 
-        log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws, health: http://localhost:{}/health{}",
+        log.info("Exchange up. WebSocket endpoint: ws://localhost:{}/ws, health: http://localhost:{}/health{}{}",
                 server.boundPort(), server.boundPort(),
+                ignition == null ? "" : ", ignition: http://localhost:" + server.boundPort() + IgnitionService.PATH,
                 api == null ? "" : ", reports: http://localhost:" + server.boundPort() + "/api/...");
         log.info("Submit an order:  {}", "{\"type\":\"NEW\",\"clOrdId\":1,\"side\":\"BUY\","
                 + "\"price\":1500000,\"qty\":10,\"symbol\":\"ASML\"}");
