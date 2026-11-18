@@ -21,12 +21,12 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { parseServerFrame } from "../protocol/messages";
 import type { ClientFrame } from "../protocol/messages";
 import { serializeClientFrame } from "../protocol/encode";
+import { DEFAULT_WS_PATH, resolveWsUrl } from "../protocol/wsUrl";
 import { initialState, reducer } from "./reducer";
 import { DepthRecorder, HEATMAP_TICK_MS } from "../heatmap/depthRecorder";
 import { attachDepth } from "../heatmap/perfStats";
 import type { AppState, LocalAction, SendMeta } from "./reducer";
 
-const DEFAULT_WS_URL = "ws://localhost:8080/ws";
 const BASE_BACKOFF_MS = 250;
 const MAX_BACKOFF_MS = 4000;
 
@@ -48,7 +48,11 @@ function wallNs(): number {
     return Date.now() * 1_000_000;
 }
 
-export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAULT_WS_URL): OrderBookApi {
+/**
+ * @param url the endpoint: VITE_WS_URL when set, else the same-origin /ws (P16-4). A relative URL is
+ *            resolved against the page (wss: under https:); an absolute ws:// or wss:// one is used as is.
+ */
+export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAULT_WS_PATH): OrderBookApi {
     const [state, dispatch] = useReducer(reducer, initialState);
     const socketRef = useRef<WebSocket | null>(null);
     const depthRef = useRef<DepthRecorder | null>(null);
@@ -77,7 +81,7 @@ export function useOrderBook(url: string = import.meta.env.VITE_WS_URL ?? DEFAUL
 
             dispatch({ type: "CONNECTION", status: attempt === 0 ? "connecting" : "reconnecting" });
 
-            const ws = new WebSocket(url);
+            const ws = new WebSocket(resolveWsUrl(url, window.location));
             socket = ws;
             socketRef.current = ws;
 

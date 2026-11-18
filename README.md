@@ -801,9 +801,12 @@ fetches the open from the Alpaca market data API with credentials held only by t
 browser session since the tab loaded. Order flow reads each fill's `aggressorSide` from the
 wire, never inferring side from price.
 
-Point it at a venue on another port with `VITE_WS_URL`, for example
-`VITE_WS_URL=ws://localhost:18080/ws`. Frontend details (wire contract, pure-helper conventions,
-test layout) are in [`app/frontend/FrontendREADME.md`](app/frontend/FrontendREADME.md).
+The terminal talks only to same-origin paths (`/ws`, `/api`, `/health`, `/market`). Under
+`npm run dev` the Vite dev server proxies them to the venue at `EXCHANGE_BACKEND_URL` (default
+`http://localhost:8080`); point it at a venue on another port with, for example,
+`EXCHANGE_BACKEND_URL=http://localhost:18080` in the shell or in `app/frontend/.env.local`.
+`VITE_WS_URL` remains an optional override of the WebSocket endpoint only. Frontend details
+(wire contract, pure-helper conventions, test layout) are in [`app/frontend/FrontendREADME.md`](app/frontend/FrontendREADME.md).
 
 ---
 
@@ -939,8 +942,10 @@ npx vitest run
 402 frontend tests in 32 files; type check with `npx tsc --noEmit`. Pure logic tests and component
 tests live in separate files, and render tests use an explicit `afterEach(cleanup)`.
 
-Run the terminal with `npm install` then `npm run dev` in `app/frontend`; it connects to
-`ws://localhost:8080/ws` unless `VITE_WS_URL` says otherwise.
+Run the terminal with `npm install` then `npm run dev` in `app/frontend`; it connects to the
+same-origin `/ws`, which the dev server proxies to `http://localhost:8080` unless
+`EXCHANGE_BACKEND_URL` says otherwise. `npm run build` ends with a check that fails the build if
+`dist/` contains `localhost:8080`, `ALPACA_` or `APCA-`.
 
 **Benchmarks** live in `app/backend/src/test/java/benchmark/` and never run under `mvn test`. Run them
 on JDK 21 from `app/backend`, for example:

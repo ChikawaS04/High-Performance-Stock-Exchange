@@ -101,8 +101,9 @@ startup.
   wired, use the IntelliJ run above (it assembles the classpath — Netty, Jackson, Disruptor,
   SLF4J — for you).
 
-The endpoint the frontend expects: **`ws://localhost:8080/ws`** (no TLS — `ws://`, not
-`wss://`; §3.6, demo only).
+The venue's local endpoint is **`ws://localhost:8080/ws`** (no TLS, so `ws://`, not
+`wss://`; §3.6, demo only). The terminal itself connects to the same-origin `/ws`, which the
+dev server proxies there (see below).
 
 ### 2. Frontend (this app)
 
@@ -122,12 +123,21 @@ npm run test:watch   # vitest in watch mode
 npm run build        # tsc (strict typecheck) && vite build
 ```
 
-The socket URL is read from `frontend/.env`:
-VITE_WS_URL=ws://localhost:8080/ws
+The terminal talks only to same-origin paths (P16-4): `/ws`, `/api`, `/health` and `/market`.
+`useOrderBook` defaults to `/ws` and resolves it against the page with the pure
+`resolveWsUrl` (`wss:` under `https:`, `ws:` otherwise). In production Caddy serves those
+paths beside the page. Under `npm run dev` the Vite dev server proxies them (WebSocket upgrades
+included) to the venue at `EXCHANGE_BACKEND_URL`, default `http://localhost:8080`; to target a
+venue on another port, set it in the shell or in `frontend/.env.local`:
 
-If unset, `useOrderBook` falls back to that same default, so the app works out of the box
-against a local backend on the default port. Point `VITE_WS_URL` elsewhere to target a
-different host/port.
+```
+EXCHANGE_BACKEND_URL=http://localhost:18080
+```
+
+`VITE_WS_URL` is an optional override of the WebSocket endpoint only (unset in the tracked
+`.env`, so no backend host is baked into a build). `npm run build` runs a postbuild check
+(`scripts/checkDist.mjs`) that fails the build if `dist/` contains `localhost:8080`, `ALPACA_`
+or `APCA-`.
 
 For the header Open field (P11), the terminal fetches the venue's `GET /market/ignition`
 (P16-3). The venue holds the Alpaca market-data credentials as backend environment variables,
@@ -540,7 +550,7 @@ app/frontend/
 ├── tsconfig.json                 # app TS config
 ├── tsconfig.node.json            # Vite / node-side TS config
 ├── vite.config.ts                # dev server, venue proxy, vitest config
-├── .env                          # VITE_-prefixed only; safe to commit
+├── .env                          # comments only by default; safe to commit
 ├── .env.local                    # local overrides, never committed (the bots read Alpaca keys here until P16-5)
 ├── src/
 │   ├── main.tsx                  # createRoot + BrowserRouter
