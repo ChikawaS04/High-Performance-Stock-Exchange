@@ -1,0 +1,11 @@
+# Build context is app/backend. Only pom.xml, src/ and docker/ are needed.
+data/
+target/
+run-output/
+node_modules/
+.env*
+**/.env*
+*.iml
+.idea/
+.mvn/
+*.log

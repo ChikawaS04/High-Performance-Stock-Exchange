@@ -36,6 +36,8 @@ public final class OwnOrders {
         public final long price;
         long remaining;
         boolean cancelPending;
+        /** The venue has answered for this order (ACCEPTED or a fill), so it is known to exist. */
+        boolean acknowledged;
 
         Resting(long id, Side side, long price, long remaining) {
             this.id = id;
@@ -51,6 +53,10 @@ public final class OwnOrders {
         public boolean cancelPending() {
             return cancelPending;
         }
+
+        public boolean acknowledged() {
+            return acknowledged;
+        }
     }
 
     private final Bots.Owner owner;
@@ -63,8 +69,24 @@ public final class OwnOrders {
         this.ids = ids;
     }
 
+    /**
+     * Book-keeping only, with no id sequence: for the {@link RiskGate}, which records what is
+     * actually sent and never originates an order. {@link #ids()} and the cancel builders are not
+     * available on such an instance.
+     */
+    public OwnOrders(Bots.Owner owner) {
+        if (!owner.isBot()) {
+            throw new IllegalArgumentException("only a bot owns an id block: " + owner);
+        }
+        this.owner = owner;
+        this.ids = null;
+    }
+
     /** The bot's id sequence; strategies draw new-order ids from here too. */
     public Bots.IdSequence ids() {
+        if (ids == null) {
+            throw new IllegalStateException("this OwnOrders has no id sequence");
+        }
         return ids;
     }
 
@@ -88,7 +110,42 @@ public final class OwnOrders {
             return null;
         }
         r.cancelPending = true;
-        return Action.cancel(ids.next(), orderId);
+        return Action.cancel(ids().next(), orderId);
+    }
+
+    /** Record that a cancel for {@code orderId} was sent (by whoever built it). Unknown ids are ignored. */
+    public void cancelSent(long orderId) {
+        Resting r = resting.get(orderId);
+        if (r != null) {
+            r.cancelPending = true;
+        }
+    }
+
+    /**
+     * After a reconnect (P16-5): cancels for every resting order whose fate is uncertain, that is,
+     * one the venue never acknowledged (it may have been sent into the dying connection and never
+     * journaled) or one whose cancel was in flight. A cancel for an order the venue does not know
+     * is answered ORDER_REJECTED naming it, which removes it here, so nothing is orphaned and
+     * nothing is left as a phantom.
+     */
+    public List<Action> cancelUncertain() {
+        List<Action> out = new ArrayList<>();
+        for (Resting r : resting.values()) {
+            if (!r.acknowledged || r.cancelPending) {
+                r.cancelPending = true;
+                out.add(Action.cancel(ids().next(), r.id));
+            }
+        }
+        return out;
+    }
+
+    /** Resting orders with no cancel pending, counted. */
+    public int workingCount() {
+        int n = 0;
+        for (Resting r : resting.values()) {
+            if (!r.cancelPending) n++;
+        }
+        return n;
     }
 
     /** Cancels for every resting order not already being cancelled. */
@@ -97,7 +154,7 @@ public final class OwnOrders {
         for (Resting r : resting.values()) {
             if (!r.cancelPending) {
                 r.cancelPending = true;
-                out.add(Action.cancel(ids.next(), r.id));
+                out.add(Action.cancel(ids().next(), r.id));
             }
         }
         return out;
@@ -112,7 +169,7 @@ public final class OwnOrders {
         List<Action> out = new ArrayList<>();
         for (Resting r : resting.values()) {
             r.cancelPending = true;
-            out.add(Action.cancel(ids.next(), r.id));
+            out.add(Action.cancel(ids().next(), r.id));
         }
         return out;
     }
@@ -151,7 +208,10 @@ public final class OwnOrders {
             return;
         }
         switch (t) {
-            case ORDER_ACCEPTED -> r.remaining = e.remainingQuantity();
+            case ORDER_ACCEPTED -> {
+                r.remaining = e.remainingQuantity();
+                r.acknowledged = true;
+            }
             case ORDER_CANCELLED, ORDER_REJECTED, ORDER_EXPIRED -> resting.remove(e.orderId());
             default -> { }
         }
@@ -181,6 +241,7 @@ public final class OwnOrders {
         if (aggMine) {
             Resting r = resting.get(e.aggressorOrderId());
             if (r != null) {
+                r.acknowledged = true;
                 r.remaining = e.remainingQuantity();
                 if (r.remaining <= 0) resting.remove(r.id);
             }
@@ -188,6 +249,7 @@ public final class OwnOrders {
         if (pasMine) {
             Resting r = resting.get(e.passiveOrderId());
             if (r != null) {
+                r.acknowledged = true;
                 r.remaining -= qty;
                 if (r.remaining <= 0) resting.remove(r.id);
             }

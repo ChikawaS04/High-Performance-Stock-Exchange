@@ -1,0 +1,2 @@
+# Everything here runs on Linux (containers, systemd): never CRLF.
+* text=auto eol=lf

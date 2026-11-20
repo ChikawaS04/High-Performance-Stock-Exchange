@@ -119,7 +119,30 @@
     </dependencies>
 
     <build>
+        <!-- P16-5 (D4): `mvn package` gives target/app.jar plus its runtime dependencies in
+             target/lib, the layout the container image copies. No shaded jar: shading would merge
+             Flyway's ServiceLoader files. The entrypoint chooses the main class, so the jar has
+             no Main-Class: java -cp 'app.jar:lib/*' Main | db.MigrateCommand | participant.ParticipantSimMain -->
+        <finalName>app</finalName>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-runtime-dependencies</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- SBE code generation (Phase 15). SbeTool runs at generate-sources from the
                  schema in src/main/resources/sbe and writes flyweight codecs into package
                  `codec` under target/generated-sources/sbe. Generated code is never committed;

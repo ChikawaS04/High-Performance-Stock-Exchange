@@ -1,0 +1,171 @@
+# The venue's Compose stack (Phase 16, D1 to D7, D16). Always run with the settings file, which
+# supplies every value below by interpolation:
+#
+#   docker compose --env-file credo.env up -d
+#
+# Each service lists only the variables it needs (no env_file), so no container sees another's
+# secrets: the bots get neither the database password nor the Alpaca keys. Required values use
+# ${VAR:?}; optional ones are passed as ${VAR:-}, and an empty value means "unset, use the
+# default" to the venue (ExchangeConfig) and to the bots (BotSettings).
+#
+# Fixed in-container facts (data directory, port, Aeron directory, validate-only start) are part
+# of the stack's contract and are written here, not in credo.env.
+
+name: credo
+
+services:
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-30}
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in credo.env}
+      # Read only by postgres-init on an empty volume, to create the exchange role (D7).
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in credo.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d exchange -q"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks:
+      - credo
+
+  migrate:
+    image: credo-exchange:${IMAGE_TAG:?set IMAGE_TAG in credo.env}
+    command: ["migrate"]
+    # One-shot: under unless-stopped a successful exit would be restarted forever.
+    restart: "no"
+    mem_limit: 512m
+    environment:
+      JAVA_OPTS: ${MIGRATE_JAVA_OPTS:--Xmx256m}
+      DB_URL: ${DB_URL:?set DB_URL in credo.env}
+      DB_USER: ${DB_USER:?set DB_USER in credo.env}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in credo.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - credo
+
+  exchange:
+    image: credo-exchange:${IMAGE_TAG:?set IMAGE_TAG in credo.env}
+    command: ["exchange"]
+    restart: unless-stopped
+    # Shutdown drains are bounded at 10 s each (P15-4); the JVM exits 143 after SIGTERM.
+    stop_grace_period: 60s
+    mem_limit: ${EXCHANGE_MEM_LIMIT:-8g}
+    shm_size: 512m
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ${CREDO_DATA_DIR:-/srv/credo/data}:/data
+    environment:
+      JAVA_OPTS: ${EXCHANGE_JAVA_OPTS:--Xms3g -Xmx3g -XX:+AlwaysPreTouch -XX:+ExitOnOutOfMemoryError}
+      EXCHANGE_PORT: "8080"
+      EXCHANGE_DATA_DIR: /data
+      AERON_DIR: /dev/shm/aeron-exchange
+      # Migrations are the migrate service's job; the venue only validates (P15-9, D7).
+      DB_MIGRATE_ON_START: "false"
+      DB_URL: ${DB_URL:?set DB_URL in credo.env}
+      DB_USER: ${DB_USER:?set DB_USER in credo.env}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in credo.env}
+      SNAPSHOT_INTERVAL: ${SNAPSHOT_INTERVAL:-}
+      ENGINE_IDLE_STRATEGY: ${ENGINE_IDLE_STRATEGY:-}
+      JOURNAL_IDLE_STRATEGY: ${JOURNAL_IDLE_STRATEGY:-}
+      RING_WAIT_STRATEGY: ${RING_WAIT_STRATEGY:-}
+      JOURNAL_ARCHIVE_THREADING: ${JOURNAL_ARCHIVE_THREADING:-}
+      JOURNAL_SEGMENT_LENGTH: ${JOURNAL_SEGMENT_LENGTH:-}
+      JOURNAL_TERM_LENGTH: ${JOURNAL_TERM_LENGTH:-}
+      SESSION_SYMBOL: ${SESSION_SYMBOL:-}
+      SESSION_TICK_SIZE: ${SESSION_TICK_SIZE:-}
+      SESSION_LOT_SIZE: ${SESSION_LOT_SIZE:-}
+      SESSION_PRICE_SCALE: ${SESSION_PRICE_SCALE:-}
+      SESSION_TIME_ZONE: ${SESSION_TIME_ZONE:-}
+      SESSION_AUTO_OPEN: ${SESSION_AUTO_OPEN:-}
+      ALPACA_KEY_ID: ${ALPACA_KEY_ID:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ALPACA_DATA_URL: ${ALPACA_DATA_URL:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      # /health does not answer while recovery replays (P15-7); this covers a long replay.
+      start_period: 300s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - credo
+
+  bots:
+    image: credo-exchange:${IMAGE_TAG:?set IMAGE_TAG in credo.env}
+    command: ["bots"]
+    restart: unless-stopped
+    # The bots cancel their resting orders on SIGTERM and exit within 5 s.
+    stop_grace_period: 10s
+    mem_limit: ${BOTS_MEM_LIMIT:-512m}
+    environment:
+      JAVA_OPTS: ${BOTS_JAVA_OPTS:--Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError}
+      BOTS_VENUE_URL: ${BOTS_VENUE_URL:-http://exchange:8080}
+      BOTS_SYMBOL: ${BOTS_SYMBOL:-}
+      BOTS_OPEN_PX: ${BOTS_OPEN_PX:-}
+      BOTS_ENABLED: ${BOTS_ENABLED:-}
+      BOTS_SEED: ${BOTS_SEED:-}
+      BOTS_SPEED: ${BOTS_SPEED:-}
+      BOTS_TICK_MS: ${BOTS_TICK_MS:-}
+      BOTS_CSV: ${BOTS_CSV:-none}
+      BOTS_STATUS_INTERVAL_MS: ${BOTS_STATUS_INTERVAL_MS:-}
+      BOTS_BAND_PERCENT: ${BOTS_BAND_PERCENT:-}
+      BOTS_MAX_ORDER_QTY: ${BOTS_MAX_ORDER_QTY:-}
+      BOTS_MAX_OPEN_ORDERS: ${BOTS_MAX_OPEN_ORDERS:-}
+      BOTS_MAKER_LEVELS: ${BOTS_MAKER_LEVELS:-}
+      BOTS_MAKER_HALF_SPREAD_TICKS: ${BOTS_MAKER_HALF_SPREAD_TICKS:-}
+      BOTS_MAKER_REQUOTE_MOVE_TICKS: ${BOTS_MAKER_REQUOTE_MOVE_TICKS:-}
+      BOTS_MAKER_REQUOTE_INTERVAL_MS: ${BOTS_MAKER_REQUOTE_INTERVAL_MS:-}
+      BOTS_MAKER_MIN_REQUOTE_GAP_MS: ${BOTS_MAKER_MIN_REQUOTE_GAP_MS:-}
+      BOTS_MAKER_MAX_POSITION: ${BOTS_MAKER_MAX_POSITION:-}
+      BOTS_MAKER_SKEW_CLIP: ${BOTS_MAKER_SKEW_CLIP:-}
+      BOTS_MAKER_MAX_SKEW_TICKS: ${BOTS_MAKER_MAX_SKEW_TICKS:-}
+      BOTS_MAKER_ANCHOR_MAX_PULL_TICKS: ${BOTS_MAKER_ANCHOR_MAX_PULL_TICKS:-}
+      BOTS_MAKER_ANCHOR_PULL_DIVISOR: ${BOTS_MAKER_ANCHOR_PULL_DIVISOR:-}
+      BOTS_TREND_QTY: ${BOTS_TREND_QTY:-}
+      BOTS_TREND_MIN_INTERVAL_MS: ${BOTS_TREND_MIN_INTERVAL_MS:-}
+      BOTS_TREND_MAX_INTERVAL_MS: ${BOTS_TREND_MAX_INTERVAL_MS:-}
+      BOTS_TREND_MAX_POSITION: ${BOTS_TREND_MAX_POSITION:-}
+      BOTS_REVERT_REQUOTE_INTERVAL_MS: ${BOTS_REVERT_REQUOTE_INTERVAL_MS:-}
+      BOTS_REVERT_MAX_POSITION: ${BOTS_REVERT_MAX_POSITION:-}
+      BOTS_NOISE_MEAN_ARRIVAL_MS: ${BOTS_NOISE_MEAN_ARRIVAL_MS:-}
+      BOTS_NOISE_MAX_POSITION: ${BOTS_NOISE_MAX_POSITION:-}
+      BOTS_INST_MIN_PARENT: ${BOTS_INST_MIN_PARENT:-}
+      BOTS_INST_MAX_PARENT: ${BOTS_INST_MAX_PARENT:-}
+      BOTS_INST_MAX_POSITION: ${BOTS_INST_MAX_POSITION:-}
+    # Bots depend on the exchange, so Compose stops them first and they cancel while it is up.
+    depends_on:
+      exchange:
+        condition: service_healthy
+    networks:
+      credo:
+        # Static, for the P16-9 rate-limit exemption (WS_EXEMPT_ADDRESSES).
+        ipv4_address: ${BOTS_IPV4:-172.30.0.10}
+
+networks:
+  credo:
+    ipam:
+      config:
+        - subnet: ${CREDO_SUBNET:-172.30.0.0/24}
+
+volumes:
+  pgdata:

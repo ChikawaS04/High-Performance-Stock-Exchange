@@ -1,0 +1,29 @@
+# Docker Desktop override for the local smoke run (P16-5, F18). Layered on compose.yaml:
+#
+#   docker compose --env-file <scratch>/credo.local.env -f deploy/compose.yaml -f deploy/compose.local.yaml up -d
+#
+# Smaller limits and heap for the 7.6 GiB Docker Desktop VM; the exchange on 127.0.0.1:18080 so
+# it never clashes with a development venue on 8080; the journal on a named volume, because the
+# Aeron Archive's mapped files are not proven on Docker Desktop's Windows file sharing.
+
+services:
+
+  postgres:
+    mem_limit: 1g
+
+  exchange:
+    mem_limit: 3g
+    ports: !override
+      - "127.0.0.1:18080:8080"
+    volumes: !override
+      - exchange-data:/data
+    environment:
+      JAVA_OPTS: ${EXCHANGE_JAVA_OPTS:--Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError}
+
+  bots:
+    mem_limit: 384m
+    environment:
+      JAVA_OPTS: ${BOTS_JAVA_OPTS:--Xms64m -Xmx192m -XX:+ExitOnOutOfMemoryError}
+
+volumes:
+  exchange-data:

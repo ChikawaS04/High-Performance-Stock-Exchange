@@ -4,163 +4,206 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.OptionalLong;
-import java.util.Set;
 import java.util.SplittableRandom;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Runs the five-bot simulation against a live exchange. Start the exchange ({@code Main}) and the
- * frontend first, then run this as a second process (the "Bots" IntelliJ run configuration).
+ * Runs the five-bot simulation against a live exchange: locally as a second process (the "Bots"
+ * IntelliJ run configuration), and in production as the {@code bots} container (P16-5, D16).
  *
- * <p>It resolves the market-open anchor (Alpaca, or {@code --openPx} dollars), connects a
- * read-only observer (which drives the {@link PriceTracker} CSV), then the bots. It runs until
- * stopped (Ctrl+C or the IDE's stop button) unless {@code --duration} is given; on the way out
- * every bot cancels what it has resting, so the book is left with only other participants'
- * orders.
+ * <p>Settings come from flags, then {@code BOTS_*} environment variables, then the development
+ * defaults ({@link BotSettings}). The open comes from the venue's {@code /market/ignition}, with
+ * {@code BOTS_OPEN_PX} only when the venue has no Alpaca keys ({@link OpenPriceSource}); nothing is
+ * sent until it is known. Each bot has its own connection, which reconnects and catches up by
+ * itself ({@link ParticipantClient}), and its own {@link RiskGate}.
  *
- * <p>Flags (all optional): {@code --port 8080 --symbol ASML --openPx 149.80 --duration 600
- * --seed 42 --speed 1.0 --bots maker,trend,revert,noise,inst --tickMs 250
- * --csv run-output/price_path.csv --envLocal ../frontend/.env.local}. {@code --speed 2} halves every
- * interval in every strategy; {@code --seed} makes a run's random choices repeatable.
+ * <p>An optional read-only observer drives the {@link PriceTracker} CSV ({@code BOTS_CSV=none}
+ * turns it off). Every {@code BOTS_STATUS_INTERVAL_MS} (default a minute; 0 = off) one INFO line per
+ * bot gives its position, open orders, refusals and commands sent.
+ *
+ * <p>It runs until stopped unless {@code --duration} is given. On SIGTERM (Ctrl+C, {@code docker
+ * stop}) every bot cancels its resting orders together, waits up to 3 s for the venue to confirm,
+ * and the process exits within 5 s. Exit 2: a bad setting, or no open (404 with
+ * {@code BOTS_OPEN_PX} unset).
  */
 public final class ParticipantSimMain {
 
     private static final Logger log = LoggerFactory.getLogger(ParticipantSimMain.class);
-    private static final String DEFAULT_SYMBOL = "ASML";
-    private static final List<String> ALL_BOTS = List.of("maker", "trend", "revert", "noise", "inst");
+
+    static final long STOP_ACK_WAIT_MILLIS = 3_000;
+    static final long STOP_CLOSE_MILLIS = 500;
 
     private ParticipantSimMain() { }
 
+    /** One bot: its strategy and the band and position limit its gate enforces. */
+    record Bot(Strategy strategy, RiskLimits risk) { }
+
     public static void main(String[] args) throws Exception {
-        Map<String, String> opt = parseArgs(args);
-
-        int port = Integer.parseInt(opt.getOrDefault("port", "8080"));
-        String symbol = opt.getOrDefault("symbol", DEFAULT_SYMBOL);
-        long tickMs = Long.parseLong(opt.getOrDefault("tickMs", "250"));
-        long seed = Long.parseLong(opt.getOrDefault("seed", Long.toString(System.nanoTime())));
-        double speed = Double.parseDouble(opt.getOrDefault("speed", "1.0"));
-        if (!(speed > 0)) {
-            throw new IllegalArgumentException("--speed must be positive");
+        BotSettings cfg;
+        try {
+            cfg = BotSettings.from(args, System.getenv(), System::nanoTime);
+        } catch (IllegalArgumentException e) {
+            log.error("Bots not started: {}", e.getMessage());
+            System.exit(2);
+            return;
         }
-        Set<String> enabled = new LinkedHashSet<>(Arrays.asList(
-                opt.getOrDefault("bots", String.join(",", ALL_BOTS)).toLowerCase().split(",")));
-        URI uri = URI.create("ws://localhost:" + port + "/ws");
-
-        long openUnits = resolveOpenUnits(opt, symbol);
-        log.info("Anchoring bots to open = {} units ($0.0001), seed {}, speed {}", openUnits, seed, speed);
-
-        Path csv = Path.of(opt.getOrDefault("csv",
-                "run-output/price_path_" + LocalDateTime.now().format(
-                        DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".csv"));
+        log.info("Bots starting: {}", cfg);
 
         ObjectMapper mapper = new ObjectMapper();
-        HttpClient http = HttpClient.newHttpClient();
-        long now = System.currentTimeMillis();
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
-        List<Strategy> strategies = strategies(enabled, openUnits, seed, speed, now);
-        PriceTracker tracker = new PriceTracker(csv);
-        ParticipantClient observer = new ParticipantClient(uri, symbol, new Observer(), 3_600_000, tracker, mapper);
+        long openUnits;
+        try {
+            openUnits = OpenPriceSource.resolve(OpenPriceSource.http(http, cfg.ignitionUri()), cfg.openPxUnits(),
+                    mapper, ms -> TimeUnit.MILLISECONDS.sleep(ms), System::currentTimeMillis);
+        } catch (OpenPriceSource.NoOpenPriceException e) {
+            log.error("Bots not started: {}", e.getMessage());
+            System.exit(2);
+            return;
+        }
+        log.info("Anchoring bots to open = {} units ($0.0001), seed {}, speed {}", openUnits, cfg.seed(), cfg.speed());
+
+        long now = System.currentTimeMillis();
+        List<Bot> bots = bots(cfg, openUnits, now);
+
+        PriceTracker tracker = null;
+        ParticipantClient observer = null;
+        if (cfg.csv() != null) {
+            Path csv = Path.of(cfg.csv().isEmpty()
+                    ? "run-output/price_path_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".csv"
+                    : cfg.csv());
+            tracker = new PriceTracker(csv);
+            observer = new ParticipantClient(cfg.wsUri(), cfg.healthUri(), cfg.symbol(), new Observer(), null,
+                    3_600_000, tracker, mapper);
+        }
         List<ParticipantClient> clients = new ArrayList<>();
-        for (Strategy s : strategies) {
-            clients.add(new ParticipantClient(uri, symbol, s, tickMs, null, mapper));
+        for (Bot b : bots) {
+            RiskGate gate = new RiskGate(b.strategy().owner(), b.risk(), cfg.maxOrderQty(), cfg.maxOpenOrders());
+            clients.add(new ParticipantClient(cfg.wsUri(), cfg.healthUri(), cfg.symbol(), b.strategy(), gate,
+                    cfg.tickMillis(), null, mapper));
         }
 
-        CountDownLatch stopped = new CountDownLatch(1);
-        CountDownLatch cleanedUp = new CountDownLatch(1);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            stopped.countDown();
-            try {
-                cleanedUp.await(10, TimeUnit.SECONDS);   // let main cancel the bots' orders first
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        // The maker re-reads the open at each live session open, on its own thread.
+        ScheduledExecutorService background = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "bots-background");
+            t.setDaemon(true);
+            return t;
+        });
+        AnchorRefresh refresh = new AnchorRefresh(OpenPriceSource.http(http, cfg.ignitionUri()), mapper, background);
+        for (ParticipantClient c : clients) {
+            if (c.strategy() instanceof MarketMakerStrategy) {
+                c.setSessionOpenListener(client -> refresh.request(client.name(), client::post, client.strategy()));
             }
-        }, "sim-shutdown"));
+        }
 
-        // Observer first (catch the snapshot-on-connect), then the maker (seeds the book), then the rest.
-        observer.start(http);
+        List<ParticipantClient> all = new ArrayList<>(clients);
+        if (observer != null) {
+            all.add(observer);
+        }
+        AtomicBoolean stopped = new AtomicBoolean();
+        PriceTracker trackerRef = tracker;
+        Runnable stop = () -> {
+            if (!stopped.compareAndSet(false, true)) {
+                return;
+            }
+            log.info("Stopping bots and cancelling their resting orders...");
+            ParticipantClient.stopAll(all, STOP_ACK_WAIT_MILLIS, STOP_CLOSE_MILLIS);
+            background.shutdownNow();
+            if (trackerRef != null) {
+                trackerRef.close();
+            }
+            log.info("Done.");
+        };
+        Runtime.getRuntime().addShutdownHook(new Thread(stop, "bots-shutdown"));
+
+        if (observer != null) {
+            observer.start(http);
+        }
         for (ParticipantClient c : clients) {
             c.start(http);
         }
-        log.info("Bots {} running against {}", enabled, uri);
+        log.info("Bots {} running against {}", cfg.enabled(), cfg.wsUri());
 
-        if (opt.containsKey("duration")) {
-            stopped.await(Long.parseLong(opt.get("duration")), TimeUnit.SECONDS);
+        if (cfg.statusIntervalMillis() > 0) {
+            background.scheduleAtFixedRate(() -> {
+                for (ParticipantClient c : clients) {
+                    log.info("STATUS {}", c.status());
+                }
+            }, cfg.statusIntervalMillis(), cfg.statusIntervalMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        CountDownLatch forever = new CountDownLatch(1);
+        if (cfg.durationSeconds() > 0) {
+            forever.await(cfg.durationSeconds(), TimeUnit.SECONDS);
+            stop.run();
         } else {
-            stopped.await();
+            forever.await();
         }
-
-        log.info("Stopping bots and cancelling their resting orders...");
-        for (ParticipantClient c : clients) {
-            c.stop();
-        }
-        observer.stop();
-        tracker.close();
-        cleanedUp.countDown();
-        log.info("Done.");
     }
 
-    /** Build the enabled strategies, in a fixed order, each with its own seeded random stream. */
-    static List<Strategy> strategies(Set<String> enabled, long openUnits, long seed, double speed, long nowMillis) {
-        for (String name : enabled) {
-            if (!ALL_BOTS.contains(name)) {
-                throw new IllegalArgumentException("unknown bot '" + name + "'; choose from " + ALL_BOTS);
-            }
-        }
-        SplittableRandom root = new SplittableRandom(seed);
-        List<Strategy> out = new ArrayList<>();
-        if (enabled.contains("maker")) {
+    /** Build the enabled bots, in a fixed order, each with its own seeded random stream. */
+    static List<Bot> bots(BotSettings cfg, long openUnits, long nowMillis) {
+        SplittableRandom root = new SplittableRandom(cfg.seed());
+        double speed = cfg.speed();
+        int band = cfg.bandPercent();
+        List<Bot> out = new ArrayList<>();
+        if (cfg.enabled().contains("maker")) {
+            long[] qtys = MarketMakerStrategy.Config.levelQtys(cfg.makerLevels());
+            RiskLimits risk = new RiskLimits(openUnits, band, cfg.makerMaxPositionResolved());
             MarketMakerStrategy.Config d = MarketMakerStrategy.Config.defaults(openUnits);
-            MarketMakerStrategy.Config c = new MarketMakerStrategy.Config(d.openUnits(), d.baseHalfSpreadTicks(),
-                    d.levelQtys(), d.volMultiplier(), d.requoteMoveTicks(), scaled(d.requoteIntervalMillis(), speed),
-                    d.skewClipQty(), d.maxSkewTicks(), d.risk());
-            out.add(new MarketMakerStrategy(c, ids(Bots.Owner.MAKER, nowMillis)));
+            MarketMakerStrategy.Config c = new MarketMakerStrategy.Config(openUnits, cfg.makerHalfSpreadTicks(),
+                    qtys, d.volMultiplier(), cfg.makerRequoteMoveTicks(), scaled(cfg.makerRequoteIntervalMillis(), speed),
+                    cfg.makerSkewClip(), cfg.makerMaxSkewTicks(), risk,
+                    cfg.makerMinRequoteGapMillis() == 0 ? 0 : scaled(cfg.makerMinRequoteGapMillis(), speed),
+                    cfg.makerAnchorMaxPullTicks(), cfg.makerAnchorPullDivisor());
+            out.add(new Bot(new MarketMakerStrategy(c, ids(Bots.Owner.MAKER, nowMillis)), risk));
         }
         SplittableRandom trendRnd = root.split();
-        if (enabled.contains("trend")) {
+        if (cfg.enabled().contains("trend")) {
+            RiskLimits risk = new RiskLimits(openUnits, band, cfg.trendMaxPosition());
             TrendFollowerStrategy.Config d = TrendFollowerStrategy.Config.defaults(openUnits);
-            TrendFollowerStrategy.Config c = new TrendFollowerStrategy.Config(d.openUnits(), d.fastHalfLife(),
-                    d.slowHalfLife(), d.signalTicks(), d.warmupTrades(), d.qty(), d.throughTicks(),
-                    scaled(d.minIntervalMillis(), speed), scaled(d.maxIntervalMillis(), speed), d.risk());
-            out.add(new TrendFollowerStrategy(c, ids(Bots.Owner.TREND, nowMillis), trendRnd));
+            TrendFollowerStrategy.Config c = new TrendFollowerStrategy.Config(openUnits, d.fastHalfLife(),
+                    d.slowHalfLife(), d.signalTicks(), d.warmupTrades(), cfg.trendQty(), d.throughTicks(),
+                    scaled(cfg.trendMinIntervalMillis(), speed), scaled(cfg.trendMaxIntervalMillis(), speed), risk);
+            out.add(new Bot(new TrendFollowerStrategy(c, ids(Bots.Owner.TREND, nowMillis), trendRnd), risk));
         }
-        if (enabled.contains("revert")) {
+        if (cfg.enabled().contains("revert")) {
+            RiskLimits risk = new RiskLimits(openUnits, band, cfg.revertMaxPosition());
             MeanReversionStrategy.Config d = MeanReversionStrategy.Config.defaults(openUnits);
-            MeanReversionStrategy.Config c = new MeanReversionStrategy.Config(d.openUnits(), d.fairHalfLife(),
+            MeanReversionStrategy.Config c = new MeanReversionStrategy.Config(openUnits, d.fairHalfLife(),
                     d.entryTicks(), d.exitTicks(), d.qtyPerStep(), d.maxStepQty(),
-                    scaled(d.requoteIntervalMillis(), speed), d.risk());
-            out.add(new MeanReversionStrategy(c, ids(Bots.Owner.REVERT, nowMillis)));
+                    scaled(cfg.revertRequoteIntervalMillis(), speed), risk);
+            out.add(new Bot(new MeanReversionStrategy(c, ids(Bots.Owner.REVERT, nowMillis)), risk));
         }
         SplittableRandom noiseRnd = root.split();
-        if (enabled.contains("noise")) {
+        if (cfg.enabled().contains("noise")) {
+            RiskLimits risk = new RiskLimits(openUnits, band, cfg.noiseMaxPosition());
             NoiseTraderStrategy.Config d = NoiseTraderStrategy.Config.defaults(openUnits);
-            NoiseTraderStrategy.Config c = new NoiseTraderStrategy.Config(d.openUnits(),
-                    scaled(d.meanArrivalMillis(), speed), d.minQty(), d.maxQty(), d.qtyStep(),
-                    d.passiveProbability(), d.cancelProbability(), d.maxResting(), d.maxBehindTicks(), d.risk());
-            out.add(new NoiseTraderStrategy(c, ids(Bots.Owner.NOISE, nowMillis), noiseRnd));
+            NoiseTraderStrategy.Config c = new NoiseTraderStrategy.Config(openUnits,
+                    scaled(cfg.noiseMeanArrivalMillis(), speed), d.minQty(), d.maxQty(), d.qtyStep(),
+                    d.passiveProbability(), d.cancelProbability(), d.maxResting(), d.maxBehindTicks(), risk);
+            out.add(new Bot(new NoiseTraderStrategy(c, ids(Bots.Owner.NOISE, nowMillis), noiseRnd), risk));
         }
         SplittableRandom instRnd = root.split();
-        if (enabled.contains("inst")) {
+        if (cfg.enabled().contains("inst")) {
+            RiskLimits risk = new RiskLimits(openUnits, band, cfg.instMaxPosition());
             InstitutionalStrategy.Config d = InstitutionalStrategy.Config.defaults(openUnits);
-            InstitutionalStrategy.Config c = new InstitutionalStrategy.Config(d.openUnits(), d.minParentQty(),
-                    d.maxParentQty(), d.maxFloor(), d.repegTicks(), scaled(d.targetMillis(), speed),
+            InstitutionalStrategy.Config c = new InstitutionalStrategy.Config(openUnits, cfg.instMinParent(),
+                    cfg.instMaxParent(), d.maxFloor(), d.repegTicks(), scaled(d.targetMillis(), speed),
                     d.catchUpFraction(), scaled(d.maxCampaignMillis(), speed), scaled(d.minPauseMillis(), speed),
-                    scaled(d.maxPauseMillis(), speed), scaled(d.firstDelayMillis(), speed), d.risk());
-            out.add(new InstitutionalStrategy(c, ids(Bots.Owner.INST, nowMillis), instRnd));
+                    scaled(d.maxPauseMillis(), speed), scaled(d.firstDelayMillis(), speed), risk);
+            out.add(new Bot(new InstitutionalStrategy(c, ids(Bots.Owner.INST, nowMillis), instRnd), risk));
         }
         return out;
     }
@@ -171,52 +214,6 @@ public final class ParticipantSimMain {
 
     static long scaled(long millis, double speed) {
         return Math.max(1L, Math.round(millis / speed));
-    }
-
-    /** Explicit --openPx dollars wins; otherwise fetch from Alpaca. Fails loudly if neither works. */
-    private static long resolveOpenUnits(Map<String, String> opt, String symbol) throws Exception {
-        if (opt.containsKey("openPx")) {
-            OptionalLong u = OpenPriceSource.openUnits(Double.parseDouble(opt.get("openPx")));
-            if (u.isEmpty()) {
-                throw new IllegalArgumentException("--openPx must be a positive dollar amount");
-            }
-            return u.getAsLong();
-        }
-        Path envLocal = Path.of(opt.getOrDefault("envLocal", defaultEnvLocal()));
-        Optional<OpenPriceSource.Credentials> creds = OpenPriceSource.loadCredentials(envLocal);
-        if (creds.isEmpty()) {
-            throw new IllegalStateException(
-                    "No Alpaca credentials (ALPACA_KEY_ID / ALPACA_SECRET_KEY in the environment or "
-                    + envLocal + "). Pass --openPx <dollars> to run without a live open, "
-                    + "e.g. --openPx 149.80");
-        }
-        return new OpenPriceSource().fetchOpenUnits(symbol, creds.get());
-    }
-
-    /** Best guess at the frontend's .env.local relative to however this is launched. */
-    private static String defaultEnvLocal() {
-        String cwd = System.getProperty("user.dir", ".");
-        List<String> candidates = List.of(
-                cwd + "/../frontend/.env.local",      // run from app/backend
-                cwd + "/app/frontend/.env.local",     // run from repo root
-                cwd + "/frontend/.env.local");         // run from app
-        for (String c : candidates) {
-            if (Files.isReadable(Path.of(c))) {
-                return c;
-            }
-        }
-        return candidates.get(0);
-    }
-
-    private static Map<String, String> parseArgs(String[] args) {
-        Map<String, String> m = new HashMap<>();
-        for (int i = 0; i < args.length - 1; i++) {
-            if (args[i].startsWith("--")) {
-                m.put(args[i].substring(2), args[i + 1]);
-                i++;
-            }
-        }
-        return m;
     }
 
     /** Non-trading strategy for the observer connection. Never ticked into an order. */

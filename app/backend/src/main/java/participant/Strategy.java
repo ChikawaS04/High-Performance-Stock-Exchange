@@ -40,4 +40,20 @@ public interface Strategy {
     default boolean hasResting() {
         return false;
     }
+
+    /**
+     * The client has reconnected and caught up with RESEND (P16-5): return cancels for every
+     * resting order whose fate is uncertain ({@link OwnOrders#cancelUncertain}). Default: nothing,
+     * for a strategy that never rests.
+     */
+    default List<Action> onResync() {
+        return List.of();
+    }
+
+    /**
+     * A new day's open was read from the venue at a session open (P16-5). Only the market maker
+     * uses it, as its anchor target; the band and every limit stay as built at start. Default:
+     * ignore.
+     */
+    default void onAnchor(long openUnits) { }
 }

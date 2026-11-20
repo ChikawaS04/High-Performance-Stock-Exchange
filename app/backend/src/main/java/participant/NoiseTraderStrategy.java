@@ -124,6 +124,11 @@ public final class NoiseTraderStrategy implements Strategy {
     }
 
     @Override
+    public List<Action> onResync() {
+        return own.cancelUncertain();
+    }
+
+    @Override
     public boolean hasResting() {
         return !own.resting().isEmpty();
     }

@@ -47,3 +47,7 @@ hs_err_pid*.log
 
 ### Benchmark results (session- and machine-specific, never committed)
 /bench-results/
+
+### Phase 16 deploy: filled-in settings files never committed (only the example)
+deploy/*.env
+!deploy/credo.env.example
