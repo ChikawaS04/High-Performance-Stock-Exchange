@@ -117,6 +117,29 @@ class ClearingTest {
         assertEquals(DAY + " 1 ASML 2 2 0 0", String.join(" ", rows("SELECT * FROM clearing_obligation")));
     }
 
+    /** P16-8: database retention is woken once per run this thread completes, never for a run already COMPLETE. */
+    @Test
+    void theCompletionHookRunsOncePerCompletedRun() {
+        seed.fill(DAY, PX, 1L, "BUY", HOUSE, HOUSE);
+        seed.close(DAY);
+        seed.fill(NEXT, PX, 1L, "BUY", HOUSE, HOUSE);
+        seed.close(NEXT);
+        seed.caughtUp();
+        AtomicInteger completions = new AtomicInteger();
+        clearing = new Clearing(TestDatabase.database()::connect, reporter, sessionWord::get,
+                () -> wallClock.addAndGet(10L), FAST_POLL);
+        clearing.onRunComplete(() -> {
+            assertEquals(Clearing.THREAD_NAME, Thread.currentThread().getName());
+            completions.incrementAndGet();
+        });
+        clearing.start();
+        awaitCleared(NEXT);
+        awaitState("IDLE");
+        clearing.wake();
+        awaitState("IDLE");
+        assertEquals(2, completions.get(), "one per COMPLETED run; later cycles see ALREADY_COMPLETE or nothing");
+    }
+
     @Test
     void theBoundedPollClearsARunNobodyWokeItFor() {
         start(FAST_POLL);

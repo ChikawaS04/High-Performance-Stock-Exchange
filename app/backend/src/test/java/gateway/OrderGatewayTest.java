@@ -95,6 +95,60 @@ class OrderGatewayTest {
         assertEquals(FIXED_TS, o.timestamp());     // stamped by the gateway
     }
 
+    // --- the disk guard's hard stop (P16-8) ---
+
+    @Test
+    void outcomesNameWhatHappened() throws InterruptedException {
+        assertEquals(OrderGateway.FrameOutcome.PUBLISHED,
+                gateway.onFrame(msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML")));
+        assertEquals(OrderGateway.FrameOutcome.DROPPED, gateway.onFrame(null));
+        assertEquals(OrderGateway.FrameOutcome.DROPPED, gateway.onFrame("garbage".getBytes(StandardCharsets.US_ASCII)));
+        assertNotNull(handler.poll(1, TimeUnit.SECONDS));
+        assertEquals(0L, gateway.refusedNewOrders(), "the default gateway never refuses");
+    }
+
+    @Test
+    void underTheStopANewIsRefusedAndACancelIsPublished() throws InterruptedException {
+        boolean[] stop = {true};
+        OrderGateway guarded = new OrderGateway(pipeline.getRingBuffer(), () -> FIXED_TS, () -> stop[0]);
+        assertEquals(OrderGateway.FrameOutcome.REFUSED,
+                guarded.onFrame(msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML")));
+        assertNull(handler.poll(200, TimeUnit.MILLISECONDS), "a refused NEW never reaches the ring");
+        assertEquals(1L, guarded.refusedNewOrders());
+
+        assertEquals(OrderGateway.FrameOutcome.PUBLISHED, guarded.onFrame(msg("35=F", "11=2", "41=1")));
+        Observed cancel = handler.poll(1, TimeUnit.SECONDS);
+        assertNotNull(cancel);
+        assertEquals(OrderEventType.CANCEL_ORDER, cancel.eventType());
+
+        // A malformed NEW is still a drop, not a refusal.
+        assertEquals(OrderGateway.FrameOutcome.DROPPED, guarded.onFrame(msg("35=D", "11=3", "54=9", "38=1", "55=ASML")));
+        assertEquals(1L, guarded.refusedNewOrders());
+
+        stop[0] = false;
+        assertEquals(OrderGateway.FrameOutcome.PUBLISHED,
+                guarded.onFrame(msg("35=D", "11=4", "54=2", "44=150.25", "38=100", "55=ASML")));
+        Observed accepted = handler.poll(1, TimeUnit.SECONDS);
+        assertNotNull(accepted);
+        assertEquals(4L, accepted.orderId());
+    }
+
+    @Test
+    void theRefusalPathAllocatesNothing() {
+        java.lang.management.ThreadMXBean bean = java.lang.management.ManagementFactory.getThreadMXBean();
+        org.junit.jupiter.api.Assumptions.assumeTrue(bean instanceof com.sun.management.ThreadMXBean,
+                "per-thread allocation counter not available");
+        com.sun.management.ThreadMXBean counter = (com.sun.management.ThreadMXBean) bean;
+        OrderGateway guarded = new OrderGateway(pipeline.getRingBuffer(), () -> FIXED_TS, () -> true);
+        byte[] frame = msg("35=D", "11=1", "54=1", "44=150.25", "38=100", "55=ASML");
+        for (int i = 0; i < 20_000; i++) guarded.onFrame(frame);   // warm up
+        long before = counter.getCurrentThreadAllocatedBytes();
+        for (int i = 0; i < 100_000; i++) guarded.onFrame(frame);
+        long allocated = counter.getCurrentThreadAllocatedBytes() - before;
+        assertTrue(allocated < 64 * 1024, "refusing 100,000 NEWs allocated " + allocated + " bytes");
+        assertEquals(120_000L, guarded.refusedNewOrders());
+    }
+
     @Test
     void validCancel_reachesRingBuffer() throws InterruptedException {
         byte[] frame = msg("35=F", "49=CLIENT", "56=OMS", "11=777", "41=12345");

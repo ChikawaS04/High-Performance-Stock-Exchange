@@ -103,12 +103,15 @@ class JournalRetentionTest {
 
         /** {@code pairs} crossing pairs (a resting buy filled by a sell) and one resting GTC bid. */
         void trade(int pairs) {
+            // Every earlier command is applied (open, close and trade each wait for theirs), so the target is
+            // exact. Reading journaledSeq() here instead raced the sequencer and let the wait pass early
+            // (found in P16-8: callers then read appliedSeq() before the day's commands were applied).
+            long target = pipeline().appliedSeq() + 2L * pairs + 1L;
             for (int i = 0; i < pairs; i++) {
                 gateway.onFrame(FixMessages.limit(nextId++, '1', "100.00", 1));
                 gateway.onFrame(FixMessages.limit(nextId++, '2', "100.00", 1));
             }
             gateway.onFrame(FixMessages.limit(nextId++, '1', "90.00", 3));
-            long target = pipeline().journaledSeq();
             await(() -> pipeline().appliedSeq() >= target && pipeline().journaledSeq() == pipeline().appliedSeq(),
                     "the day's commands applied");
         }
@@ -232,6 +235,37 @@ class JournalRetentionTest {
             Path archive = run.venue.config().archiveDir();
             awaitNoSegmentBelow(archive, run.inboundId(), base(second.inboundPosition()));
             awaitNoSegmentBelow(archive, run.outboundId(), base(second.outboundPosition()));
+        }
+    }
+
+    /** P16-7 finding 2, carried to P16-8: a later run that purges nothing keeps the last purge visible. */
+    @Test
+    void theLastPurgeSurvivesALaterRunThatPurgesNothing() {
+        try (Run run = new Run(config(root, 2), 1_000L, 1)) {
+            run.day(FIRST_DAY, 400);
+            run.day(FIRST_DAY + 1, 400);
+            run.runRetention();
+            assertEquals(-1L, run.status().lastPurgeTs());
+            assertNull(run.status().lastPurge());
+
+            run.day(FIRST_DAY + 2, 400);
+            // runRetention makes two runs: the first purges, the second finds nothing more. That is the finding:
+            // the outcome alone no longer shows the purge, lastPurgeTs and lastPurge do.
+            run.runRetention();
+            assertEquals(JournalStatus.NOTHING_TO_PURGE, run.status().outcome());
+            assertTrue(run.status().inbound().startPosition() > 0, "the first of the two runs purged");
+            long purgedAt = run.status().lastPurgeTs();
+            JournalStatus.LastPurge moved = run.status().lastPurge();
+            assertTrue(purgedAt > 0);
+            assertEquals(0L, moved.inboundFrom());
+            assertEquals(run.status().inbound().startPosition(), moved.inboundTo());
+            assertEquals(0L, moved.outboundFrom());
+            assertEquals(run.status().outbound().startPosition(), moved.outboundTo());
+
+            run.runRetention();
+            assertEquals(JournalStatus.NOTHING_TO_PURGE, run.status().outcome());
+            assertEquals(purgedAt, run.status().lastPurgeTs(), "kept");
+            assertEquals(moved, run.status().lastPurge());
         }
     }
 

@@ -43,7 +43,7 @@ class MigrationsTest {
     @Test
     void everyMigrationAppliesToAnEmptyDatabase() {
         MigrationInfo[] applied = new Migrator(TestDatabase.database(), true).flyway().info().applied();
-        assertEquals(8, applied.length);
+        assertEquals(9, applied.length);
         for (MigrationInfo migration : applied) {
             assertEquals(MigrationState.SUCCESS, migration.getState(), migration.getScript());
         }
@@ -92,10 +92,54 @@ class MigrationsTest {
                 + " WHERE indexname = 'executions_fills_by_date'"));
     }
 
+    // --- V9, database retention (P16-8) ---
+
+    @Test
+    void onlyACompleteRunCanBeMarkedPurgedAndCompletionFollowsTheMark() {
+        TestDatabase.execute("INSERT INTO clearing_run (business_date, status, close_outbound_seq, closed_ts)"
+                + " VALUES (20261106, 'PENDING', 5, 100)");
+        assertRefused("UPDATE clearing_run SET purged_ts = 1");
+        TestDatabase.execute("UPDATE clearing_run SET status = 'COMPLETE', started_ts = 1, completed_ts = 2,"
+                + " next_business_date = 20261107, fill_count = 0, volume = 0");
+        assertRefused("UPDATE clearing_run SET purge_completed_ts = 3");
+        TestDatabase.execute("UPDATE clearing_run SET purged_ts = 3");
+        TestDatabase.execute("UPDATE clearing_run SET purge_completed_ts = 4");
+        assertRefused("UPDATE clearing_run SET status = 'PENDING'");
+    }
+
+    @Test
+    void theDailySummaryIsKeyedByDateAndSymbolAndNeedsItsRun() {
+        assertRefused("INSERT INTO daily_summary VALUES (20261106, 'ASML', 1, 5, 5000000, 1, 1, 1, 1, 10, 10)");
+        TestDatabase.execute("INSERT INTO clearing_run (business_date, status, close_outbound_seq, closed_ts)"
+                + " VALUES (20261106, 'PENDING', 5, 100)");
+        TestDatabase.execute("INSERT INTO daily_summary VALUES (20261106, 'ASML', 1, 5, 5000000, 1, 1, 1, 1, 10, 10)");
+        assertRefused("INSERT INTO daily_summary VALUES (20261106, 'ASML', 1, 5, 5000000, 1, 1, 1, 1, 10, 10)");
+        assertRefused("INSERT INTO daily_summary VALUES (20261106, 'NOPE', 1, 5, 5000000, 1, 1, 1, 1, 10, 10)");
+        assertRefused("INSERT INTO daily_summary VALUES (20261106, 'ASML', 0, 5, 5000000, 1, 1, 1, 1, 10, 10)");
+        assertEquals("bigint", TestDatabase.queryOne("SELECT data_type FROM information_schema.columns"
+                + " WHERE table_name = 'daily_summary' AND column_name = 'notional'"));
+    }
+
+    @Test
+    void everyColumnThatReferencesOrdersIsIndexedAndDatesAndUndatedRowsCanBeFound() {
+        assertEquals(List.of(
+                        "executions_order_inbound_seq CREATE INDEX executions_order_inbound_seq ON public.executions USING btree (order_inbound_seq)",
+                        "executions_passive_order_inbound_seq CREATE INDEX executions_passive_order_inbound_seq ON public.executions USING btree (passive_order_inbound_seq)",
+                        "executions_undated CREATE INDEX executions_undated ON public.executions USING btree (event_ts) WHERE (business_date IS NULL)",
+                        "order_audit_business_date CREATE INDEX order_audit_business_date ON public.order_audit USING btree (business_date)",
+                        "order_audit_order_inbound_seq CREATE INDEX order_audit_order_inbound_seq ON public.order_audit USING btree (order_inbound_seq)",
+                        "order_audit_undated CREATE INDEX order_audit_undated ON public.order_audit USING btree (event_ts) WHERE (business_date IS NULL)",
+                        "orders_undated CREATE INDEX orders_undated ON public.orders USING btree (received_ts) WHERE (business_date IS NULL)"),
+                TestDatabase.rows("SELECT indexname, indexdef FROM pg_indexes WHERE indexname IN ("
+                        + "'executions_order_inbound_seq', 'executions_passive_order_inbound_seq', 'executions_undated',"
+                        + " 'order_audit_business_date', 'order_audit_order_inbound_seq', 'order_audit_undated',"
+                        + " 'orders_undated') ORDER BY indexname"));
+    }
+
     @Test
     void aSecondMigrateChangesNothing() {
         new Migrator(TestDatabase.database(), true).run();
-        assertEquals("8", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
+        assertEquals("9", TestDatabase.queryOne("SELECT count(*) FROM flyway_schema_history WHERE success"));
         assertEquals("1", TestDatabase.queryOne("SELECT count(*) FROM instrument"));
     }
 

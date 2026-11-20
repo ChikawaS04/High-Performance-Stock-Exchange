@@ -207,7 +207,8 @@ class HttpRouterTest {
         assertTrue(healthBody().path("journal").isMissingNode(), "absent without journal status");
         status.journal = new JournalStatus(new JournalStatus.Recording(0, 65_536, 200_000, 196_608),
                 new JournalStatus.Recording(1, 0, 300_000, 327_680), true, 2, 3, 1_700_000_000_000_000_000L,
-                JournalStatus.SKIPPED, "REPORTER_NOT_RUNNING: BACKING_OFF", 1_700_000_000_500_000_000L);
+                JournalStatus.SKIPPED, "REPORTER_NOT_RUNNING: BACKING_OFF", 1_699_000_000_000_000_000L,
+                new JournalStatus.LastPurge(0, 65_536, 0, 0), 1_700_000_000_500_000_000L);
         JsonNode journal = healthBody().path("journal");
         assertEquals(0, journal.path("inbound").path("recordingId").asLong());
         assertEquals(65_536, journal.path("inbound").path("startPosition").asLong());
@@ -221,12 +222,61 @@ class HttpRouterTest {
         assertEquals(1_700_000_000_000_000_000L, retention.path("lastRunTs").asLong());
         assertEquals("SKIPPED", retention.path("outcome").asText());
         assertEquals("REPORTER_NOT_RUNNING: BACKING_OFF", retention.path("skipReason").asText());
+        // P16-7 finding 2: the last purge stays visible after a later run that purged nothing.
+        assertEquals(1_699_000_000_000_000_000L, retention.path("lastPurgeTs").asLong());
+        assertEquals(0, retention.path("lastPurge").path("inboundFrom").asLong());
+        assertEquals(65_536, retention.path("lastPurge").path("inboundTo").asLong());
+        assertEquals(0, retention.path("lastPurge").path("outboundFrom").asLong());
+        assertEquals(0, retention.path("lastPurge").path("outboundTo").asLong());
 
         status.journal = new JournalStatus(status.journal.inbound(), status.journal.outbound(), true, 2, 0, -1L,
-                JournalStatus.NOT_RUN, null, 1L);
+                JournalStatus.NOT_RUN, null, -1L, null, 1L);
         retention = healthBody().path("journal").path("retention");
         assertTrue(retention.path("lastRunTs").isNull(), "never run");
         assertTrue(retention.path("skipReason").isNull());
+        assertTrue(retention.path("lastPurgeTs").isNull());
+        assertTrue(retention.path("lastPurge").isNull());
+    }
+
+    @Test
+    void healthReportsTheDiskObjectAndNeverChangesTheStatusForIt() throws Exception {
+        assertTrue(healthBody().path("disk").isMissingNode(), "absent without a guard");
+        status.disk = new util.DiskStatus(4_000L, 100_000L, 1_234L, 15_000L, 5_000L, util.DiskStatus.STOP, 9L,
+                "journal retention skipped: REPORTER_NOT_RUNNING: FAILED", 77L);
+        JsonNode disk = healthBody().path("disk");   // 200: a disk stop is not a fail-stop
+        assertEquals(4_000L, disk.path("freeBytes").asLong());
+        assertEquals(100_000L, disk.path("totalBytes").asLong());
+        assertEquals(1_234L, disk.path("dataBytes").asLong());
+        assertEquals(15_000L, disk.path("warnBelowBytes").asLong());
+        assertEquals(5_000L, disk.path("stopBelowBytes").asLong());
+        assertEquals("STOP", disk.path("state").asText());
+        assertEquals(9L, disk.path("newOrdersRefused").asLong());
+        assertEquals("journal retention skipped: REPORTER_NOT_RUNNING: FAILED", disk.path("retentionHeld").asText());
+        assertEquals(77L, disk.path("asOfTs").asLong());
+        status.disk = new util.DiskStatus(4_000L, 100_000L, 1_234L, 15_000L, 5_000L, util.DiskStatus.OK, 0L, null, 1L);
+        assertTrue(healthBody().path("disk").path("retentionHeld").isNull());
+    }
+
+    @Test
+    void healthReportsDatabaseRetentionOnlyWithADatabase() throws Exception {
+        assertTrue(healthBody().path("database").isMissingNode(), "absent without DB_URL");
+        status.dbRetention = new util.DatabaseRetentionStatus(true, 14, 5L, util.DatabaseRetentionStatus.NOTHING_TO_PURGE,
+                null, 20261103, 4L, 0L, 6L);
+        JsonNode r = healthBody().path("database").path("retention");
+        assertTrue(r.path("enabled").asBoolean());
+        assertEquals(14, r.path("days").asInt());
+        assertEquals(5L, r.path("lastRunTs").asLong());
+        assertEquals("NOTHING_TO_PURGE", r.path("outcome").asText());
+        assertTrue(r.path("skipReason").isNull());
+        assertEquals(20261103, r.path("purgedThrough").asInt());
+        assertEquals(4L, r.path("lastPurgeTs").asLong(), "kept after a pass that purged nothing");
+        assertEquals(0L, r.path("rowsDeleted").asLong());
+        status.dbRetention = new util.DatabaseRetentionStatus(true, 14, -1L, util.DatabaseRetentionStatus.NOT_RUN,
+                null, -1, -1L, 0L, 6L);
+        r = healthBody().path("database").path("retention");
+        assertTrue(r.path("lastRunTs").isNull());
+        assertTrue(r.path("purgedThrough").isNull());
+        assertTrue(r.path("lastPurgeTs").isNull());
     }
 
     private JsonNode healthBody() throws Exception {
@@ -743,7 +793,11 @@ class HttpRouterTest {
         ReporterStatus reporter;
         ClearingStatus clearing;
         JournalStatus journal;
+        util.DiskStatus disk;
+        util.DatabaseRetentionStatus dbRetention;
 
+        @Override public util.DiskStatus disk() { return disk; }
+        @Override public util.DatabaseRetentionStatus databaseRetention() { return dbRetention; }
         @Override public boolean running() { return running; }
         @Override public long session() { return session; }
         @Override public long appliedSeq() { return applied; }

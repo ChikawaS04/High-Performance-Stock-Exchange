@@ -28,7 +28,7 @@ import java.util.TreeMap;
  */
 final class ReportStore {
 
-    private static final String CONTEXT = "SELECT c.last_outbound_seq, c.session_business_date, r.status"
+    private static final String CONTEXT = "SELECT c.last_outbound_seq, c.session_business_date, r.status, r.purged_ts"
             + " FROM reporter_checkpoint c LEFT JOIN clearing_run r ON r.business_date = ? WHERE c.id = 1";
     private static final String CHECKPOINT = "SELECT last_outbound_seq, session_business_date FROM reporter_checkpoint"
             + " WHERE id = 1";
@@ -47,17 +47,29 @@ final class ReportStore {
             + " (array_agg(e.price ORDER BY e.outbound_seq DESC))[1] FROM executions e"
             + " LEFT JOIN orders o ON o.inbound_seq = e.order_inbound_seq"
             + " WHERE e.business_date = ? AND e.trade_id IS NOT NULL GROUP BY o.symbol ORDER BY o.symbol";
+    // P16-8: a purged date's figures, written from DAILY_SYMBOLS before its rows went; same columns, same order.
+    private static final String DAILY_SUMMARY = "SELECT symbol, trade_count, volume, notional, high, low,"
+            + " first_trade_ts, last_trade_ts, open, close FROM daily_summary WHERE business_date = ? ORDER BY symbol";
     private static final String RUN = "SELECT status, close_outbound_seq, closed_ts, completed_ts, next_business_date,"
             + " fill_count, volume FROM clearing_run WHERE business_date = ?";
     private static final String OBLIGATIONS = "SELECT participant_id, symbol, bought_quantity, sold_quantity,"
             + " net_quantity, cash_obligation FROM clearing_obligation WHERE business_date = ?"
             + " ORDER BY participant_id, symbol";
 
-    private static final String VOLUME = "SELECT e.business_date, o.symbol, count(*), sum(e.filled_quantity)::bigint,"
-            + " sum(e.price::numeric * e.filled_quantity)::bigint FROM executions e"
+    // P16-8: dates not purged come from executions, purged dates from daily_summary. A date mid-purge is marked
+    // purged before any row goes, so it is read from the summary only and never counted twice.
+    private static final String VOLUME = "SELECT business_date, symbol, trade_count, volume, notional FROM ("
+            + "SELECT e.business_date, o.symbol, count(*) AS trade_count, sum(e.filled_quantity)::bigint AS volume,"
+            + " sum(e.price::numeric * e.filled_quantity)::bigint AS notional FROM executions e"
             + " LEFT JOIN orders o ON o.inbound_seq = e.order_inbound_seq"
             + " WHERE e.business_date BETWEEN ? AND ? AND e.trade_id IS NOT NULL AND (?::varchar IS NULL OR o.symbol = ?)"
-            + " GROUP BY e.business_date, o.symbol ORDER BY e.business_date, o.symbol";
+            + " AND NOT EXISTS (SELECT 1 FROM clearing_run r WHERE r.business_date = e.business_date"
+            + " AND r.purged_ts IS NOT NULL)"
+            + " GROUP BY e.business_date, o.symbol"
+            + " UNION ALL SELECT s.business_date, s.symbol, s.trade_count, s.volume, s.notional FROM daily_summary s"
+            + " JOIN clearing_run r ON r.business_date = s.business_date AND r.purged_ts IS NOT NULL"
+            + " WHERE s.business_date BETWEEN ? AND ? AND (?::varchar IS NULL OR s.symbol = ?)"
+            + ") v ORDER BY business_date, symbol";
     private static final String RUNS_IN_RANGE = "SELECT business_date, status FROM clearing_run"
             + " WHERE business_date BETWEEN ? AND ?";
 
@@ -87,8 +99,12 @@ final class ReportStore {
     private ReportStore() {
     }
 
-    /** The checkpoint and where one date stands, from the same snapshot. */
-    record Context(long asOfOutboundSeq, DayStatus dayStatus) {
+    /**
+     * The checkpoint and where one date stands, from the same snapshot.
+     *
+     * @param purged whether database retention has started deleting the date's detail rows (P16-8)
+     */
+    record Context(long asOfOutboundSeq, DayStatus dayStatus, boolean purged) {
     }
 
     static Context context(Connection c, int date) throws SQLException {
@@ -98,14 +114,17 @@ final class ReportStore {
                 if (!r.next()) throw new SQLException("reporter_checkpoint has no row");
                 int session = r.getInt(2);
                 boolean open = !r.wasNull() && session == date;
-                return new Context(r.getLong(1), DayStatus.of(r.getString(3), open));
+                r.getLong(4);
+                boolean purged = !r.wasNull();
+                return new Context(r.getLong(1), DayStatus.of(r.getString(3), open), purged);
             }
         }
     }
 
-    /** GET /api/trades: the date's fills in outbound seq order, a page at a time. */
+    /** GET /api/trades: the date's fills in outbound seq order, a page at a time; 410 once the date is purged. */
     static ObjectNode trades(Connection c, ObjectMapper mapper, int date, long afterSeq, int limit) throws SQLException {
         Context ctx = context(c, date);
+        if (ctx.purged()) throw ApiException.purged();
         ObjectNode body = header(mapper, date, ctx);
         ArrayNode trades = body.putArray("trades");
         int rows = 0;
@@ -168,7 +187,7 @@ final class ReportStore {
             body.set("clearing", run);
         }
         ArrayNode symbols = body.putArray("symbols");
-        try (PreparedStatement s = c.prepareStatement(DAILY_SYMBOLS)) {
+        try (PreparedStatement s = c.prepareStatement(ctx.purged() ? DAILY_SUMMARY : DAILY_SYMBOLS)) {
             s.setInt(1, date);
             try (ResultSet r = s.executeQuery()) {
                 while (r.next()) {
@@ -246,6 +265,10 @@ final class ReportStore {
             s.setInt(2, to);
             s.setString(3, symbol);
             s.setString(4, symbol);
+            s.setInt(5, from);
+            s.setInt(6, to);
+            s.setString(7, symbol);
+            s.setString(8, symbol);
             try (ResultSet r = s.executeQuery()) {
                 while (r.next()) {
                     int date = r.getInt(1);
@@ -315,6 +338,7 @@ final class ReportStore {
             }
         }
         Context ctx = context(c, date);
+        if (ctx.purged()) throw ApiException.purged();   // after the participant check: an unknown one stays 404
         ObjectNode body = mapper.createObjectNode();
         body.set("participant", participant);
         body.put("businessDate", date);

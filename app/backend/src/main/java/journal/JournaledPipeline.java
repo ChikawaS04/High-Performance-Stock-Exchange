@@ -33,6 +33,8 @@ import recovery.SnapshotStore;
 import recovery.SnapshotWriter;
 import util.FailStop;
 import util.ClearingStatus;
+import util.DatabaseRetentionStatus;
+import util.DiskStatus;
 import util.JournalStatus;
 import util.ReporterStatus;
 import util.VenueStatus;
@@ -161,6 +163,8 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
 
     private volatile ReporterStatus reporterStatus;
     private volatile ClearingStatus clearingStatus;
+    private volatile Supplier<DiskStatus> diskStatus;
+    private volatile Supplier<DatabaseRetentionStatus> databaseRetentionStatus;
     private volatile boolean fatal;
     /** Set on the engine thread once replay has finished and the recovered book is on the snapshot ring. */
     private volatile boolean recovered;
@@ -536,6 +540,28 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
     @Override
     public JournalStatus journalRetention() {
         return retention.status();
+    }
+
+    /** Attaches what {@code /health} reports about the disk (P16-8); any thread. */
+    public void attachDisk(Supplier<DiskStatus> disk) {
+        this.diskStatus = disk;
+    }
+
+    @Override
+    public DiskStatus disk() {
+        Supplier<DiskStatus> d = diskStatus;
+        return d == null ? null : d.get();
+    }
+
+    /** Attaches what {@code /health} reports about database retention (P16-8); any thread. */
+    public void attachDatabaseRetention(Supplier<DatabaseRetentionStatus> retention) {
+        this.databaseRetentionStatus = retention;
+    }
+
+    @Override
+    public DatabaseRetentionStatus databaseRetention() {
+        Supplier<DatabaseRetentionStatus> d = databaseRetentionStatus;
+        return d == null ? null : d.get();
     }
 
     /** The recorded execution history RESEND reads (D16). */

@@ -280,6 +280,57 @@ class ExchangeConfigTest {
         assertRejected(Map.of("JOURNAL_RETENTION_ENABLED", "off"), "JOURNAL_RETENTION_ENABLED");
     }
 
+    // --- P16-8: database retention and the disk guard ---
+
+    @Test
+    void databaseRetentionAndDiskDefaults() {
+        ExchangeConfig config = ExchangeConfig.from(Map.of());
+        assertEquals(14, config.dbRetentionDays());
+        assertTrue(config.dbRetentionEnabled());
+        assertEquals(5_000, config.dbRetentionBatchRows());
+        assertTrue(config.dbRetentionVacuum());
+        assertEquals(15L * 1024 * 1024 * 1024, config.diskWarnFreeBytes());
+        assertEquals(5L * 1024 * 1024 * 1024, config.diskStopFreeBytes());
+        assertEquals(1024L * 1024 * 1024, config.diskStopHysteresisBytes());
+        assertEquals(1024L * 1024 * 1024, config.journalLowStorageBytes());
+        assertTrue(config.toString().contains("dbRetentionDays=14"));
+        assertTrue(config.toString().contains("diskStopFreeBytes=5368709120"));
+        assertEquals(14, ExchangeConfig.from(Map.of("DB_RETENTION_DAYS", " ")).dbRetentionDays(),
+                "blank is the default (credo.env.example)");
+    }
+
+    @Test
+    void databaseRetentionRanges() {
+        assertEquals(0, ExchangeConfig.from(Map.of("DB_RETENTION_DAYS", "0")).dbRetentionDays());
+        assertEquals(3_660, ExchangeConfig.from(Map.of("DB_RETENTION_DAYS", "3660")).dbRetentionDays());
+        assertRejected(Map.of("DB_RETENTION_DAYS", "-1"), "DB_RETENTION_DAYS");
+        assertRejected(Map.of("DB_RETENTION_DAYS", "3661"), "DB_RETENTION_DAYS");
+        assertEquals(100, ExchangeConfig.from(Map.of("DB_RETENTION_BATCH_ROWS", "100")).dbRetentionBatchRows());
+        assertRejected(Map.of("DB_RETENTION_BATCH_ROWS", "99"), "DB_RETENTION_BATCH_ROWS");
+        assertRejected(Map.of("DB_RETENTION_BATCH_ROWS", "100001"), "DB_RETENTION_BATCH_ROWS");
+        assertFalse(ExchangeConfig.from(Map.of("DB_RETENTION_ENABLED", "false")).dbRetentionEnabled());
+        assertFalse(ExchangeConfig.from(Map.of("DB_RETENTION_VACUUM", "false")).dbRetentionVacuum());
+        assertRejected(Map.of("DB_RETENTION_VACUUM", "no"), "DB_RETENTION_VACUUM");
+    }
+
+    @Test
+    void diskThresholdsAreCheckedAgainstEachOther() {
+        assertRejected(Map.of("DISK_WARN_FREE_BYTES", "-1"), "DISK_WARN_FREE_BYTES");
+        assertRejected(Map.of("DISK_STOP_FREE_BYTES", "5GiB"), "DISK_STOP_FREE_BYTES");
+        // The warning must come before the stop.
+        assertRejected(Map.of("DISK_WARN_FREE_BYTES", "4000000000", "DISK_STOP_FREE_BYTES", "5000000000"),
+                "DISK_STOP_FREE_BYTES");
+        // The Archive's floor must be below the stop, so a venue under the stop can still start.
+        assertRejected(Map.of("JOURNAL_LOW_STORAGE_BYTES", "5368709120"), "JOURNAL_LOW_STORAGE_BYTES");
+        // And at least one segment.
+        assertRejected(Map.of("JOURNAL_LOW_STORAGE_BYTES", "65536"), "JOURNAL_LOW_STORAGE_BYTES");
+        // The stop off: the floor only needs a segment, and the warning may be anything.
+        ExchangeConfig off = ExchangeConfig.from(Map.of("DISK_STOP_FREE_BYTES", "0", "DISK_WARN_FREE_BYTES", "0",
+                "JOURNAL_LOW_STORAGE_BYTES", "68719476736"));
+        assertEquals(0L, off.diskStopFreeBytes());
+        assertEquals(68_719_476_736L, off.journalLowStorageBytes());
+    }
+
     private static void assertRejected(Map<String, String> env, String variable) {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(env));
         assertTrue(e.getMessage().contains(variable), e.getMessage());

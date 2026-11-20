@@ -65,6 +65,7 @@ public final class Clearing implements ClearingStatus, AutoCloseable {
     private volatile int pendingDate = -1;
     private volatile String heldBy;
     private volatile String failure;
+    private volatile Runnable onRunComplete;
 
     // Clearing thread only.
     private boolean started;
@@ -98,6 +99,14 @@ public final class Clearing implements ClearingStatus, AutoCloseable {
     public void start() {
         started = true;
         thread.start();
+    }
+
+    /**
+     * Runs on the clearing thread after each run that this thread completed and committed (P16-8: database
+     * retention's wake). Must not block. A setter, like {@code Reporter.onRunPending}.
+     */
+    public void onRunComplete(Runnable hook) {
+        this.onRunComplete = hook;
     }
 
     /** Asks for a check now. Any thread; never blocks. The Reporter calls it after recording a close. */
@@ -206,6 +215,8 @@ public final class Clearing implements ClearingStatus, AutoCloseable {
                     log.info("Cleared business date {}: {} fill(s), volume {}, {} obligation(s); balances and positions"
                             + " rolled to {}", date, r.fillCount(), r.volume(), r.obligations().size(), r.nextBusinessDate());
                     lastClearedDate = date;
+                    Runnable hook = onRunComplete;
+                    if (hook != null) hook.run();
                 }
                 case ALREADY_COMPLETE -> lastClearedDate = Math.max(lastClearedDate, date);
                 case WAITING_FOR_REPORTER -> {

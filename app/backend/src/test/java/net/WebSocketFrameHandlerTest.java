@@ -82,6 +82,47 @@ class WebSocketFrameHandlerTest {
         assertTrue(group.isEmpty());
     }
 
+    // --- the disk guard's hard stop (P16-8) ---
+
+    @Test
+    void aRefusedNewNeverReachesTheRingAndOnlyItsSenderGetsASeqLessReject() throws Exception {
+        OrderGateway refusing = new OrderGateway(pipeline.getRingBuffer(), CLOCK, () -> true);
+        EmbeddedChannel sender = new EmbeddedChannel(DefaultChannelId.newInstance(),
+                new WebSocketFrameHandler(group, refusing, mapper, CLOCK));
+        EmbeddedChannel other = new EmbeddedChannel(DefaultChannelId.newInstance());
+        group.add(sender);
+        group.add(other);
+        assertEquals(2, group.size());
+        try {
+            sender.writeInbound(new TextWebSocketFrame(NEW_JSON));
+            assertNull(captured.poll(NEG_TIMEOUT_MS, TimeUnit.MILLISECONDS), "a refused NEW is never published");
+            assertEquals(1L, refusing.refusedNewOrders());
+
+            TextWebSocketFrame echo = sender.readOutbound();
+            assertEquals("FIX", mapper.readTree(echo.text()).get("type").asText(), "the raw echo is unchanged");
+            echo.release();
+            TextWebSocketFrame reject = sender.readOutbound();
+            JsonNode n = mapper.readTree(reject.text());
+            reject.release();
+            assertEquals("EXEC", n.get("type").asText());
+            assertEquals("ORDER_REJECTED", n.get("execType").asText());
+            assertEquals(7L, n.get("orderId").asLong());
+            assertFalse(n.has("seq"), "not a venue event: no seq");
+            assertEquals(TS, n.get("timestamp").asLong());
+            assertNull(sender.readOutbound());
+            assertNull(other.readOutbound(), "nobody else hears of it");
+
+            // A cancel still goes through.
+            sender.writeInbound(new TextWebSocketFrame("{\"type\":\"CANCEL\",\"clOrdId\":9,\"origClOrdId\":7}"));
+            CapturingOrderHandler.Observed obs = captured.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            assertNotNull(obs, "CANCEL is accepted under the stop");
+            assertEquals(OrderEventType.CANCEL_ORDER, obs.eventType());
+        } finally {
+            sender.finishAndReleaseAll();
+            other.finishAndReleaseAll();
+        }
+    }
+
     // --- inbound JSON -> FIX -> ring (P4-5) ---
 
     @Test

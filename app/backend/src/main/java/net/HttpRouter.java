@@ -25,6 +25,8 @@ import market.IgnitionSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.ClearingStatus;
+import util.DatabaseRetentionStatus;
+import util.DiskStatus;
 import util.JournalStatus;
 import util.ReporterStatus;
 import util.VenueStatus;
@@ -371,7 +373,59 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             } else {
                 retention.put("skipReason", journal.skipReason());
             }
+            // P16-7 finding 2, carried to P16-8: the last purge survives later runs that purge nothing.
+            putNullable(retention, "lastPurgeTs", journal.lastPurgeTs());
+            JournalStatus.LastPurge last = journal.lastPurge();
+            if (last == null) {
+                retention.putNull("lastPurge");
+            } else {
+                ObjectNode moved = retention.putObject("lastPurge");
+                moved.put("inboundFrom", last.inboundFrom());
+                moved.put("inboundTo", last.inboundTo());
+                moved.put("outboundFrom", last.outboundFrom());
+                moved.put("outboundTo", last.outboundTo());
+            }
             retention.put("asOfTs", journal.asOfTs());
+        }
+
+        // The disk guard (P16-8): one volatile read of an immutable value the guard's thread computed. freeBytes
+        // and totalBytes are of the filesystem holding the data directory (on the server the root disk, shared
+        // with Docker's storage and so with PostgreSQL); dataBytes is the data directory alone.
+        DiskStatus disk = status.disk();
+        if (disk != null) {
+            ObjectNode node = body.putObject("disk");
+            node.put("freeBytes", disk.freeBytes());
+            node.put("totalBytes", disk.totalBytes());
+            node.put("dataBytes", disk.dataBytes());
+            node.put("warnBelowBytes", disk.warnBelowBytes());
+            node.put("stopBelowBytes", disk.stopBelowBytes());
+            node.put("state", disk.state());
+            node.put("newOrdersRefused", disk.newOrdersRefused());
+            if (disk.retentionHeld() == null) {
+                node.putNull("retentionHeld");
+            } else {
+                node.put("retentionHeld", disk.retentionHeld());
+            }
+            node.put("asOfTs", disk.asOfTs());
+        }
+
+        // Database retention (P16-8): additive and absent without a database, like the Reporter's.
+        DatabaseRetentionStatus dbRetention = status.databaseRetention();
+        if (dbRetention != null) {
+            ObjectNode node = body.putObject("database").putObject("retention");
+            node.put("enabled", dbRetention.enabled());
+            node.put("days", dbRetention.days());
+            putNullable(node, "lastRunTs", dbRetention.lastRunTs());
+            node.put("outcome", dbRetention.outcome());
+            if (dbRetention.skipReason() == null) {
+                node.putNull("skipReason");
+            } else {
+                node.put("skipReason", dbRetention.skipReason());
+            }
+            putDate(node, "purgedThrough", dbRetention.purgedThrough());
+            putNullable(node, "lastPurgeTs", dbRetention.lastPurgeTs());
+            node.put("rowsDeleted", dbRetention.rowsDeleted());
+            node.put("asOfTs", dbRetention.asOfTs());
         }
 
         byte[] bytes;
@@ -384,6 +438,15 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
                 running ? HttpResponseStatus.OK : HttpResponseStatus.SERVICE_UNAVAILABLE, bytes);
         response.headers().set(HttpHeaderNames.CACHE_CONTROL, HttpHeaderValues.NO_STORE);
         write(ctx, response, HttpUtil.isKeepAlive(req));
+    }
+
+    /** A timestamp or count where -1 means "none": null on the wire. */
+    private static void putNullable(ObjectNode node, String field, long value) {
+        if (value < 0) {
+            node.putNull(field);
+        } else {
+            node.put(field, value);
+        }
     }
 
     private static void putRecording(ObjectNode node, JournalStatus.Recording recording) {

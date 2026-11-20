@@ -62,6 +62,16 @@ public interface VenueStatus {
         return null;
     }
 
+    /** The disk guard's view (P16-8), or null when no guard runs. */
+    default DiskStatus disk() {
+        return null;
+    }
+
+    /** Database retention (P16-8), or null when none runs, because {@code DB_URL} is unset. */
+    default DatabaseRetentionStatus databaseRetention() {
+        return null;
+    }
+
     /**
      * Packs a session state into one long: {@code 0} when no session was ever opened or closed,
      * {@code +businessDate} while open on that day, {@code -lastClosedBusinessDate} while closed.

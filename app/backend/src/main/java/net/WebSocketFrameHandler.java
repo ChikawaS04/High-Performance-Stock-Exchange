@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.function.LongSupplier;
 
+import publisher.ExecutionFrames;
 import util.BookFrameCache;
 
 /**
@@ -81,6 +82,9 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
     /** Serves RESEND requests (P15-6); null when the server wired none, and RESEND is then dropped. */
     private final ResendService resend;
 
+    /** Serializes the refusal of a NEW under the disk guard's hard stop (P16-8). */
+    private final ExecutionFrames frames;
+
     /** Per-channel echo counter; single-thread-confined to this channel's event loop. */
     private long fixSeqNum;
 
@@ -111,6 +115,7 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
         this.clock = clock;
         this.bookCache = bookCache;
         this.resend = resend;
+        this.frames = new ExecutionFrames(objectMapper);
     }
 
     @Override
@@ -243,10 +248,24 @@ public class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocket
                 return;
             }
 
-            gateway.onFrame(fix);
+            OrderGateway.FrameOutcome outcome = gateway.onFrame(fix);
             echoRawFix(channel, fix);
+            if (outcome == OrderGateway.FrameOutcome.REFUSED) {
+                // P16-8: the hard stop refused this NEW before sequencing. Only its sender is told, with an
+                // EXEC ORDER_REJECTED that carries no seq: it is not a venue event and is never recorded.
+                sendRefusal(channel, node.get("clOrdId").asLong());
+            }
         } catch (Exception e) {
             log.warn("Dropping malformed WS order frame: {}", e.toString());
+        }
+    }
+
+    /** The refusal of a NEW under the hard stop, to the originating channel only (P16-8). */
+    private void sendRefusal(Channel channel, long clOrdId) {
+        try {
+            channel.writeAndFlush(new TextWebSocketFrame(frames.refusalJson(clOrdId, clock.getAsLong())));
+        } catch (RuntimeException e) {
+            log.warn("Could not send the refusal of NEW {}: {}", clOrdId, e.toString());
         }
     }
 

@@ -26,6 +26,12 @@ public final class Database {
         public static final Timing PRODUCTION = new Timing(3, 2_000L, 5, 30);
         /** For /api reads (P15-12): one try, a short connect bound, and a read bound above the statement timeout. */
         public static final Timing API = new Timing(1, 0L, 2, 10);
+        /**
+         * For database retention (P16-8): no socket read bound, because a VACUUM sends nothing until it
+         * ends; each delete batch is bounded by its statement timeout instead, and shutdown aborts the
+         * connection.
+         */
+        public static final Timing RETENTION = new Timing(1, 0L, 5, 0);
     }
 
     /** SQLState class of every connection exception. */

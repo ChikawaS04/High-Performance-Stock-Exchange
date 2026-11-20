@@ -15,6 +15,9 @@ package util;
  * @param outcome    {@link #NOT_RUN}, {@link #PURGED}, {@link #NOTHING_TO_PURGE}, {@link #SKIPPED} or
  *                   {@link #DISABLED}
  * @param skipReason why the last run purged nothing on doubt, or null
+ * @param lastPurgeTs when a run last moved a start, epoch nanoseconds, or -1 if none has in this process;
+ *                   a later NOTHING_TO_PURGE or SKIPPED run keeps it (P16-7 finding 2, P16-8)
+ * @param lastPurge  the start positions that run moved, or null
  * @param asOfTs     when this value was computed, epoch nanoseconds
  */
 public record JournalStatus(
@@ -26,7 +29,15 @@ public record JournalStatus(
         long lastRunTs,
         String outcome,
         String skipReason,
+        long lastPurgeTs,
+        LastPurge lastPurge,
         long asOfTs) {
+
+    /**
+     * The start positions the last purge moved; a recording it did not move has equal from and to.
+     */
+    public record LastPurge(long inboundFrom, long inboundTo, long outboundFrom, long outboundTo) {
+    }
 
     public static final String NOT_RUN = "NOT_RUN";
     public static final String PURGED = "PURGED";

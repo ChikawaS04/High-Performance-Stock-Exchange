@@ -83,6 +83,8 @@ public final class JournalRetention implements AutoCloseable {
     private long lastRunTs = -1L;
     private String outcome = JournalStatus.NOT_RUN;
     private String skipReason;
+    private long lastPurgeTs = -1L;
+    private JournalStatus.LastPurge lastPurge;
     private boolean started;
 
     /**
@@ -296,11 +298,18 @@ public final class JournalRetention implements AutoCloseable {
             if (decision.skip() != null) return skip(decision.skip(), decision.detail());
 
             boolean purged = false;
+            long inFrom = in.startPosition();
+            long outFrom = out.startPosition();
             Result refused = purge(client, "inbound", in, decision.inboundNewStart());
             if (refused == null) {
                 purged |= decision.inboundNewStart() > in.startPosition();
                 refused = purge(client, "outbound", out, decision.outboundNewStart());
                 if (refused == null) purged |= decision.outboundNewStart() > out.startPosition();
+            }
+            if (inboundStart > inFrom || outboundStart > outFrom) {
+                // Even if the outbound purge was refused after the inbound one moved: what moved is recorded.
+                lastPurgeTs = System.currentTimeMillis() * 1_000_000L;
+                lastPurge = new JournalStatus.LastPurge(inFrom, inboundStart, outFrom, outboundStart);
             }
             if (refused != null) return refused;
             outcome = purged ? JournalStatus.PURGED : JournalStatus.NOTHING_TO_PURGE;
@@ -364,7 +373,8 @@ public final class JournalRetention implements AutoCloseable {
         return new JournalStatus(
                 recording(inbound.recordingId(), inboundStart, inboundGate),
                 recording(outbound.recordingId(), outboundStart, outboundGate),
-                enabled, days, closesSeen, lastRunTs, outcome, skipReason, System.currentTimeMillis() * 1_000_000L);
+                enabled, days, closesSeen, lastRunTs, outcome, skipReason, lastPurgeTs, lastPurge,
+                System.currentTimeMillis() * 1_000_000L);
     }
 
     private JournalStatus.Recording recording(long recordingId, long start, RecordingPositionGate gate) {

@@ -60,6 +60,31 @@ public final class ExecutionFrames {
         return write(n);
     }
 
+    /**
+     * The answer to a NEW the gateway refused before sequencing (P16-8, the disk guard's hard stop): an EXEC
+     * ORDER_REJECTED shaped exactly like the engine's reject of a NEW (every other field the -1 NA value),
+     * with no {@code seq}, because it is not a venue event: it is never recorded, RESEND never returns it,
+     * and it goes only to the client that sent the NEW. Both the terminal and the bots treat {@code seq} as
+     * optional and apply such a frame as it is.
+     */
+    public String refusalJson(long orderId, long timestamp) {
+        ObjectNode n = mapper.createObjectNode();
+        n.put("type", "EXEC");
+        n.put("execType", ExecutionEventType.ORDER_REJECTED.name());
+        n.put("orderId", orderId);
+        n.put("tradeId", -1L);
+        n.put("price", -1L);
+        n.put("filledQuantity", -1L);
+        n.put("remainingQuantity", -1L);
+        n.put("aggressorOrderId", -1L);
+        n.put("passiveOrderId", -1L);
+        n.putNull("aggressorSide");
+        n.put("aggressorParticipantId", -1L);
+        n.put("passiveParticipantId", -1L);
+        n.put("timestamp", timestamp);
+        return write(n);
+    }
+
     /** {@code {"type":"SESSION","seq":N,"state":"OPEN"|"CLOSED","businessDate":D,"timestamp":T}} (SRS §3.6). */
     private String sessionJson(ExecutionEvent e) {
         ObjectNode n = mapper.createObjectNode();

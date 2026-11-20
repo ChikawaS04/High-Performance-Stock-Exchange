@@ -24,4 +24,8 @@ final class ApiException extends RuntimeException {
     static ApiException notFound() {
         return new ApiException(ApiResponse.NOT_FOUND);
     }
+
+    static ApiException purged() {
+        return new ApiException(ApiResponse.PURGED);
+    }
 }

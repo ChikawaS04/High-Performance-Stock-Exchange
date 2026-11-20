@@ -1,4 +1,5 @@
 import clearing.Clearing;
+import clearing.DatabaseRetention;
 import config.ExchangeConfig;
 import db.DatabaseReferenceSource;
 import engine.MatchingEngine;
@@ -18,13 +19,16 @@ import session.ReferenceSource;
 import session.SessionController;
 import session.SessionScheduler;
 import session.VenueStartup;
+import util.DiskGuard;
 import util.EpochNanoClock;
 import util.FailStop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.Clock;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Assembles the venue and runs it until a termination signal.
@@ -87,7 +91,11 @@ import java.util.concurrent.CountDownLatch;
  * {@code GET /market/ignition} serves the session symbol's market open, fetched from Alpaca on its own
  * thread and cached; without them the route is a 404.
  *
- * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), stop clearing, stop the Reporter, then drain the
+ * <p><b>Disk and retention (P16-8).</b> The disk guard watches the data directory's filesystem and refuses NEW
+ * orders at the gateway below {@code DISK_STOP_FREE_BYTES}; with {@code DB_URL} set, database retention deletes
+ * the detail rows of COMPLETE dates outside {@code DB_RETENTION_DAYS} on its own thread.
+ *
+ * <p><b>Shutdown.</b> On a termination signal: stop the session scheduler, stop the server (no more input), stop database retention, stop clearing, stop the Reporter, then drain the
  * pipeline by progress, write a snapshot of the final state and close the journal, so the next
  * start replays nothing. Shutdown does not close the session: a restart is not the end of the
  * trading day, and the next start resumes it. A fatal error in the sequencer or engine halts the JVM with
@@ -140,7 +148,28 @@ public final class Main {
         // --- 3. Gateway and network edge ---------------------------------------------------
         // One epoch-nanos clock, shared by the gateway and the WebSocket edge (P7-1).
         EpochNanoClock clock = new EpochNanoClock();
-        OrderGateway gateway = new OrderGateway(pipeline.inboundRing(), clock);
+        // The disk guard (P16-8): its first sample is taken here, before the port binds, so its hard stop
+        // (NEW refused at the gateway, before sequencing) holds from the first frame.
+        AtomicReference<DatabaseRetention> dbRetentionRef = new AtomicReference<>();
+        final DiskGuard disk;
+        try {
+            disk = DiskGuard.forDataDir(config.dataDir(), config.diskWarnFreeBytes(), config.diskStopFreeBytes(),
+                    config.diskStopHysteresisBytes(), () -> {
+                        DatabaseRetention db = dbRetentionRef.get();
+                        return DiskGuard.retentionHeld(pipeline.journalRetention(), db == null ? null : db.status());
+                    }, clock);
+        } catch (IOException | RuntimeException e) {
+            log.error("Startup refused: cannot read the filesystem of {}: {}", config.dataDir(), e.toString(), e);
+            pipeline.shutdown();
+            System.exit(STARTUP_FAILED);
+            return;
+        }
+        pipeline.attachDisk(disk::status);
+        log.info("Disk guard: {} bytes free on the filesystem of {} (warn below {}, NEW refused below {})",
+                disk.status().freeBytes(), config.dataDir(), config.diskWarnFreeBytes(), config.diskStopFreeBytes());
+        OrderGateway gateway = new OrderGateway(pipeline.inboundRing(), clock, disk);
+        disk.countRefusalsFrom(gateway::refusedNewOrders);
+        disk.start();
         // RESEND: replays the outbound recording with the live EXEC serializer; the server owns it.
         ResendService resend = new ResendService(pipeline.outboundHistory(), new ExecutionFrames()::toJson);
         // Constructed before the publisher: the server owns the ChannelGroup and the BOOK cache.
@@ -165,6 +194,7 @@ public final class Main {
         final SessionScheduler scheduler;
         final Reporter reporter;
         final Clearing clearing;
+        final DatabaseRetention dbRetention;
         try {
             SessionController sessions = VenueStartup.start(config, pipeline, server, gateway, Clock.systemUTC(), source);
             // From here the business day closes and opens by the calendar, on the scheduler's thread.
@@ -178,11 +208,18 @@ public final class Main {
                 clearing = Clearing.forVenue(config, pipeline, reporter, clock);
                 reporter.onRunPending(clearing::wake);
                 pipeline.attachClearing(clearing);
+                // Database retention on its own thread, woken after each COMPLETE run and once a day (P16-8).
+                dbRetention = DatabaseRetention.forVenue(config, reporter, clearing, clock);
+                clearing.onRunComplete(dbRetention::requestRun);
+                pipeline.attachDatabaseRetention(dbRetention::status);
+                dbRetentionRef.set(dbRetention);
                 clearing.start();
                 reporter.start();
+                dbRetention.start();
             } else {
                 reporter = null;
                 clearing = null;
+                dbRetention = null;
             }
         } catch (RuntimeException e) {
             // VenueStartup has stopped the server and shut the pipeline down.
@@ -201,16 +238,16 @@ public final class Main {
         log.info("Resend history:   {}", "{\"type\":\"RESEND\",\"fromSeq\":1}");
         log.info("Ctrl+C to stop.");
 
-        awaitShutdown(scheduler, clearing, reporter, server, pipeline);
+        awaitShutdown(scheduler, dbRetention, clearing, reporter, server, pipeline, disk);
     }
 
     /**
      * Parks the main thread until the JVM is asked to exit, then stops input and drains the
      * pipeline (bounded) before closing the journal.
      */
-    private static void awaitShutdown(SessionScheduler scheduler, Clearing clearing, Reporter reporter,
-                                      WebSocketServer server,
-                                      JournaledPipeline pipeline) throws InterruptedException {
+    private static void awaitShutdown(SessionScheduler scheduler, DatabaseRetention dbRetention, Clearing clearing,
+                                      Reporter reporter, WebSocketServer server,
+                                      JournaledPipeline pipeline, DiskGuard disk) throws InterruptedException {
         CountDownLatch shutdown = new CountDownLatch(1);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -219,6 +256,9 @@ public final class Main {
             try {
                 scheduler.stop(SCHEDULER_STOP_TIMEOUT_MS);  // no more session commands
                 server.stop();                // no new frames can enter the gateway; resend and /api stopped
+                if (dbRetention != null) {
+                    dbRetention.stop();       // bounded; a batch in progress rolls back, the next start resumes the date
+                }
                 if (clearing != null) {
                     clearing.stop();          // a run in progress commits or rolls back; the next start finds it
                 }
@@ -226,6 +266,7 @@ public final class Main {
                     reporter.stop();          // before the journal closes; the next start catches up from the checkpoint
                 }
                 clean = pipeline.shutdown();  // journal and apply everything, snapshot, drain, close
+                disk.close();
             } catch (Exception e) {
                 log.error("Error during shutdown", e);
             } finally {

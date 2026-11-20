@@ -43,6 +43,22 @@ public final class ExchangeConfig {
     public static final String JOURNAL_RETENTION_DAYS    = "JOURNAL_RETENTION_DAYS";
     /** Journal retention (P16-7): false freezes the journal (nothing purged). */
     public static final String JOURNAL_RETENTION_ENABLED = "JOURNAL_RETENTION_ENABLED";
+    /** Database retention (P16-8): COMPLETE business dates whose detail rows are kept. */
+    public static final String DB_RETENTION_DAYS       = "DB_RETENTION_DAYS";
+    /** Database retention (P16-8): false keeps every detail row. */
+    public static final String DB_RETENTION_ENABLED    = "DB_RETENTION_ENABLED";
+    /** Database retention (P16-8): rows deleted per transaction. */
+    public static final String DB_RETENTION_BATCH_ROWS = "DB_RETENTION_BATCH_ROWS";
+    /** Database retention (P16-8): VACUUM (never FULL) the tables a pass deleted from. */
+    public static final String DB_RETENTION_VACUUM     = "DB_RETENTION_VACUUM";
+    /** Disk guard (P16-8): a WARN at most once an hour while free space is below this. */
+    public static final String DISK_WARN_FREE_BYTES       = "DISK_WARN_FREE_BYTES";
+    /** Disk guard (P16-8): NEW orders are refused while free space is below this; 0 turns the stop off. */
+    public static final String DISK_STOP_FREE_BYTES       = "DISK_STOP_FREE_BYTES";
+    /** Disk guard (P16-8): NEW is accepted again only at the stop value plus this. */
+    public static final String DISK_STOP_HYSTERESIS_BYTES = "DISK_STOP_HYSTERESIS_BYTES";
+    /** The Archive's low storage threshold (P16-8): no recording starts or extends at or below this. */
+    public static final String JOURNAL_LOW_STORAGE_BYTES  = "JOURNAL_LOW_STORAGE_BYTES";
     // Session reference data (P15-8). With DB_URL set, the database supplies all but the symbol, which names its row.
     public static final String SESSION_SYMBOL        = "SESSION_SYMBOL";
     public static final String SESSION_TICK_SIZE      = "SESSION_TICK_SIZE";
@@ -116,6 +132,16 @@ public final class ExchangeConfig {
     public static final int    DEFAULT_JOURNAL_SEGMENT_LENGTH = 16 * 1024 * 1024;
     public static final int    DEFAULT_JOURNAL_RETENTION_DAYS = 2;
     public static final int    MAX_JOURNAL_RETENTION_DAYS     = 366;
+    public static final int    DEFAULT_DB_RETENTION_DAYS      = 14;
+    public static final int    MAX_DB_RETENTION_DAYS          = 3_660;
+    public static final int    DEFAULT_DB_RETENTION_BATCH_ROWS = 5_000;
+    public static final int    MIN_DB_RETENTION_BATCH_ROWS    = 100;
+    public static final int    MAX_DB_RETENTION_BATCH_ROWS    = 100_000;
+    private static final long  GIB                            = 1024L * 1024L * 1024L;
+    public static final long   DEFAULT_DISK_WARN_FREE_BYTES   = 15L * GIB;
+    public static final long   DEFAULT_DISK_STOP_FREE_BYTES   = 5L * GIB;
+    public static final long   DEFAULT_DISK_STOP_HYSTERESIS_BYTES = GIB;
+    public static final long   DEFAULT_JOURNAL_LOW_STORAGE_BYTES  = GIB;
 
     public static final String DEFAULT_SESSION_SYMBOL         = "ASML";
     public static final long   DEFAULT_SESSION_TICK_SIZE      = 100L;
@@ -150,6 +176,14 @@ public final class ExchangeConfig {
     private final RingWait ringWait;
     private final int     journalRetentionDays;
     private final boolean journalRetentionEnabled;
+    private final int     dbRetentionDays;
+    private final boolean dbRetentionEnabled;
+    private final int     dbRetentionBatchRows;
+    private final boolean dbRetentionVacuum;
+    private final long    diskWarnFreeBytes;
+    private final long    diskStopFreeBytes;
+    private final long    diskStopHysteresisBytes;
+    private final long    journalLowStorageBytes;
     private final String  sessionSymbol;
     private final long    sessionTickSize;
     private final long    sessionLotSize;
@@ -179,6 +213,16 @@ public final class ExchangeConfig {
         this.journalRetentionDays = intValue(env, JOURNAL_RETENTION_DAYS, DEFAULT_JOURNAL_RETENTION_DAYS, 0,
                 MAX_JOURNAL_RETENTION_DAYS);
         this.journalRetentionEnabled = booleanValue(env, JOURNAL_RETENTION_ENABLED, true);
+        this.dbRetentionDays      = intValue(env, DB_RETENTION_DAYS, DEFAULT_DB_RETENTION_DAYS, 0, MAX_DB_RETENTION_DAYS);
+        this.dbRetentionEnabled   = booleanValue(env, DB_RETENTION_ENABLED, true);
+        this.dbRetentionBatchRows = intValue(env, DB_RETENTION_BATCH_ROWS, DEFAULT_DB_RETENTION_BATCH_ROWS,
+                MIN_DB_RETENTION_BATCH_ROWS, MAX_DB_RETENTION_BATCH_ROWS);
+        this.dbRetentionVacuum    = booleanValue(env, DB_RETENTION_VACUUM, true);
+        this.diskWarnFreeBytes    = longValue(env, DISK_WARN_FREE_BYTES, DEFAULT_DISK_WARN_FREE_BYTES, 0L);
+        this.diskStopFreeBytes    = longValue(env, DISK_STOP_FREE_BYTES, DEFAULT_DISK_STOP_FREE_BYTES, 0L);
+        this.diskStopHysteresisBytes = longValue(env, DISK_STOP_HYSTERESIS_BYTES,
+                DEFAULT_DISK_STOP_HYSTERESIS_BYTES, 0L);
+        this.journalLowStorageBytes = longValue(env, JOURNAL_LOW_STORAGE_BYTES, DEFAULT_JOURNAL_LOW_STORAGE_BYTES, 0L);
         this.sessionSymbol        = symbolValue(env, SESSION_SYMBOL, DEFAULT_SESSION_SYMBOL);
         this.sessionTickSize      = longValue(env, SESSION_TICK_SIZE, DEFAULT_SESSION_TICK_SIZE, 1L);
         this.sessionLotSize       = longValue(env, SESSION_LOT_SIZE, DEFAULT_SESSION_LOT_SIZE, 1L);
@@ -192,6 +236,19 @@ public final class ExchangeConfig {
             String present = alpacaKeyId == null ? ALPACA_SECRET_KEY : ALPACA_KEY_ID;
             throw new IllegalArgumentException(present + " is set but " + missing
                     + " is not: set both for the ignition price, or neither to run without it");
+        }
+        if (diskStopFreeBytes > 0 && diskStopFreeBytes > diskWarnFreeBytes) {
+            throw new IllegalArgumentException(DISK_STOP_FREE_BYTES + "=" + diskStopFreeBytes + " is above "
+                    + DISK_WARN_FREE_BYTES + "=" + diskWarnFreeBytes + ": the warning must come before the stop");
+        }
+        if (journalLowStorageBytes < journalSegmentLength) {
+            throw new IllegalArgumentException(JOURNAL_LOW_STORAGE_BYTES + "=" + journalLowStorageBytes
+                    + " is smaller than one journal segment (" + JOURNAL_SEGMENT_LENGTH + "=" + journalSegmentLength + ")");
+        }
+        if (diskStopFreeBytes > 0 && journalLowStorageBytes >= diskStopFreeBytes) {
+            throw new IllegalArgumentException(JOURNAL_LOW_STORAGE_BYTES + "=" + journalLowStorageBytes
+                    + " must be below " + DISK_STOP_FREE_BYTES + "=" + diskStopFreeBytes
+                    + ", so a venue restarted while NEW is refused can still start and free space");
         }
         if (journalSegmentLength < journalTermLength) {
             throw new IllegalArgumentException(JOURNAL_SEGMENT_LENGTH + "=" + journalSegmentLength
@@ -293,6 +350,33 @@ public final class ExchangeConfig {
     /** Whether journal retention purges anything (P16-7); false freezes the journal. */
     public boolean journalRetentionEnabled() { return journalRetentionEnabled; }
 
+    /**
+     * COMPLETE business dates whose detail rows the database keeps (P16-8, D14): a date is purged once at
+     * least this many COMPLETE dates are newer than it. 0 purges each date as soon as it is COMPLETE.
+     */
+    public int dbRetentionDays() { return dbRetentionDays; }
+
+    /** Whether database retention deletes anything (P16-8). */
+    public boolean dbRetentionEnabled() { return dbRetentionEnabled; }
+
+    /** Rows deleted per transaction by database retention (P16-8). */
+    public int dbRetentionBatchRows() { return dbRetentionBatchRows; }
+
+    /** Whether database retention VACUUMs (never FULL) each table it deleted from (P16-8). */
+    public boolean dbRetentionVacuum() { return dbRetentionVacuum; }
+
+    /** Free bytes on the data directory's filesystem below which the disk guard WARNs (P16-8). */
+    public long diskWarnFreeBytes() { return diskWarnFreeBytes; }
+
+    /** Free bytes below which NEW orders are refused at the gateway (P16-8); 0 turns the stop off. */
+    public long diskStopFreeBytes() { return diskStopFreeBytes; }
+
+    /** How far above the stop value free space must rise before NEW is accepted again (P16-8). */
+    public long diskStopHysteresisBytes() { return diskStopHysteresisBytes; }
+
+    /** The Archive's low storage threshold (P16-8): recordings cannot start or extend at or below it. */
+    public long journalLowStorageBytes() { return journalLowStorageBytes; }
+
     /** Alpaca key id, or null when unset. A credential: log {@link #toString()}, never this value. */
     public String alpacaKeyId() { return alpacaKeyId; }
 
@@ -324,6 +408,14 @@ public final class ExchangeConfig {
                 + ", ringWait=" + ringWait.value()
                 + ", journalRetentionDays=" + journalRetentionDays
                 + ", journalRetentionEnabled=" + journalRetentionEnabled
+                + ", dbRetentionDays=" + dbRetentionDays
+                + ", dbRetentionEnabled=" + dbRetentionEnabled
+                + ", dbRetentionBatchRows=" + dbRetentionBatchRows
+                + ", dbRetentionVacuum=" + dbRetentionVacuum
+                + ", diskWarnFreeBytes=" + diskWarnFreeBytes
+                + ", diskStopFreeBytes=" + diskStopFreeBytes
+                + ", diskStopHysteresisBytes=" + diskStopHysteresisBytes
+                + ", journalLowStorageBytes=" + journalLowStorageBytes
                 + ", sessionSymbol=" + sessionSymbol
                 + ", sessionTickSize=" + sessionTickSize
                 + ", sessionLotSize=" + sessionLotSize

@@ -299,6 +299,10 @@ public final class Journal implements AutoCloseable {
                 .segmentFileLength(config.journalSegmentLength())
                 .fileSyncLevel(0)
                 .catalogFileSyncLevel(1)                   // P16-7: a moved start is on disk before files go
+                // P16-8: checked by the Archive only when a recording starts or extends (Aeron 1.53.3), so it is
+                // a startup floor: at or below it the venue refuses to start (exit 2) before writing anything.
+                // A running venue is guarded by the disk guard's hard stop, well above this.
+                .lowStorageSpaceThreshold(config.journalLowStorageBytes())
                 .recordChecksum(Crc32cChecksum.INSTANCE)   // lets crash repair verify a page-straddling last frame
                 .threadingMode(archiveThreadingMode(config.archiveThreading()))
                 .controlChannelEnabled(false)
@@ -420,6 +424,32 @@ public final class Journal implements AutoCloseable {
      * names the existing recording) and the publication is connected, so nothing offered to it
      * can go unrecorded.
      */
+    /** A start or extend request; {@link #lowStorageChecked} names a low storage refusal. */
+    @FunctionalInterface
+    private interface RecordingRequest {
+        long send();
+    }
+
+    /**
+     * Runs {@code request}, turning the Archive's low storage refusal (P16-8) into a startup refusal that names
+     * the cause and the remedy. Nothing has been written at this point: recordings open before any replay,
+     * append or snapshot.
+     */
+    private long lowStorageChecked(int streamId, RecordingRequest request) {
+        try {
+            return request.send();
+        } catch (ArchiveException e) {
+            if (e.errorCode() == ArchiveException.STORAGE_SPACE) {
+                throw new IllegalStateException("The Archive refused to record stream " + streamId + ": free space on the"
+                        + " filesystem of " + config.archiveDir() + " is at or below " + ExchangeConfig.JOURNAL_LOW_STORAGE_BYTES
+                        + "=" + config.journalLowStorageBytes() + " (" + e.getMessage() + "). Nothing was written. Free"
+                        + " disk space (journal and database retention cannot run while the venue is down), then start"
+                        + " again.", e);
+            }
+            throw e;
+        }
+    }
+
     public RecordedPublication openRecordedPublication(int streamId) {
         if (closed) throw new IllegalStateException("journal closed");
         RecordingDescriptor existing = findRecording(streamId);
@@ -430,7 +460,8 @@ public final class Journal implements AutoCloseable {
         if (existing == null) {
             termLength = config.journalTermLength();
             channel = new ChannelUriStringBuilder().media("ipc").termLength(termLength).build();
-            subscriptionId = archive.startRecording(IPC_CHANNEL, streamId, SourceLocation.LOCAL);
+            subscriptionId = lowStorageChecked(streamId,
+                    () -> archive.startRecording(IPC_CHANNEL, streamId, SourceLocation.LOCAL));
         } else {
             if (existing.stopPosition() == AeronArchive.NULL_POSITION) {
                 throw new IllegalStateException("Recording " + existing.recordingId()
@@ -446,7 +477,8 @@ public final class Journal implements AutoCloseable {
                     .initialPosition(existing.stopPosition(), existing.initialTermId(), termLength)
                     .mtu(existing.mtuLength())
                     .build();
-            subscriptionId = archive.extendRecording(existing.recordingId(), IPC_CHANNEL, streamId, SourceLocation.LOCAL);
+            subscriptionId = lowStorageChecked(streamId,
+                    () -> archive.extendRecording(existing.recordingId(), IPC_CHANNEL, streamId, SourceLocation.LOCAL));
         }
 
         ExclusivePublication publication = null;

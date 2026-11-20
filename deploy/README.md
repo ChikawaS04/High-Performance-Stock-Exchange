@@ -76,6 +76,33 @@ this when a shell's `DB_PASSWORD` reached the first `up`.)
   Docker Desktop); P16-10 confirms the address on the server for `X-Forwarded-For` trust (D15).
 - The bots have the static address `BOTS_IPV4` (default `172.30.0.10`) for P16-9's exemption.
 
+## Disk space and retention (P16-7, P16-8)
+
+- **Journal retention** keeps the current day plus `JOURNAL_RETENTION_DAYS` closed days (P16-7).
+- **Database retention** deletes `orders`, `executions` and `order_audit` rows of business dates outside
+  the newest `DB_RETENTION_DAYS` COMPLETE dates, after each clearing run and once a day, in batches of
+  `DB_RETENTION_BATCH_ROWS`, then runs `VACUUM (ANALYZE)` (never FULL) on the tables it touched.
+  Candles, clearing runs and obligations, `daily_summary`, balances and positions are kept. A resting
+  GTC order's row is never deleted. `/api/trades` and `/api/reports/statement` answer
+  `410 {"error":"PURGED"}` for a purged date; `/api/reports/daily`, `/volume` and `/candles` answer as
+  before.
+- **What `/health` `disk` measures.** `freeBytes` and `totalBytes` are of the filesystem that holds
+  `/data`. On the server `/data` is the bind mount of `/srv/credo/data` on the root disk, which also holds
+  `/var/lib/docker` (PostgreSQL's `pgdata` volume, images, container logs), so `freeBytes` falls when any
+  of them grows. `dataBytes` is the journal and snapshots only; the exchange container cannot see
+  PostgreSQL's size (`docker system df -v` on the host can).
+- **Hard stop.** Below `DISK_STOP_FREE_BYTES` (5 GiB) the venue refuses NEW orders before sequencing
+  (the client gets an `EXEC ORDER_REJECTED` with no `seq`), still accepts cancels, logs one ERROR (hourly
+  while it lasts), and shows `disk.state: STOP`. NEW is accepted again at the stop value plus
+  `DISK_STOP_HYSTERESIS_BYTES`. `disk.retentionHeld` names what keeps retention from freeing space (for
+  example a FAILED Reporter).
+- **If the disk still fills.** Aeron's Archive checks its low storage threshold
+  (`JOURNAL_LOW_STORAGE_BYTES`, 1 GiB) only when a recording starts or extends. A running recording
+  writes until a write fails; then the recording stops and the engine fail-stops (exit 70) at the journal
+  gate. Docker restarts it, and every start at or below 1 GiB free exits 2 before writing anything, so
+  the restart loop is harmless. Free space by hand (old dumps in `/srv/credo/backups`, `docker image
+  prune`), then the venue starts.
+
 ## Backups (P16-6)
 
 `backup/credo-pg-backup.sh` runs `pg_dump -Fc` inside the `postgres` container through

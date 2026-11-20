@@ -7,6 +7,7 @@ import event.OrderEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -14,11 +15,13 @@ import java.util.function.LongSupplier;
  * hot path.
  *
  * One frame in (a complete, length-framed FIX message that FixFrameDecoder has
- * already copied to a fresh byte[]), one of two outcomes:
+ * already copied to a fresh byte[]), one of three outcomes:
  *   - valid   -> stamped with a receipt timestamp and published onto the inbound
  *                RingBuffer<OrderEvent> for the matching engine;
  *   - invalid -> logged once at this boundary (SRS §5.4) and dropped. No feedback
- *                path to the client in this demo (locked decision).
+ *                path to the client in this demo (locked decision);
+ *   - a NEW while the disk guard's hard stop holds (P16-8) -> refused, never published;
+ *                the caller tells the client.
  *
  * Boundary discipline:
  *   - Sole producer on the inbound ring (single-writer, SRS §5.2), so
@@ -74,6 +77,9 @@ public final class OrderGateway {
     private final FixParser  parser  = new FixParser();   // holds reusable scan state
     private final OrderEvent scratch = new OrderEvent();  // reusable parse target
     private final LongSupplier clock;
+    private final NewOrderAdmission admission;
+    /** Written only by the gateway's thread (lazy set), read by the disk guard. */
+    private final AtomicLong refused = new AtomicLong();
 
     /**
      * The only thread allowed to publish, set by the first publish. Volatile only so a violating
@@ -102,8 +108,33 @@ public final class OrderGateway {
      * deterministic clock so they can assert the receipt stamp.
      */
     public OrderGateway(RingBuffer<OrderEvent> ringBuffer, LongSupplier clock) {
+        this(ringBuffer, clock, NewOrderAdmission.ALWAYS);
+    }
+
+    /**
+     * With the disk guard's hard stop (P16-8): while {@code admission} refuses, a parsed NEW is not
+     * published and {@link #onFrame} answers {@link FrameOutcome#REFUSED}. Cancels and session commands are
+     * never refused. Main's form.
+     */
+    public OrderGateway(RingBuffer<OrderEvent> ringBuffer, LongSupplier clock, NewOrderAdmission admission) {
         this.ringBuffer = ringBuffer;
         this.clock = clock;
+        this.admission = admission;
+    }
+
+    /** What {@link #onFrame} did with a frame. */
+    public enum FrameOutcome {
+        /** Stamped and published onto the inbound ring. */
+        PUBLISHED,
+        /** Not a valid message: logged and dropped. */
+        DROPPED,
+        /** A valid NEW refused by the hard stop (P16-8): never sequenced, never journaled. */
+        REFUSED
+    }
+
+    /** NEW orders refused by the hard stop so far. Any thread. */
+    public long refusedNewOrders() {
+        return refused.get();
     }
 
     /**
@@ -113,12 +144,14 @@ public final class OrderGateway {
      * failures are logged at this boundary and swallowed.
      *
      * @param frame a full FIX message (8=...9=...body...10=xxx&lt;SOH&gt;), owned by us
+     * @return what happened to it; {@link FrameOutcome#REFUSED} only for a NEW while the hard stop holds
+     *         (P16-8), so the caller can tell its client. A constant: nothing is allocated.
      */
-    public void onFrame(byte[] frame) {
+    public FrameOutcome onFrame(byte[] frame) {
         checkProducerThread();
         if (frame == null) {
             log.warn("Dropped null frame");
-            return;
+            return FrameOutcome.DROPPED;
         }
 
         // Parse into the reusable scratch. On reject the scratch may be partially
@@ -127,7 +160,14 @@ public final class OrderGateway {
             if (log.isWarnEnabled()) {
                 log.warn("Rejected FIX frame ({} bytes): {}", frame.length, render(frame));
             }
-            return;
+            return FrameOutcome.DROPPED;
+        }
+
+        // The hard stop (P16-8): before the ring, so a refused NEW is never sequenced or journaled and replay
+        // stays exact. One volatile read; the guard logs, never this path. Single writer, so get then lazySet.
+        if (scratch.eventType == OrderEventType.NEW_ORDER && admission.refuseNew()) {
+            refused.lazySet(refused.get() + 1L);
+            return FrameOutcome.REFUSED;
         }
 
         // Stamp receipt time here — deferred out of the parser (Step 5) to keep
@@ -143,6 +183,7 @@ public final class OrderGateway {
         // Claim a slot, copy the validated fields in, publish. One call, no
         // per-message allocation.
         ringBuffer.publishEvent(COPY_INTO_SLOT, scratch);
+        return FrameOutcome.PUBLISHED;
     }
 
     /**

@@ -117,6 +117,27 @@ public final class TestDatabase {
         }
     }
 
+    /** Every row of {@code sql}, its columns joined by a space, NULL as {@code null}. */
+    public static java.util.List<String> rows(String sql) {
+        java.util.List<String> rows = new java.util.ArrayList<>();
+        try (Connection connection = database().connect();
+             Statement statement = connection.createStatement();
+             ResultSet row = statement.executeQuery(sql)) {
+            int columns = row.getMetaData().getColumnCount();
+            while (row.next()) {
+                StringBuilder text = new StringBuilder();
+                for (int i = 1; i <= columns; i++) {
+                    if (i > 1) text.append(' ');
+                    text.append(row.getString(i));
+                }
+                rows.add(text.toString());
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException(sql + ": " + e.getMessage(), e);
+        }
+        return rows;
+    }
+
     /** The first column of the first row of {@code sql}, as text. */
     public static String queryOne(String sql) {
         try (Connection connection = database().connect();

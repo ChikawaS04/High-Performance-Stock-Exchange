@@ -10,6 +10,11 @@ public record ApiResponse(int status, byte[] body, int retryAfterSeconds) {
 
     public static final ApiResponse BAD_REQUEST = error(400, "BAD_REQUEST", 0);
     public static final ApiResponse NOT_FOUND = error(404, "NOT_FOUND", 0);
+    /**
+     * The date's detail rows were deleted by database retention (P16-8): an empty list would read as "no
+     * trades", so the route says the record is gone instead.
+     */
+    public static final ApiResponse PURGED = error(410, "PURGED", 0);
     public static final ApiResponse INTERNAL = error(500, "INTERNAL", 0);
     public static final ApiResponse OVERFLOW = error(500, "OVERFLOW", 0);
     /** The executor holds as many requests as it may; try again shortly. */
