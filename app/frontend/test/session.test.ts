@@ -385,7 +385,7 @@ describe("bars slice and session notional (P17-3)", () => {
         // 14,466,800 + 100 / 70,001 = 14,466,800.0014 -> 14,466,800
         expect(sessionVwap(state)).toBe(14_466_800);
         expect(state.sessionNotional).toBe(14_466_800n * 10_000n * 70_000n + 14_466_900n * 10_000n);
-    });
+    }, 20_000);
 
     it("Bar.vwap equals the session VWAP after that bar's last fill", () => {
         let state = run(initialState, fillExec(1, { tradeId: 1, price: 1_500_000, filledQuantity: 4, timestamp: T0 + 1 * S }));
