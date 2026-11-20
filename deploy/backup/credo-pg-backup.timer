@@ -1,0 +1,12 @@
+[Unit]
+Description=Credo exchange: nightly database backup at 06:15 UTC (P16-6)
+
+[Timer]
+# 06:15 UTC is after the New York midnight roll and its clearing run in both winter (05:00 UTC)
+# and summer (04:00 UTC) time.
+OnCalendar=*-*-* 06:15:00 UTC
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

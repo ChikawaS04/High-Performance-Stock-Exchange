@@ -1,0 +1,15 @@
+[Unit]
+Description=Credo exchange: nightly pg_dump of the venue database (P16-6)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=david
+Group=david
+Environment=BACKUP_DIR=/srv/credo/backups
+Environment=KEEP_DAYS=14
+Environment=PG_CONTAINER=credo-postgres-1
+ExecStart=/opt/credo/backup/credo-pg-backup.sh
+Nice=10
+IOSchedulingClass=idle

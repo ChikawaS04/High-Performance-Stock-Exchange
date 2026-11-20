@@ -10,6 +10,7 @@ The venue's container stack (Phase 16). One image, `credo-exchange:<git short sh
 | `compose.local.yaml` | Docker Desktop override: smaller limits and heap, the exchange on `127.0.0.1:18080`, the journal on a named volume |
 | `credo.env.example` | Every setting, no secret. Copy to `credo.env`, mode 600 |
 | `postgres-init/01-exchange-role.sh` | Creates the login role `exchange` and the database `exchange` |
+| `backup/` | Nightly `pg_dump` script, systemd service and timer (P16-6) |
 
 ## Running
 
@@ -65,13 +66,55 @@ this when a shell's `DB_PASSWORD` reached the first `up`.)
 
 ## Server layout (for P16-10)
 
-- `/opt/credo/`: `compose.yaml`, `credo.env` (owner `david`, mode 600), `postgres-init/`.
+- `/opt/credo/`: `compose.yaml`, `credo.env` (owner `david`, mode 600), `postgres-init/`,
+  `backup/credo-pg-backup.sh`.
 - `/srv/credo/data`: the exchange's journal and snapshots, bind-mounted at `/data`. The container
   runs as uid 10001, so: `sudo chown 10001:10001 /srv/credo/data && sudo chmod 700 /srv/credo/data`.
+- `/srv/credo/backups`: nightly dumps, created by the backup script, mode 700, files 600.
 - The exchange publishes only `127.0.0.1:8080`. Connections from the host (Caddy) arrive inside
   the container from the Compose network's gateway (`172.30.0.1` with the default subnet on
   Docker Desktop); P16-10 confirms the address on the server for `X-Forwarded-For` trust (D15).
 - The bots have the static address `BOTS_IPV4` (default `172.30.0.10`) for P16-9's exemption.
+
+## Backups (P16-6)
+
+`backup/credo-pg-backup.sh` runs `pg_dump -Fc` inside the `postgres` container through
+`docker exec`, writes `/srv/credo/backups/exchange-<UTC stamp>.dump` (mode 600, written as `.part`
+and renamed only on success), and deletes dumps older than 14 days. The timer runs it daily at
+06:15 UTC (after the New York midnight roll and clearing in winter and summer time),
+`Persistent=true`, with up to 5 minutes of random delay.
+
+Install on the server:
+
+```bash
+sudo install -m 755 -o david -g david backup/credo-pg-backup.sh /opt/credo/backup/credo-pg-backup.sh
+```
+
+```bash
+sudo install -m 644 backup/credo-pg-backup.service backup/credo-pg-backup.timer /etc/systemd/system/
+```
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now credo-pg-backup.timer
+```
+
+Restore drill (into a scratch database, then compare and drop):
+
+```bash
+docker exec credo-postgres-1 createdb -U postgres -O exchange exchange_drill
+```
+
+```bash
+docker exec -i credo-postgres-1 pg_restore -U postgres -d exchange_drill --no-owner --role=exchange < /srv/credo/backups/<newest>.dump
+```
+
+```bash
+docker exec credo-postgres-1 psql -U postgres -d exchange_drill -Atc "select (select count(*) from executions), (select count(*) from clearing_run)"
+```
+
+```bash
+docker exec credo-postgres-1 dropdb -U postgres exchange_drill
+```
 
 ## Local smoke run (Docker Desktop)
 
