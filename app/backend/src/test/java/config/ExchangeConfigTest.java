@@ -253,6 +253,33 @@ class ExchangeConfigTest {
         assertTrue(unset.contains("alpacaKeyId=<unset>") && unset.contains("alpacaSecretKey=<unset>"), unset);
     }
 
+    @Test
+    void journalRetentionDefaultsToTwoDaysEnabled() {
+        ExchangeConfig config = ExchangeConfig.from(Map.of());
+        assertEquals(2, config.journalRetentionDays());
+        assertTrue(config.journalRetentionEnabled());
+        assertTrue(config.toString().contains("journalRetentionDays=2"));
+        assertTrue(config.toString().contains("journalRetentionEnabled=true"));
+        assertEquals(2, ExchangeConfig.from(Map.of("JOURNAL_RETENTION_DAYS", " ")).journalRetentionDays(),
+                "blank is the default (credo.env.example)");
+    }
+
+    @Test
+    void journalRetentionDaysAcceptsZeroTo366() {
+        assertEquals(0, ExchangeConfig.from(Map.of("JOURNAL_RETENTION_DAYS", "0")).journalRetentionDays());
+        assertEquals(366, ExchangeConfig.from(Map.of("JOURNAL_RETENTION_DAYS", "366")).journalRetentionDays());
+        assertRejected(Map.of("JOURNAL_RETENTION_DAYS", "-1"), "JOURNAL_RETENTION_DAYS");
+        assertRejected(Map.of("JOURNAL_RETENTION_DAYS", "367"), "JOURNAL_RETENTION_DAYS");
+        assertRejected(Map.of("JOURNAL_RETENTION_DAYS", "two"), "JOURNAL_RETENTION_DAYS");
+    }
+
+    @Test
+    void journalRetentionCanBeSwitchedOff() {
+        assertFalse(ExchangeConfig.from(Map.of("JOURNAL_RETENTION_ENABLED", "false")).journalRetentionEnabled());
+        assertTrue(ExchangeConfig.from(Map.of("JOURNAL_RETENTION_ENABLED", "TRUE")).journalRetentionEnabled());
+        assertRejected(Map.of("JOURNAL_RETENTION_ENABLED", "off"), "JOURNAL_RETENTION_ENABLED");
+    }
+
     private static void assertRejected(Map<String, String> env, String variable) {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(env));
         assertTrue(e.getMessage().contains(variable), e.getMessage());

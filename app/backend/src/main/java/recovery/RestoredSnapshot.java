@@ -22,6 +22,11 @@ import java.util.List;
  * @param businessDate         the open session's business date, or -1
  * @param lastClosedBusinessDate the last closed business date, or -1
  * @param symbol               the last opened session's 8-byte symbol, all NUL if none
+ * @param outboundRecordingId  the outbound recording {@code outboundPosition} belongs to, or -1 (P16-7,
+ *                             schema version 2; -1 in older snapshots)
+ * @param outboundPosition     the outbound recording's recorded position when the snapshot was cut: at most
+ *                             the position just after {@code outboundLastSeq}, or -1 if unknown
+ * @param closeDate            the business date whose SESSION_CLOSE requested this snapshot, or -1 (P16-7)
  */
 public record RestoredSnapshot(
         long inboundSeq,
@@ -35,7 +40,18 @@ public record RestoredSnapshot(
         boolean sessionOpen,
         int businessDate,
         int lastClosedBusinessDate,
-        byte[] symbol) {
+        byte[] symbol,
+        long outboundRecordingId,
+        long outboundPosition,
+        int closeDate) {
+
+    /** A snapshot with no retention fields (schema version 1 and older): they read as -1. */
+    public RestoredSnapshot(long inboundSeq, long inboundPosition, long inboundRecordingId, long outboundLastSeq,
+                            long nextTradeId, long lastCommandTimestamp, List<RestoredOrder> orders, int schemaVersion,
+                            boolean sessionOpen, int businessDate, int lastClosedBusinessDate, byte[] symbol) {
+        this(inboundSeq, inboundPosition, inboundRecordingId, outboundLastSeq, nextTradeId, lastCommandTimestamp,
+                orders, schemaVersion, sessionOpen, businessDate, lastClosedBusinessDate, symbol, -1L, -1L, -1);
+    }
 
     /**
      * Restores this state into a pristine engine and its handler: every resting order in restore
@@ -60,6 +76,11 @@ public record RestoredSnapshot(
     /** True if this snapshot was written by a build with the session lifecycle (P15-8 or later). */
     public boolean hasSessionState() {
         return schemaVersion >= 1;
+    }
+
+    /** True if a SESSION_CLOSE requested this snapshot (P16-7): retention's closed-day marker. */
+    public boolean isCloseSnapshot() {
+        return closeDate > 0;
     }
 
     /** One resting order and whether it lives in a peg pool. */

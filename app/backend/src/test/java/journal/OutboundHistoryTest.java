@@ -75,7 +75,7 @@ class OutboundHistoryTest {
             Collecting visitor = new Collecting(Integer.MAX_VALUE);
             ExecutionHistory.Result result = f.history().replay(42, f.history().publishedSeq(), visitor);
 
-            assertEquals(new ExecutionHistory.Result(700, 659, false), result);
+            assertEquals(new ExecutionHistory.Result(700, 659, false, 1), result);
             for (int i = 0; i < visitor.seen.size(); i++) assertEquals(observe(fill(42 + i)), visitor.seen.get(i));
         }
     }
@@ -87,11 +87,11 @@ class OutboundHistoryTest {
             readAll(f.journal(), 20);
 
             Collecting fromStart = new Collecting(Integer.MAX_VALUE);
-            assertEquals(new ExecutionHistory.Result(20, 20, false), f.history().replay(1, 20, fromStart));
+            assertEquals(new ExecutionHistory.Result(20, 20, false, 1), f.history().replay(1, 20, fromStart));
             assertEquals(1, fromStart.seen.get(0).seq());
 
             Collecting beyond = new Collecting(Integer.MAX_VALUE);
-            assertEquals(new ExecutionHistory.Result(20, 0, false), f.history().replay(21, 20, beyond));
+            assertEquals(new ExecutionHistory.Result(20, 0, false, 1), f.history().replay(21, 20, beyond));
             assertTrue(beyond.seen.isEmpty());
         }
     }
@@ -120,7 +120,7 @@ class OutboundHistoryTest {
             ExecutionHistory.Result result = f.history().replay(5, 15, visitor);
             late.join(10_000);
 
-            assertEquals(new ExecutionHistory.Result(15, 11, false), result);
+            assertEquals(new ExecutionHistory.Result(15, 11, false, 1), result);
             for (int i = 0; i < visitor.seen.size(); i++) assertEquals(5 + i, visitor.seen.get(i).seq());
         }
     }
@@ -138,7 +138,35 @@ class OutboundHistoryTest {
             assertEquals(3, visitor.seen.size());
             // The next replay is unaffected.
             Collecting again = new Collecting(Integer.MAX_VALUE);
-            assertEquals(new ExecutionHistory.Result(50, 41, false), f.history().replay(10, 50, again));
+            assertEquals(new ExecutionHistory.Result(50, 41, false, 1), f.history().replay(10, 50, again));
+        }
+    }
+
+    /**
+     * P16-7, R5: the start is read for every request, so after a purge moved it the replay begins at
+     * the new start, and the first event there is whole: its seq is the earliest the history holds.
+     */
+    @Test
+    void afterAPurgeTheReplayStartsAtTheNewStartWithTheEarliestEvent() {
+        try (Fixture f = fixture()) {
+            f.record(1, 1500);
+            readAll(f.journal(), 1500);
+            long recordingId = f.journal().findRecording(Journal.OUTBOUND_STREAM_ID).recordingId();
+            f.journal().archive().purgeSegments(recordingId, 2L * JournalTestSupport.SMALL);
+
+            Collecting visitor = new Collecting(Integer.MAX_VALUE);
+            ExecutionHistory.Result result = f.history().replay(1, 1500, visitor);
+            assertTrue(result.firstSeq() > 1, "the oldest events are gone");
+            assertEquals(1500, result.lastSeq());
+            assertEquals(1500 - result.firstSeq() + 1, result.count());
+            for (int i = 0; i < visitor.seen.size(); i++) {
+                assertEquals(observe(fill(result.firstSeq() + i)), visitor.seen.get(i));
+            }
+            // A request inside the retained history is unaffected.
+            Collecting tail = new Collecting(Integer.MAX_VALUE);
+            ExecutionHistory.Result fromInside = f.history().replay(1400, 1500, tail);
+            assertEquals(101, fromInside.count());
+            assertEquals(result.firstSeq(), fromInside.firstSeq());
         }
     }
 }

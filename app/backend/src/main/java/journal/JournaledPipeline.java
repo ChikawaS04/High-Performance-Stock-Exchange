@@ -33,6 +33,7 @@ import recovery.SnapshotStore;
 import recovery.SnapshotWriter;
 import util.FailStop;
 import util.ClearingStatus;
+import util.JournalStatus;
 import util.ReporterStatus;
 import util.VenueStatus;
 
@@ -90,6 +91,13 @@ import java.util.function.Supplier;
  * ({@link #checkNotBeforeSessions}). The check is skipped when the snapshot recovery starts from
  * was written by a build with sessions (it passed the check then) or the journal is empty.
  *
+ * Journal retention (P16-7, D14). A {@link JournalRetention} thread moves each recording's start
+ * forward while the venue runs. Recovery therefore reads every start from the catalog and never
+ * replays from before it: a snapshot below the inbound start is skipped, and a purged inbound journal
+ * with no valid snapshot at or after its start refuses startup (R4), because a full replay from seq 1
+ * is no longer possible. Retention starts at the end of {@link #start()} and is stopped first in
+ * {@link #shutdown()}, before the journal closes.
+ *
  * Fail-stop. A fatal sequencer or recorder offer, a recorder gap, and any unexpected engine-agent
  * exception go to the {@link FailStop}; none of those threads ever advances past the failure.
  *
@@ -116,14 +124,21 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
      * @param beforeRecord called by the outbound recorder with each seq before it is recorded; may
      *                     block (a slow recorder) or throw (a recorder failure)
      */
-    public record Seams(CommandHandler commandTap, SnapshotSink snapshotSink, LongConsumer beforeRecord) {
-        public static final Seams NONE = new Seams(null, null, null);
+    public record Seams(CommandHandler commandTap, SnapshotSink snapshotSink, LongConsumer beforeRecord,
+                        RetentionTiming retentionTiming) {
+        public static final Seams NONE = new Seams(null, null, null, null);
+
+        /** Without a retention schedule: production's. */
+        public Seams(CommandHandler commandTap, SnapshotSink snapshotSink, LongConsumer beforeRecord) {
+            this(commandTap, snapshotSink, beforeRecord, null);
+        }
     }
 
     private final Journal journal;
     private final Sequencer sequencer;
     private final OutboundRecorder recorder;
     private final OutboundHistory outboundHistory;
+    private final JournalRetention retention;
     private final InboundPipeline inbound;
     private final OutboundPipeline outbound;
     private final SnapshotPipeline snapshots;
@@ -185,15 +200,26 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         try {
             // The newest snapshot is checked against the journal before anything is opened, so a
             // deleted or replaced journal refuses startup without a recording being started.
-            SnapshotStore store = new SnapshotStore(config.snapshotDir());
-            RestoredSnapshot newest = loadSnapshot(store, Long.MAX_VALUE);
+            // R3 (P16-7): the close snapshots of the retention window are kept beside the newest few.
+            SnapshotStore store = new SnapshotStore(config.snapshotDir(), SnapshotStore.DEFAULT_KEEP,
+                    config.journalRetentionDays() + 1);
+            RecordingDescriptor inboundAtStart = launched.findRecording(Journal.INBOUND_STREAM_ID);
+            long inboundStart = inboundAtStart == null ? 0L : inboundAtStart.startPosition();
+            RestoredSnapshot newest = loadSnapshot(store, Long.MAX_VALUE, inboundStart);
             checkRecording(newest, launched, config);
+            checkRecoverableAfterRetention(newest, inboundStart, config);
 
             RecordedPublication outboundRecorded = launched.openRecordedPublication(Journal.OUTBOUND_STREAM_ID);
             this.outboundRecorded = outboundRecorded;
             this.recorder = OutboundRecorder.open(launched, outboundRecorded, new BackoffIdleStrategy(),
                     seams.beforeRecord());
             this.outboundFloor = recorder.lastSeqAtOpen();
+            if (outboundRecorded.startPosition() > 0 && outboundFloor == 0) {
+                throw new RecoveryException("The outbound recording in " + config.archiveDir() + " starts at position "
+                        + outboundRecorded.startPosition() + " after journal retention but holds no readable event, so"
+                        + " its last seq is unknown. Do not delete the archive; keep " + config.dataDir()
+                        + " for investigation.");
+            }
 
             RecordedPublication recorded = launched.openRecordedPublication(Journal.INBOUND_STREAM_ID);
             this.inboundRecorded = recorded;
@@ -205,10 +231,11 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             // every event the recording lacks. A newer one is skipped (logged by the store).
             RestoredSnapshot snapshot = newest;
             if (newest != null && newest.outboundLastSeq() > outboundFloor) {
-                snapshot = loadSnapshot(store, outboundFloor);
+                snapshot = loadSnapshot(store, outboundFloor, recorded.startPosition());
                 checkRecording(snapshot, launched, config);
                 checkNotBeyondJournal(snapshot, recorded, sequencer.lastSeq(), config);
             }
+            checkRecoverableAfterRetention(snapshot, recorded.startPosition(), config);
             if ((snapshot == null || !snapshot.hasSessionState()) && sequencer.lastSeq() > 0) {
                 checkNotBeforeSessions(launched, recorded, outboundRecorded, outboundFloor, config);
             }
@@ -220,6 +247,7 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             Image image = launched.subscribe(recorded);
             RecordingPositionGate gate = launched.recordingPositionGate(recorded);
 
+            RecordingPositionGate outboundGate = launched.recordingPositionGate(outboundRecorded);
             this.outbound = new OutboundPipeline(WaitStrategies.ringWait(config.ringWait()));
             this.outbound.handleEventsWith(recorder, new FailStopExceptionHandler<>("outbound-recorder", this.failStop));
             this.snapshots = new SnapshotPipeline(WaitStrategies.ringWait(config.ringWait()));
@@ -244,7 +272,8 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             writer = new SnapshotWriter(seams.snapshotSink() == null ? store : seams.snapshotSink());
             this.snapshotWriter = writer;
             this.snapshotScheduler = new SnapshotScheduler(engine, handler, writer, store,
-                    config.snapshotInterval(), recorded.recordingId());
+                    config.snapshotInterval(), recorded.recordingId(), outboundRecorded.recordingId(),
+                    outboundGate::limit);
             // SRS §3.10: a snapshot at every session close, taken at the SESSION_CLOSE's seq.
             handler.setSessionCloseHook(snapshotScheduler::requestSnapshot);
 
@@ -266,8 +295,13 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
                     t -> this.failStop.fatal("engine-agent", unwrap(t)), null, agent);
             this.inbound = new InboundPipeline(sequencer, new FailStopExceptionHandler<>("sequencer", this.failStop),
                     WaitStrategies.ringWait(config.ringWait()));
-            this.outboundHistory = new OutboundHistory(launched.archive(), outboundRecorded,
-                    launched.recordingPositionGate(outboundRecorded), this::publishedSeq);
+            this.outboundHistory = new OutboundHistory(launched.archive(), outboundRecorded, outboundGate,
+                    this::publishedSeq);
+            this.retention = new JournalRetention(launched, recorded, outboundRecorded, gate, outboundGate, store,
+                    () -> reporterStatus, this::running, recorder::recordedSeq,
+                    seams.retentionTiming() == null ? RetentionTiming.PRODUCTION : seams.retentionTiming());
+            // After each close snapshot is on disk, retention runs (R6).
+            writer.onCloseSnapshot(retention::requestRun);
             this.journal = launched;
         } catch (RuntimeException e) {
             if (writer != null) writer.close();
@@ -276,9 +310,9 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         }
     }
 
-    private static RestoredSnapshot loadSnapshot(SnapshotStore store, long maxOutboundSeq) {
+    private static RestoredSnapshot loadSnapshot(SnapshotStore store, long maxOutboundSeq, long minInboundPosition) {
         try {
-            return store.loadNewestValid(maxOutboundSeq);
+            return store.loadNewestValid(maxOutboundSeq, minInboundPosition);
         } catch (IOException e) {
             throw new RecoveryException("Cannot read the snapshot directory " + store.dir() + ": " + e
                     + ". Fix its permissions, or move it aside to recover by replaying the whole journal.", e);
@@ -295,6 +329,8 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
                     + " holds no inbound recording: the journal was deleted. Restore " + config.archiveDir()
                     + " from backup, or, to start a fresh trading history, delete " + config.snapshotDir() + ".");
         }
+        // A snapshot below a start that retention moved is never loaded (loadNewestValid skips it), so a
+        // position before the start can only mean another journal.
         if (existing.recordingId() != snapshot.inboundRecordingId()
                 || snapshot.inboundPosition() < existing.startPosition()) {
             throw new RecoveryException("Snapshot at inbound seq " + snapshot.inboundSeq() + " was taken on inbound"
@@ -304,6 +340,22 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
                     + config.archiveDir() + ", or, if this journal is the intended history, delete "
                     + config.snapshotDir() + ".");
         }
+    }
+
+    /**
+     * R4 (P16-7): once journal retention has moved the inbound start, recovery must begin at a snapshot
+     * at or after it; replaying from seq 1 is impossible. Refused before anything is replayed or
+     * appended.
+     */
+    private static void checkRecoverableAfterRetention(RestoredSnapshot snapshot, long inboundStart,
+                                                       ExchangeConfig config) {
+        if (inboundStart <= 0 || (snapshot != null && snapshot.inboundPosition() >= inboundStart)) return;
+        throw new RecoveryException("The inbound journal in " + config.archiveDir() + " starts at position "
+                + inboundStart + ": journal retention removed everything before it. No valid snapshot at or after"
+                + " that position remains in " + config.snapshotDir() + " (the reasons are logged above), and"
+                + " recovery would need a full replay from seq 1, which is no longer possible. Put back any snapshot"
+                + " that was moved aside, or restore " + config.snapshotDir() + " from a backup; or move "
+                + config.dataDir() + " aside to start a fresh trading history. Do not delete the archive.");
     }
 
     /** A snapshot beyond the journal's end means the journal lost commands the venue had applied. */
@@ -351,7 +403,16 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         JournalReader reader = new JournalReader(journal.archive());
         boolean legacy;
         String evidence;
-        if (outboundLastSeq > 0) {
+        if (inbound.startPosition() > 0) {
+            // Unreachable after the R4 check: a purged inbound journal always recovers from a snapshot with
+            // session state. Refuse rather than scan from the middle of the history.
+            throw new RecoveryException("The journal in " + config.archiveDir() + " has been purged by journal"
+                    + " retention and recovery has no snapshot with session state, so it cannot check that the data"
+                    + " was written with sessions. Keep " + config.dataDir() + " for investigation.");
+        }
+        // P16-7: an outbound recording purged by retention no longer starts at the first SESSION_OPENED, so
+        // the inbound variant decides; the inbound journal is whole, so that check is complete.
+        if (outboundLastSeq > 0 && outbound.startPosition() == 0) {
             ExecutionEventCodec codec = new ExecutionEventCodec();
             ExecutionEvent event = new ExecutionEvent();
             ExecutionEventType[] found = {null};
@@ -381,6 +442,7 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             });
             legacy = found[0];
             evidence = "the inbound journal holds a NEW before any SESSION_OPEN and there is no outbound recording"
+                    + " that starts at its beginning"
                     + " (if this data was written with sessions and its outbound recording was removed, the first"
                     + " order came before the first open and the data cannot be told apart from older data)";
         }
@@ -466,6 +528,16 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         return clearingStatus;
     }
 
+    /** Journal retention (P16-7). */
+    public JournalRetention retention() {
+        return retention;
+    }
+
+    @Override
+    public JournalStatus journalRetention() {
+        return retention.status();
+    }
+
     /** The recorded execution history RESEND reads (D16). */
     public ExecutionHistory outboundHistory() {
         return outboundHistory;
@@ -507,6 +579,11 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
     /** The last seq in the outbound recording when this run opened it: recovery's publish floor (D13). */
     public long outboundFloor() {
         return outboundFloor;
+    }
+
+    /** The recorded event carrying {@link #outboundFloor()} (E, read from the recording's tail), or null. Do not modify. */
+    public ExecutionEvent lastRecordedAtOpen() {
+        return recorder.lastRecordedAtOpen();
     }
 
     /**
@@ -580,6 +657,7 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         await(() -> fatal || (outbound.isDrained() && snapshots.isDrained()),
                 "the recovered events and book to reach every subscriber", () -> "recorded seq " + recorder.recordedSeq());
         inbound.start();
+        retention.start();
     }
 
     /**
@@ -633,13 +711,14 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
     private void abortStart() {
         closed = true;
         boolean engineStopped = false;
+        boolean retentionStopped = retention.stop();
         try {
             engineStopped = closeAgent();
             outbound.halt();
             snapshots.halt();
         } finally {
             snapshotWriter.close();
-            closeJournalUnless(!engineStopped);
+            closeJournalUnless(!engineStopped || !retentionStopped);
         }
     }
 
@@ -653,8 +732,8 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
      */
     private void closeJournalUnless(boolean engineAbandoned) {
         if (engineAbandoned) {
-            log.error("Not closing the journal: the engine thread did not stop and may still read its mapped"
-                    + " buffers. Exit the process; the next start recovers from the journal as after a crash.");
+            log.error("Not closing the journal: the engine or retention thread did not stop and may still read"
+                    + " its mapped buffers. Exit the process; the next start recovers from the journal as after a crash.");
             return;
         }
         journal.close();
@@ -679,6 +758,9 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
         boolean clean = true;
         // Not started: there is no engine thread. Started: false until the agent is known to have stopped.
         boolean engineStopped = !started;
+        // First, so nothing purges while the venue drains; joined before the journal closes (R6).
+        boolean retentionStopped = retention.stop();
+        clean &= retentionStopped;
         try {
             if (started) {
                 if (fatal) {
@@ -732,7 +814,7 @@ public final class JournaledPipeline implements AutoCloseable, VenueStatus {
             }
         } finally {
             snapshotWriter.close();
-            closeJournalUnless(!engineStopped);
+            closeJournalUnless(!engineStopped || !retentionStopped);
         }
         return clean && !fatal;
     }

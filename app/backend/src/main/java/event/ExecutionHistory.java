@@ -35,10 +35,17 @@ public interface ExecutionHistory {
     }
 
     /**
-     * @param lastSeq the last seq read (sent or skipped), 0 if the history was empty
-     * @param count   events handed to the visitor
-     * @param stopped true if the visitor stopped the replay before the end
+     * @param lastSeq  the last seq read (sent or skipped), 0 if the history was empty
+     * @param count    events handed to the visitor
+     * @param stopped  true if the visitor stopped the replay before the end
+     * @param firstSeq the first seq the history still holds, as read by this call (P16-7: journal
+     *                 retention removes the oldest events), or 0 if nothing was read
      */
-    record Result(long lastSeq, long count, boolean stopped) {
+    record Result(long lastSeq, long count, boolean stopped, long firstSeq) {
+
+        /** A result that does not report the first seq. */
+        public Result(long lastSeq, long count, boolean stopped) {
+            this(lastSeq, count, stopped, 0L);
+        }
     }
 }

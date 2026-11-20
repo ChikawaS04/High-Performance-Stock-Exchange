@@ -40,6 +40,9 @@ public final class SnapshotWriter implements AutoCloseable {
 
     private int pendingLength;
     private long pendingSeq;
+    private int pendingCloseDate = -1;
+    /** Told on the writer thread after a close snapshot is written (P16-7: wakes journal retention). */
+    private volatile Runnable closeListener;
 
     public SnapshotWriter(SnapshotSink sink) {
         this.sink = sink;
@@ -60,10 +63,27 @@ public final class SnapshotWriter implements AutoCloseable {
 
     /** Hands the encoded body to the writer thread. Call only after encoding while idle. */
     public void submit(int length, long seq) {
+        submit(length, seq, -1);
+    }
+
+    /**
+     * As {@link #submit(int, long)}, for a snapshot a SESSION_CLOSE of {@code closeDate} requested (-1
+     * for any other); after such a snapshot is written the close listener runs on this writer thread.
+     */
+    public void submit(int length, long seq, int closeDate) {
         pendingLength = length;
         pendingSeq = seq;
+        pendingCloseDate = closeDate;
         busy = true;              // publishes the buffer and the two fields above
         LockSupport.unpark(thread);
+    }
+
+    /**
+     * Runs {@code listener} on the writer thread after each close snapshot is written (P16-7). It must
+     * not block: journal retention's is an unpark. Any thread; set before the venue starts.
+     */
+    public void onCloseSnapshot(Runnable listener) {
+        this.closeListener = listener;
     }
 
     /** Engine thread: an encode failed; the writer thread logs it. */
@@ -101,8 +121,18 @@ public final class SnapshotWriter implements AutoCloseable {
                         failure);
             }
             if (busy) {
-                if (writeLogged(pendingLength, pendingSeq)) writtenCount++;
+                int closeDate = pendingCloseDate;
+                boolean written = writeLogged(pendingLength, pendingSeq);
+                if (written) writtenCount++;
                 busy = false;
+                Runnable listener = closeListener;
+                if (written && closeDate > 0 && listener != null) {
+                    try {
+                        listener.run();
+                    } catch (RuntimeException e) {
+                        log.warn("The close-snapshot listener failed: {}", e.toString());
+                    }
+                }
             } else {
                 LockSupport.parkNanos(this, 100_000_000L);
             }

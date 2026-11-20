@@ -39,6 +39,10 @@ public final class ExchangeConfig {
     // P16-2: how the media driver and Archive threads idle, and how the three Disruptor rings wait.
     public static final String JOURNAL_IDLE_STRATEGY  = "JOURNAL_IDLE_STRATEGY";
     public static final String RING_WAIT_STRATEGY     = "RING_WAIT_STRATEGY";
+    /** Journal retention (P16-7): closed business days kept, plus the current day. */
+    public static final String JOURNAL_RETENTION_DAYS    = "JOURNAL_RETENTION_DAYS";
+    /** Journal retention (P16-7): false freezes the journal (nothing purged). */
+    public static final String JOURNAL_RETENTION_ENABLED = "JOURNAL_RETENTION_ENABLED";
     // Session reference data (P15-8). With DB_URL set, the database supplies all but the symbol, which names its row.
     public static final String SESSION_SYMBOL        = "SESSION_SYMBOL";
     public static final String SESSION_TICK_SIZE      = "SESSION_TICK_SIZE";
@@ -110,6 +114,8 @@ public final class ExchangeConfig {
     public static final int    DEFAULT_JOURNAL_TERM_LENGTH    = 256 * 1024;
     /** 16 MiB. The Archive preallocates every segment file to this size, so it stays small. */
     public static final int    DEFAULT_JOURNAL_SEGMENT_LENGTH = 16 * 1024 * 1024;
+    public static final int    DEFAULT_JOURNAL_RETENTION_DAYS = 2;
+    public static final int    MAX_JOURNAL_RETENTION_DAYS     = 366;
 
     public static final String DEFAULT_SESSION_SYMBOL         = "ASML";
     public static final long   DEFAULT_SESSION_TICK_SIZE      = 100L;
@@ -142,6 +148,8 @@ public final class ExchangeConfig {
     private final ArchiveThreading archiveThreading;
     private final EngineIdle journalIdle;
     private final RingWait ringWait;
+    private final int     journalRetentionDays;
+    private final boolean journalRetentionEnabled;
     private final String  sessionSymbol;
     private final long    sessionTickSize;
     private final long    sessionLotSize;
@@ -168,6 +176,9 @@ public final class ExchangeConfig {
         this.archiveThreading     = archiveThreadingValue(env, JOURNAL_ARCHIVE_THREADING, ArchiveThreading.SHARED);
         this.journalIdle          = engineIdleValue(env, JOURNAL_IDLE_STRATEGY, EngineIdle.BACKOFF);
         this.ringWait             = ringWaitValue(env, RING_WAIT_STRATEGY, RingWait.BLOCKING);
+        this.journalRetentionDays = intValue(env, JOURNAL_RETENTION_DAYS, DEFAULT_JOURNAL_RETENTION_DAYS, 0,
+                MAX_JOURNAL_RETENTION_DAYS);
+        this.journalRetentionEnabled = booleanValue(env, JOURNAL_RETENTION_ENABLED, true);
         this.sessionSymbol        = symbolValue(env, SESSION_SYMBOL, DEFAULT_SESSION_SYMBOL);
         this.sessionTickSize      = longValue(env, SESSION_TICK_SIZE, DEFAULT_SESSION_TICK_SIZE, 1L);
         this.sessionLotSize       = longValue(env, SESSION_LOT_SIZE, DEFAULT_SESSION_LOT_SIZE, 1L);
@@ -272,6 +283,16 @@ public final class ExchangeConfig {
     /** The wait strategy of every consumer of the three Disruptor rings. */
     public RingWait ringWait() { return ringWait; }
 
+    /**
+     * Closed business days the journal keeps besides the current day (P16-7, D14): retention's window
+     * starts at the close of the day before them. 0 keeps only the current day (the snapshot and
+     * Reporter floors still apply); a nightly database backup can resume only with 1 or more.
+     */
+    public int journalRetentionDays() { return journalRetentionDays; }
+
+    /** Whether journal retention purges anything (P16-7); false freezes the journal. */
+    public boolean journalRetentionEnabled() { return journalRetentionEnabled; }
+
     /** Alpaca key id, or null when unset. A credential: log {@link #toString()}, never this value. */
     public String alpacaKeyId() { return alpacaKeyId; }
 
@@ -301,6 +322,8 @@ public final class ExchangeConfig {
                 + ", archiveThreading=" + archiveThreading.value()
                 + ", journalIdle=" + journalIdle.value()
                 + ", ringWait=" + ringWait.value()
+                + ", journalRetentionDays=" + journalRetentionDays
+                + ", journalRetentionEnabled=" + journalRetentionEnabled
                 + ", sessionSymbol=" + sessionSymbol
                 + ", sessionTickSize=" + sessionTickSize
                 + ", sessionLotSize=" + sessionLotSize

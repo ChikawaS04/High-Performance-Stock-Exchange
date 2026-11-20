@@ -11,12 +11,17 @@ import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.CRC32C;
@@ -39,6 +44,16 @@ import java.util.zip.CRC32C;
  * successful write. A file whose name, length, checksum, version or contents is wrong is
  * ignored with a WARN naming the reason, and loading moves on to the next older one.
  *
+ * Close snapshots (P16-7, R3). Journal retention takes its window from the snapshots taken at
+ * session close, so besides the newest few, the store keeps the close snapshot (the lowest seq
+ * carrying that close date) of each of the newest {@code keepCloses} distinct close dates. A close
+ * snapshot is recognised from its root block ({@link SnapshotCodec#peekCloseDate}), so its file name
+ * is the ordinary one and {@link #exists(long)} (the shutdown snapshot's skip) is unchanged.
+ *
+ * A snapshot whose seq already has a valid file is not rewritten (P16-7): replay after a restart
+ * passes the same seqs again, the state is identical by determinism, and the file written live
+ * carries the outbound position that a replay-time snapshot cannot know.
+ *
  * Writes come from one thread at a time (the snapshot writer, or shutdown after it is idle).
  * Logging here is fine: nothing in this class runs on the engine thread.
  */
@@ -54,8 +69,12 @@ public final class SnapshotStore implements SnapshotSink {
     private static final Pattern NAME = Pattern.compile("snapshot-(\\d{20})\\.sbe");
     private static final String TEMP_SUFFIX = ".tmp";
 
+    /** Bytes read from a file to recognise a close snapshot: the header and root block, with room to spare. */
+    private static final int PEEK_LENGTH = 256;
+
     private final Path dir;
     private final int keep;
+    private final int keepCloses;
     private final ByteBuffer trailer = ByteBuffer.allocate(TRAILER_LENGTH).order(ByteOrder.LITTLE_ENDIAN);
     private final CRC32C crc = new CRC32C();
 
@@ -64,9 +83,20 @@ public final class SnapshotStore implements SnapshotSink {
     }
 
     public SnapshotStore(Path dir, int keep) {
+        this(dir, keep, 0);
+    }
+
+    /**
+     * @param keep       the newest snapshots kept, whatever they are
+     * @param keepCloses close dates whose close snapshot is kept besides them (P16-7: the retention
+     *                   window's closes, {@code JOURNAL_RETENTION_DAYS + 1}); 0 keeps none
+     */
+    public SnapshotStore(Path dir, int keep, int keepCloses) {
         if (keep < 1) throw new IllegalArgumentException("keep must be >= 1, got " + keep);
+        if (keepCloses < 0) throw new IllegalArgumentException("keepCloses must be >= 0, got " + keepCloses);
         this.dir = dir;
         this.keep = keep;
+        this.keepCloses = keepCloses;
     }
 
     public Path dir() {
@@ -94,6 +124,10 @@ public final class SnapshotStore implements SnapshotSink {
         Files.createDirectories(dir);
         Path target = dir.resolve(fileName(seq));
         Path temp = dir.resolve(fileName(seq) + TEMP_SUFFIX);
+        if (Files.exists(target) && isValid(target)) {
+            log.info("Snapshot {} already exists and is valid; kept", target.getFileName());
+            return;
+        }
 
         byte[] copy = new byte[length];
         body.getBytes(0, copy);
@@ -118,16 +152,78 @@ public final class SnapshotStore implements SnapshotSink {
         prune();
     }
 
-    /** Deletes all but the newest {@code keep} snapshots. A failed delete is logged and left. */
+    /**
+     * Deletes all but the newest {@code keep} snapshots and the close snapshot of each of the newest
+     * {@code keepCloses} close dates. A failed delete is logged and left.
+     */
     void prune() throws IOException {
         List<Path> snapshots = listByNewest();
-        for (int i = keep; i < snapshots.size(); i++) {
-            try {
-                Files.deleteIfExists(snapshots.get(i));
-            } catch (IOException e) {
-                log.warn("Could not delete old snapshot {}: {}", snapshots.get(i), e.toString());
+        if (snapshots.size() <= keep) return;
+        Set<Path> kept = new HashSet<>(snapshots.subList(0, keep));
+        if (keepCloses > 0) {
+            // Newest first, so a date's close snapshot is the last file seen with that date.
+            Map<Integer, Path> closeOf = new LinkedHashMap<>();
+            for (Path file : snapshots) {
+                int date = peekCloseDate(file);
+                if (date > 0) closeOf.put(date, file);
+            }
+            List<Integer> dates = new ArrayList<>(closeOf.keySet());
+            dates.sort(Comparator.reverseOrder());
+            for (int i = 0; i < Math.min(keepCloses, dates.size()); i++) {
+                kept.add(closeOf.get(dates.get(i)));
             }
         }
+        for (Path file : snapshots) {
+            if (kept.contains(file)) continue;
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException e) {
+                log.warn("Could not delete old snapshot {}: {}", file, e.toString());
+            }
+        }
+    }
+
+    /** The close date in a snapshot file's root block, or -1 (not a close snapshot, or unreadable). */
+    static int peekCloseDate(Path file) {
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
+            ByteBuffer head = ByteBuffer.allocate(PEEK_LENGTH);
+            while (head.hasRemaining() && channel.read(head) > 0) {
+                // keep reading until the buffer is full or the file ends
+            }
+            return SnapshotCodec.peekCloseDate(new UnsafeBuffer(head.array()), head.position());
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
+    private static boolean isValid(Path file) {
+        try {
+            read(file);
+            return true;
+        } catch (IOException | InvalidSnapshotException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Every valid snapshot in the directory, newest seq first (P16-7: what journal retention counts
+     * and floors on). Invalid files are left out silently (recovery logs them); a file that disappears
+     * while it is read was pruned and is left out too.
+     *
+     * @throws IOException if the directory cannot be listed or a file cannot be read
+     */
+    public List<RestoredSnapshot> listValid() throws IOException {
+        List<RestoredSnapshot> found = new ArrayList<>();
+        for (Path file : listByNewest()) {
+            try {
+                found.add(read(file));
+            } catch (NoSuchFileException e) {
+                // pruned by the writer between the listing and the read
+            } catch (InvalidSnapshotException e) {
+                // unusable; recovery reports it
+            }
+        }
+        return found;
     }
 
     /** Every file with a complete snapshot name, newest seq first. */
@@ -161,10 +257,26 @@ public final class SnapshotStore implements SnapshotSink {
      * from the journal's start) regenerates them.
      */
     public RestoredSnapshot loadNewestValid(long maxOutboundSeq) throws IOException {
+        return loadNewestValid(maxOutboundSeq, 0L);
+    }
+
+    /**
+     * As {@link #loadNewestValid(long)}, also skipping a snapshot whose inbound position is below
+     * {@code minInboundPosition}, the inbound recording's start (P16-7): once journal retention has
+     * moved the start, an older snapshot's replay would begin at a position that no longer exists. It
+     * is skipped with a WARN and left in place.
+     */
+    public RestoredSnapshot loadNewestValid(long maxOutboundSeq, long minInboundPosition) throws IOException {
         deleteTemporaries();
         for (Path file : listByNewest()) {
             try {
                 RestoredSnapshot snapshot = read(file);
+                if (snapshot.inboundPosition() < minInboundPosition) {
+                    log.warn("Skipping snapshot {}: its inbound position {} is before the journal's start {}, which"
+                                    + " journal retention has moved past it", file.getFileName(),
+                            snapshot.inboundPosition(), minInboundPosition);
+                    continue;
+                }
                 if (snapshot.outboundLastSeq() > maxOutboundSeq) {
                     log.warn("Skipping snapshot {}: it records outbound seq {} but the outbound recording ends at {};"
                                     + " the recorder had not written events {} to {} when the venue stopped, so an"

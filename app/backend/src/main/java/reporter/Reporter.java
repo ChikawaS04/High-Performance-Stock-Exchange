@@ -86,6 +86,14 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
     private volatile String state = "STARTING";
     private volatile long checkpointInboundSeq;
     private volatile long checkpointOutboundSeq;
+    /**
+     * The recording positions of the committed checkpoint, published only after the transaction that
+     * wrote them has committed (or after they were read back from the database), -1 while nothing is
+     * committed (P16-7). Journal retention's Reporter floor: a restart resumes from the database, so
+     * only a committed position may bound a purge.
+     */
+    private volatile long committedInboundPosition = -1L;
+    private volatile long committedOutboundPosition = -1L;
     private volatile String failure;
     /** Told after a commit that recorded a closed date for clearing (P15-11); null when nothing listens. */
     private volatile Runnable onRunPending;
@@ -183,6 +191,16 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
         return checkpointOutboundSeq;
     }
 
+    @Override
+    public long checkpointInboundPosition() {
+        return committedInboundPosition;
+    }
+
+    @Override
+    public long checkpointOutboundPosition() {
+        return committedOutboundPosition;
+    }
+
     /** Why the Reporter stopped itself, or null. */
     public String failure() {
         return failure;
@@ -233,13 +251,21 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
         ReporterStore.Checkpoint checkpoint = ReporterStore.loadCheckpoint(connection);
         checkSameJournal(checkpoint, identity);
         EventAttributor attributor = new EventAttributor(ReporterStore.loadResume(connection, checkpoint));
-        long inboundFrom = (checkpoint.inboundSeq() == 0L) ? inbound.startPosition() : checkpoint.inboundPosition();
-        long outboundFrom = (checkpoint.outboundSeq() == 0L) ? outbound.startPosition() : checkpoint.outboundPosition();
+        // Read fresh: journal retention moves a recording's start while the venue runs (P16-7).
+        long inboundStart = journal.archive().getStartPosition(inbound.recordingId());
+        long outboundStart = journal.archive().getStartPosition(outbound.recordingId());
+        checkNotPurged("inbound", checkpoint.inboundSeq(), checkpoint.inboundPosition(), inboundStart);
+        checkNotPurged("outbound", checkpoint.outboundSeq(), checkpoint.outboundPosition(), outboundStart);
+        long inboundFrom = (checkpoint.inboundSeq() == 0L) ? inboundStart : checkpoint.inboundPosition();
+        long outboundFrom = (checkpoint.outboundSeq() == 0L) ? outboundStart : checkpoint.outboundPosition();
         checkWithinRecording("inbound", inboundFrom, inboundGate.limit());
         checkWithinRecording("outbound", outboundFrom, outboundGate.limit());
 
         checkpointInboundSeq = checkpoint.inboundSeq();
         checkpointOutboundSeq = checkpoint.outboundSeq();
+        // Read back from the database, so committed.
+        committedInboundPosition = checkpoint.inboundSeq() == 0L ? -1L : checkpoint.inboundPosition();
+        committedOutboundPosition = checkpoint.outboundSeq() == 0L ? -1L : checkpoint.outboundPosition();
         batch.clear();
         if (failuresInARow == 0) {
             log.info("The Reporter resumes from inbound seq {} (position {}), outbound seq {} (position {})",
@@ -302,6 +328,9 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
                 attributor.sessionSymbol(), identity), beforeCommit);
         checkpointInboundSeq = attributor.inboundSeq();
         checkpointOutboundSeq = attributor.outboundSeq();
+        // After the commit returned: these positions are now the database's checkpoint.
+        committedInboundPosition = pass.inboundPosition;
+        committedOutboundPosition = pass.outboundPosition;
         batch.clear();
         Runnable listener = onRunPending;
         if (runsRecorded && listener != null) {
@@ -330,6 +359,33 @@ public final class Reporter implements ReporterStatus, AutoCloseable {
                     + checkpoint.identity() + ", this journal is " + identity + ". Point " + ExchangeConfig.DB_URL
                     + " at the database for this journal, restore the original " + ExchangeConfig.EXCHANGE_DATA_DIR
                     + ", or, to record this journal here, clear the trading record and reset the checkpoint.");
+        }
+    }
+
+    /**
+     * Journal retention (P16-7) never purges below a RUNNING Reporter's committed checkpoint, so a
+     * checkpoint below a recording's start means the database is not the one that has been following
+     * this journal: a fresh database (no checkpoint) against a journal whose start has moved, or a
+     * database restored from a backup older than the journal window. Starting mid-history would leave
+     * resting orders accepted before the start unknown, so their later executions could not be tied to
+     * an order and clearing would be wrong; the Reporter stops instead, and the venue keeps trading.
+     */
+    private static void checkNotPurged(String stream, long checkpointSeq, long checkpointPosition, long start) {
+        if (start <= 0L) return;
+        if (checkpointSeq == 0L) {
+            throw new ReporterInconsistencyException("This database has no checkpoint, but journal retention has"
+                    + " removed the " + stream + " journal before position " + start + ", so the trading record cannot"
+                    + " be rebuilt from seq 1. Restore the database from a backup taken within the journal window"
+                    + " (deploy/README.md), or point " + ExchangeConfig.DB_URL + " at the database that recorded this"
+                    + " journal.");
+        }
+        if (checkpointPosition < start) {
+            throw new ReporterInconsistencyException("This database's checkpoint is at " + stream + " position "
+                    + checkpointPosition + " (seq " + checkpointSeq + "), but journal retention has removed the journal"
+                    + " before position " + start + ": the database was restored from a backup older than the journal"
+                    + " window. Restore a newer backup (one taken within " + ExchangeConfig.JOURNAL_RETENTION_DAYS
+                    + " closed business days), or point " + ExchangeConfig.DB_URL + " at the database that recorded"
+                    + " this journal.");
         }
     }
 

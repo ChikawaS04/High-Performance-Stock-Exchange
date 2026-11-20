@@ -43,7 +43,10 @@ import java.util.function.Function;
  * broadcast before the client joined is never missed, even if it was not yet recorded.
  *
  * Out of range (SRS §3.6): a fromSeq below 1 resends from seq 1; one beyond the last seq sends no
- * EXEC; each is logged. A channel that closes mid-resend stops the replay. Resend failures are
+ * EXEC; each is logged. A request exactly one past the last seq (a client that is already caught up)
+ * is logged at INFO. A fromSeq below the earliest seq journal retention has left (P16-7, R5) resends
+ * from that earliest seq, with a rate-limited WARN ({@link ResendRangeLog}); RESEND_COMPLETE is
+ * unchanged. A channel that closes mid-resend stops the replay. Resend failures are
  * logged and never touch matching or the recorder.
  */
 public final class ResendService implements AutoCloseable {
@@ -65,6 +68,7 @@ public final class ResendService implements AutoCloseable {
     private final Set<ChannelId> inFlight = ConcurrentHashMap.newKeySet();
     private final AtomicLong finished = new AtomicLong();
     private final Thread thread;
+    private final ResendRangeLog rangeLog = new ResendRangeLog();
     private volatile boolean running = true;
 
     private record Request(Channel channel, long fromSeq, long throughSeq) { }
@@ -187,7 +191,15 @@ public final class ResendService implements AutoCloseable {
             }
             return;
         }
-        if (request.fromSeq() > result.lastSeq()) {
+        if (result.firstSeq() > from) {
+            String line = rangeLog.onBelowEarliest(System.currentTimeMillis(), request.fromSeq(), result.firstSeq(),
+                    channel.remoteAddress());
+            if (line != null) log.warn(line);
+        }
+        if (request.fromSeq() == result.lastSeq() + 1) {
+            log.info("RESEND fromSeq {} from {}: already caught up at seq {}; nothing to resend",
+                    request.fromSeq(), channel.remoteAddress(), result.lastSeq());
+        } else if (request.fromSeq() > result.lastSeq()) {
             log.warn("RESEND fromSeq {} from {} is beyond the last recorded seq {}; nothing to resend",
                     request.fromSeq(), channel.remoteAddress(), result.lastSeq());
         }

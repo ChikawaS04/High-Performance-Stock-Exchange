@@ -6,6 +6,8 @@ import event.ExecutionHistory;
 import io.aeron.Image;
 import io.aeron.Subscription;
 import io.aeron.archive.client.AeronArchive;
+import io.aeron.archive.client.ArchiveException;
+import io.aeron.logbuffer.FrameDescriptor;
 import io.aeron.logbuffer.ControlledFragmentHandler;
 import org.agrona.concurrent.IdleStrategy;
 import org.agrona.concurrent.SleepingMillisIdleStrategy;
@@ -22,6 +24,13 @@ import java.util.function.LongSupplier;
  * caller can ask for every event already broadcast, including one the recorder has not written
  * yet. Closing the replay subscription ends the Archive's replay session.
  *
+ * Journal retention (P16-7, R5). The recording's start moves forward while the venue runs, so it is
+ * read from the Archive for every request, never cached. A purge between that read and the replay
+ * request makes the Archive refuse the old position; the start is then read again and the replay
+ * requested once more. The new start is always a segment base, so a term and frame boundary, and
+ * every outbound message is one unfragmented frame, so the first fragment read is a whole event and
+ * its seq is the earliest the history still holds ({@link Result#firstSeq()}).
+ *
  * Not on the hot path: one caller thread at a time (the resend thread), and allocation per call
  * is acceptable. The Archive client's control calls are locked, so sharing it with startup and
  * shutdown is safe; the resend thread is stopped before the journal closes.
@@ -34,7 +43,6 @@ public final class OutboundHistory implements ExecutionHistory {
 
     private final AeronArchive archive;
     private final long recordingId;
-    private final long startPosition;
     private final RecordingPositionGate recordedPosition;
     private final LongSupplier publishedSeq;
     private final ExecutionEventCodec codec = new ExecutionEventCodec();
@@ -50,7 +58,6 @@ public final class OutboundHistory implements ExecutionHistory {
                            RecordingPositionGate recordedPosition, LongSupplier publishedSeq) {
         this.archive = archive;
         this.recordingId = recorded.recordingId();
-        this.startPosition = recorded.startPosition();
         this.recordedPosition = recordedPosition;
         this.publishedSeq = publishedSeq;
     }
@@ -63,15 +70,38 @@ public final class OutboundHistory implements ExecutionHistory {
     @Override
     public Result replay(long fromSeq, long throughSeq, Visitor visitor) {
         final long endPosition = recordedPosition.limit();
+        long startPosition = archive.getStartPosition(recordingId);
         if (endPosition <= startPosition && throughSeq <= 0) {
             return new Result(0, 0, false);
         }
-        final long[] state = {0L, 0L};          // last seq read, count sent
+        Subscription subscription;
+        try {
+            subscription = openReplay(startPosition);
+        } catch (ArchiveException e) {
+            if (e.errorCode() != ArchiveException.INVALID_POSITION) throw e;
+            // Journal retention purged below this start between the read and the request: once more.
+            startPosition = archive.getStartPosition(recordingId);
+            subscription = openReplay(startPosition);
+        }
+        return read(subscription, fromSeq, throughSeq, endPosition, visitor);
+    }
+
+    private Subscription openReplay(long startPosition) {
+        return archive.replay(recordingId, startPosition, AeronArchive.REPLAY_ALL_AND_FOLLOW, Journal.IPC_CHANNEL,
+                Journal.RESEND_STREAM_ID);
+    }
+
+    private Result read(Subscription replay, long fromSeq, long throughSeq, long endPosition, Visitor visitor) {
+        final long[] state = {0L, 0L, 0L};      // last seq read, count sent, first seq read
         final boolean[] stopped = {false};
         final Throwable[] failure = {null};
         ControlledFragmentHandler handler = (buffer, offset, length, header) -> {
             try {
+                if ((header.flags() & FrameDescriptor.UNFRAGMENTED) != FrameDescriptor.UNFRAGMENTED) {
+                    throw new IllegalStateException("fragmented outbound message at position " + header.position());
+                }
                 codec.decode(buffer, offset, scratch);
+                if (state[2] == 0L) state[2] = scratch.seq;
                 state[0] = scratch.seq;
                 if (scratch.seq >= fromSeq) {
                     if (!visitor.onEvent(scratch)) {
@@ -92,8 +122,7 @@ public final class OutboundHistory implements ExecutionHistory {
 
         IdleStrategy idle = new SleepingMillisIdleStrategy(1);
         long deadline = System.currentTimeMillis() + STALL_TIMEOUT_MS;
-        try (Subscription subscription = archive.replay(recordingId, startPosition,
-                AeronArchive.REPLAY_ALL_AND_FOLLOW, Journal.IPC_CHANNEL, Journal.RESEND_STREAM_ID)) {
+        try (Subscription subscription = replay) {
             Image image = null;
             while (true) {
                 if (image == null) {
@@ -108,10 +137,10 @@ public final class OutboundHistory implements ExecutionHistory {
                                 + " failed after seq " + state[0] + ": " + failure[0], failure[0]);
                     }
                     if (stopped[0]) {
-                        return new Result(state[0], state[1], true);
+                        return new Result(state[0], state[1], true, state[2]);
                     }
                     if (done(image.position(), state[0], endPosition, throughSeq)) {
-                        return new Result(state[0], state[1], false);
+                        return new Result(state[0], state[1], false, state[2]);
                     }
                     if (fragments > 0) {
                         deadline = System.currentTimeMillis() + STALL_TIMEOUT_MS;
@@ -124,7 +153,7 @@ public final class OutboundHistory implements ExecutionHistory {
                     }
                 }
                 if (!visitor.keepWaiting()) {
-                    return new Result(state[0], state[1], true);
+                    return new Result(state[0], state[1], true, state[2]);
                 }
                 if (System.currentTimeMillis() > deadline) {
                     throw new IllegalStateException("Resend replay of outbound recording " + recordingId

@@ -57,6 +57,11 @@ public interface VenueStatus {
         return null;
     }
 
+    /** The journal and its retention (P16-7), or null when this venue reports none. */
+    default JournalStatus journalRetention() {
+        return null;
+    }
+
     /**
      * Packs a session state into one long: {@code 0} when no session was ever opened or closed,
      * {@code +businessDate} while open on that day, {@code -lastClosedBusinessDate} while closed.

@@ -224,6 +224,11 @@ public final class MatchingEngineHandler implements EventHandler<OrderEvent>, Co
         this.replaying = true;
     }
 
+    /** True between {@link #beginReplay} and {@link #endReplay}. The applying thread only (P16-7: snapshots). */
+    public boolean isReplaying() {
+        return replaying;
+    }
+
     /**
      * Leaves replay: the floor drops to the last seq, so no later event is suppressed. With
      * {@code publishBook}, one BOOK of the recovered book is published, stamped with the last

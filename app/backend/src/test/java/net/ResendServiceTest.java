@@ -59,6 +59,8 @@ class ResendServiceTest {
         final AtomicLong lastThroughSeq = new AtomicLong(-1);
         volatile CountDownLatch hold;
         volatile RuntimeException failure;
+        /** Events below it are gone, as after journal retention (P16-7); 1 means none are. */
+        volatile long firstAvailable = 1;
 
         ScriptedHistory(int n) {
             for (int i = 1; i <= n; i++) events.add(OutboundRecordings.fill(i));
@@ -84,13 +86,16 @@ class ResendServiceTest {
             if (failure != null) throw failure;
             long last = 0;
             long count = 0;
+            long first = 0;
             for (ExecutionEvent e : events) {
+                if (e.seq < firstAvailable) continue;
+                if (first == 0) first = e.seq;
                 last = e.seq;
                 if (e.seq < fromSeq) continue;
-                if (!visitor.onEvent(e)) return new Result(last, count, true);
+                if (!visitor.onEvent(e)) return new Result(last, count, true, first);
                 count++;
             }
-            return new Result(last, count, false);
+            return new Result(last, count, false, first);
         }
     }
 
@@ -286,6 +291,32 @@ class ResendServiceTest {
         awaitFinished(2);
         assertEquals(List.of(frames.toJson(OutboundRecordings.fill(10)), complete(10, EVENTS, 1)), drain(a),
                 "the service carries on after a failed resend");
+    }
+
+    /** P16-7, R5: events before the retained history are gone; the rest is resent and the frames are unchanged. */
+    @Test
+    void aRequestBelowTheRetainedHistoryResendsFromTheEarliestSeq() {
+        history.firstAvailable = 4;
+        EmbeddedChannel a = connect();
+        resend(a, "1");
+        awaitFinished(1);
+        List<String> expected = execs(4, EVENTS);
+        expected.add(complete(1, EVENTS, EVENTS - 3));   // RESEND_COMPLETE as before: the request's fromSeq
+        assertEquals(expected, drain(a));
+        for (int i = 2; i <= 5; i++) {   // repeats are served alike; the WARN is rate-limited (ResendRangeLogTest)
+            resend(a, "1");
+            awaitFinished(i);
+            assertEquals(expected, drain(a));
+        }
+    }
+
+    /** P16-5 carry: a client already caught up (fromSeq = last + 1) gets an empty completion. */
+    @Test
+    void aCaughtUpRequestGetsAnEmptyCompletion() {
+        EmbeddedChannel a = connect();
+        resend(a, Integer.toString(EVENTS + 1));
+        awaitFinished(1);
+        assertEquals(List.of(complete(EVENTS + 1, EVENTS, 0)), drain(a));
     }
 
     @Test

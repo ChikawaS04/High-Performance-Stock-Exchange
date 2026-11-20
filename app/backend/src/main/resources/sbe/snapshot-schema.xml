@@ -23,12 +23,20 @@
     0 snapshot decodes with those fields at their null values, read as "no session ever opened";
     such a snapshot comes only from data written before the session lifecycle, which startup
     refuses (P15-8).
+
+    Version 2 (P16-7, journal retention) adds three root-block fields with sinceVersion="2", after
+    the symbol so a version 1 block is a prefix: the outbound recording's id and its recorded
+    position when the snapshot was cut (a lower bound of the position just after outboundLastSeq;
+    -1 when unknown, as for a snapshot written during recovery replay), and closeDate, the business
+    date whose SESSION_CLOSE requested this snapshot (-1 for every other snapshot). Retention counts
+    closed business days by the close snapshots and takes its window start from them. Version 0 and
+    1 snapshots decode with these at -1.
 -->
 <sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
                    package="codec.snapshot"
                    id="2"
-                   version="1"
-                   semanticVersion="15.8"
+                   version="2"
+                   semanticVersion="16.7"
                    description="High Performance Stock Exchange engine snapshot"
                    byteOrder="littleEndian">
     <types>
@@ -89,6 +97,12 @@
         <field name="sessionOpen" id="10" type="BooleanCode" sinceVersion="1"/>
         <field name="symbol" id="11" type="Symbol" sinceVersion="1"
                description="The last opened session's symbol; all NUL if none"/>
+        <field name="outboundRecordingId" id="12" type="int64" sinceVersion="2"
+               description="The outbound recording outboundPosition belongs to; -1 if unknown"/>
+        <field name="outboundPosition" id="13" type="int64" sinceVersion="2"
+               description="The outbound recording's recorded position at the cut, at most the position after outboundLastSeq; -1 if unknown"/>
+        <field name="closeDate" id="14" type="int32" sinceVersion="2"
+               description="The business date whose SESSION_CLOSE requested this snapshot; -1 otherwise"/>
     </sbe:message>
 
     <sbe:message name="RestingOrder" id="2" description="One resting order, every Order field">

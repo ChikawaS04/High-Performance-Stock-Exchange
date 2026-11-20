@@ -62,6 +62,13 @@ import java.util.concurrent.locks.LockSupport;
  * one daemon thread, {@value #KEEP_ALIVE_THREAD_NAME}, polls the client. Its calls take the client's
  * lock, so it can never read a response another caller is waiting for.
  *
+ * Catalog durability (P16-7). Journal retention moves a recording's start in the catalog and then
+ * deletes the segment files below it. The catalog is forced to disk on each of its own writes
+ * ({@code catalogFileSyncLevel 1}), so after a power loss the start can never point at a segment
+ * that is already gone; in Aeron 1.53.3 the catalog is written only when a recording is added,
+ * extended or stopped and when a start or stop position is set, never per fragment or at a segment
+ * roll, so recording itself is not slowed. Journal data stays page-cache durable.
+ *
  * Threading: the driver runs in SHARED mode on one thread. The Archive runs SHARED on one thread
  * by default, or DEDICATED (conductor, recorder and replayer on three threads) when
  * {@code JOURNAL_ARCHIVE_THREADING} says so (P15-13). {@code JOURNAL_IDLE_STRATEGY} (P16-2) sets
@@ -291,6 +298,7 @@ public final class Journal implements AutoCloseable {
                 .deleteArchiveOnStart(false)
                 .segmentFileLength(config.journalSegmentLength())
                 .fileSyncLevel(0)
+                .catalogFileSyncLevel(1)                   // P16-7: a moved start is on disk before files go
                 .recordChecksum(Crc32cChecksum.INSTANCE)   // lets crash repair verify a page-straddling last frame
                 .threadingMode(archiveThreadingMode(config.archiveThreading()))
                 .controlChannelEnabled(false)
@@ -333,10 +341,53 @@ public final class Journal implements AutoCloseable {
         return archive;
     }
 
+    /**
+     * A new Archive client on this journal's Aeron client, for a thread that must not share the
+     * journal's (P16-7: journal retention, which connects one per run and closes it after). Each client
+     * gets its own control session and a response channel with its own session id, so responses never
+     * reach another client. The caller closes it, before {@link #close()}.
+     */
+    public AeronArchive connectArchiveClient() {
+        if (closed) throw new IllegalStateException("journal closed");
+        return AeronArchive.connect(new AeronArchive.Context()
+                .aeron(aeron)
+                .controlRequestChannel(AeronArchive.Configuration.localControlChannel())
+                .controlRequestStreamId(AeronArchive.Configuration.localControlStreamId())
+                .controlResponseChannel(IPC_CHANNEL));
+    }
+
+    /**
+     * The segment files of {@code recordingId} in the Archive directory and their sizes, by segment
+     * base position (P16-7: bytes on disk, and leftovers below a moved start). Plain file listing; no
+     * Archive call.
+     */
+    public static java.util.SortedMap<Long, Long> segmentFiles(Path archiveDir, long recordingId) {
+        java.util.SortedMap<Long, Long> files = new java.util.TreeMap<>();
+        String prefix = recordingId + "-";
+        java.io.File[] listed = archiveDir.toFile().listFiles();
+        if (listed == null) return files;
+        for (java.io.File file : listed) {
+            String name = file.getName();
+            if (!name.startsWith(prefix) || !name.endsWith(".rec")) continue;
+            try {
+                long base = Long.parseLong(name.substring(prefix.length(), name.length() - ".rec".length()));
+                files.put(base, file.length());
+            } catch (NumberFormatException e) {
+                // not a segment file of this recording
+            }
+        }
+        return files;
+    }
+
     /** Every recording of {@code streamId} on the IPC channel. D10 keeps this to at most one. */
     public List<RecordingDescriptor> findRecordings(int streamId) {
+        return findRecordings(archive, streamId);
+    }
+
+    /** As {@link #findRecordings(int)}, through {@code client} (P16-7: retention's own client). */
+    public static List<RecordingDescriptor> findRecordings(AeronArchive client, int streamId) {
         List<RecordingDescriptor> found = new ArrayList<>();
-        archive.listRecordingsForUri(0, Integer.MAX_VALUE, IPC_CHANNEL, streamId,
+        client.listRecordingsForUri(0, Integer.MAX_VALUE, IPC_CHANNEL, streamId,
                 (controlSessionId, correlationId, recordingId, startTimestamp, stopTimestamp,
                  startPosition, stopPosition, initialTermId, segmentFileLength, termBufferLength,
                  mtuLength, sessionId, recordedStreamId, strippedChannel, originalChannel, sourceIdentity) -> {

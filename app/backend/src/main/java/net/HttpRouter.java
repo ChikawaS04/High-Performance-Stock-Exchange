@@ -25,6 +25,7 @@ import market.IgnitionSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.ClearingStatus;
+import util.JournalStatus;
 import util.ReporterStatus;
 import util.VenueStatus;
 
@@ -348,6 +349,31 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             }
         }
 
+        // The journal and its retention (P16-7, R8): one volatile read of an immutable value; the retention
+        // thread computed every figure in it, disk sizes included.
+        JournalStatus journal = status.journalRetention();
+        if (journal != null) {
+            ObjectNode node = body.putObject("journal");
+            putRecording(node.putObject("inbound"), journal.inbound());
+            putRecording(node.putObject("outbound"), journal.outbound());
+            ObjectNode retention = node.putObject("retention");
+            retention.put("enabled", journal.enabled());
+            retention.put("days", journal.days());
+            retention.put("closesSeen", journal.closesSeen());
+            if (journal.lastRunTs() < 0) {
+                retention.putNull("lastRunTs");
+            } else {
+                retention.put("lastRunTs", journal.lastRunTs());
+            }
+            retention.put("outcome", journal.outcome());
+            if (journal.skipReason() == null) {
+                retention.putNull("skipReason");
+            } else {
+                retention.put("skipReason", journal.skipReason());
+            }
+            retention.put("asOfTs", journal.asOfTs());
+        }
+
         byte[] bytes;
         try {
             bytes = objectMapper.writeValueAsBytes(body);
@@ -358,6 +384,13 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
                 running ? HttpResponseStatus.OK : HttpResponseStatus.SERVICE_UNAVAILABLE, bytes);
         response.headers().set(HttpHeaderNames.CACHE_CONTROL, HttpHeaderValues.NO_STORE);
         write(ctx, response, HttpUtil.isKeepAlive(req));
+    }
+
+    private static void putRecording(ObjectNode node, JournalStatus.Recording recording) {
+        node.put("recordingId", recording.recordingId());
+        node.put("startPosition", recording.startPosition());
+        node.put("recordedPosition", recording.recordedPosition());
+        node.put("bytesOnDisk", recording.bytesOnDisk());
     }
 
     private static void send(ChannelHandlerContext ctx, FullHttpRequest req, HttpResponseStatus code,

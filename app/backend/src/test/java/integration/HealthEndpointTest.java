@@ -127,6 +127,20 @@ class HealthEndpointTest {
     }
 
     @Test
+    void healthReportsTheJournalAndItsRetention() throws Exception {
+        JsonNode journal = mapper.readTree(get("/health").body()).path("journal");
+        assertEquals(venue.pipeline().inboundRecording().recordingId(), journal.path("inbound").path("recordingId").asLong());
+        assertEquals(venue.pipeline().outboundRecording().recordingId(),
+                journal.path("outbound").path("recordingId").asLong());
+        assertEquals(0, journal.path("inbound").path("startPosition").asLong());
+        assertTrue(journal.path("inbound").path("bytesOnDisk").asLong() > 0, "the first segment file");
+        assertTrue(journal.path("retention").path("enabled").asBoolean());
+        assertEquals(2, journal.path("retention").path("days").asInt());
+        assertEquals("NOT_RUN", journal.path("retention").path("outcome").asText());
+        assertTrue(journal.path("retention").path("lastRunTs").isNull());
+    }
+
+    @Test
     void healthReportsTheSessionClosedAfterAClose() throws Exception {
         sessions.close(JournaledVenue.BUSINESS_DATE);   // published on the server's worker, as Main would
         JsonNode body = mapper.readTree(get("/health").body());

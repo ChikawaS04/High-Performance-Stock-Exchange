@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import util.ClearingStatus;
 import util.ReporterStatus;
+import util.JournalStatus;
 import util.VenueStatus;
 
 import java.io.IOException;
@@ -199,6 +200,33 @@ class HttpRouterTest {
         JsonNode json = healthBody();
         assertEquals("CLOSED", json.path("session").asText());
         assertEquals(20261102, json.path("businessDate").asInt());
+    }
+
+    @Test
+    void healthReportsTheJournalObjectOnlyWhenTheVenueHasOne() throws Exception {
+        assertTrue(healthBody().path("journal").isMissingNode(), "absent without journal status");
+        status.journal = new JournalStatus(new JournalStatus.Recording(0, 65_536, 200_000, 196_608),
+                new JournalStatus.Recording(1, 0, 300_000, 327_680), true, 2, 3, 1_700_000_000_000_000_000L,
+                JournalStatus.SKIPPED, "REPORTER_NOT_RUNNING: BACKING_OFF", 1_700_000_000_500_000_000L);
+        JsonNode journal = healthBody().path("journal");
+        assertEquals(0, journal.path("inbound").path("recordingId").asLong());
+        assertEquals(65_536, journal.path("inbound").path("startPosition").asLong());
+        assertEquals(200_000, journal.path("inbound").path("recordedPosition").asLong());
+        assertEquals(196_608, journal.path("inbound").path("bytesOnDisk").asLong());
+        assertEquals(327_680, journal.path("outbound").path("bytesOnDisk").asLong());
+        JsonNode retention = journal.path("retention");
+        assertTrue(retention.path("enabled").asBoolean());
+        assertEquals(2, retention.path("days").asInt());
+        assertEquals(3, retention.path("closesSeen").asInt());
+        assertEquals(1_700_000_000_000_000_000L, retention.path("lastRunTs").asLong());
+        assertEquals("SKIPPED", retention.path("outcome").asText());
+        assertEquals("REPORTER_NOT_RUNNING: BACKING_OFF", retention.path("skipReason").asText());
+
+        status.journal = new JournalStatus(status.journal.inbound(), status.journal.outbound(), true, 2, 0, -1L,
+                JournalStatus.NOT_RUN, null, 1L);
+        retention = healthBody().path("journal").path("retention");
+        assertTrue(retention.path("lastRunTs").isNull(), "never run");
+        assertTrue(retention.path("skipReason").isNull());
     }
 
     private JsonNode healthBody() throws Exception {
@@ -714,6 +742,7 @@ class HttpRouterTest {
         long session;
         ReporterStatus reporter;
         ClearingStatus clearing;
+        JournalStatus journal;
 
         @Override public boolean running() { return running; }
         @Override public long session() { return session; }
@@ -723,5 +752,6 @@ class HttpRouterTest {
         @Override public long recordedSeq() { return recorded; }
         @Override public ReporterStatus reporter() { return reporter; }
         @Override public ClearingStatus clearing() { return clearing; }
+        @Override public JournalStatus journalRetention() { return journal; }
     }
 }

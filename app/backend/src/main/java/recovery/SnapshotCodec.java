@@ -57,6 +57,9 @@ public final class SnapshotCodec {
     /** Bytes each order occupies. */
     static final int ORDER_LENGTH = MessageHeaderEncoder.ENCODED_LENGTH + RestingOrderEncoder.BLOCK_LENGTH;
 
+    /** The version 1 root block (P15-8): version 0 plus the session state. */
+    static final int V1_BLOCK_LENGTH = V0_BLOCK_LENGTH + 2 * Integer.BYTES + 1 + 8;
+
     /** All-NUL symbol for a state in which no session was ever opened. */
     private static final byte[] NO_SYMBOL = new byte[8];
 
@@ -77,6 +80,21 @@ public final class SnapshotCodec {
     public int encode(MutableDirectBuffer buffer, MatchingEngine engine, long inboundSeq, long inboundPosition,
                       long inboundRecordingId, long outboundLastSeq, long lastCommandTimestamp,
                       boolean sessionOpen, int businessDate, int lastClosedBusinessDate, byte[] symbol) {
+        return encode(buffer, engine, inboundSeq, inboundPosition, inboundRecordingId, outboundLastSeq,
+                lastCommandTimestamp, sessionOpen, businessDate, lastClosedBusinessDate, symbol, -1L, -1L, -1);
+    }
+
+    /**
+     * The full form (P16-7, schema version 2): also the outbound recording and its recorded position at
+     * the cut (-1 when unknown), and the business date whose SESSION_CLOSE requested this snapshot (-1
+     * for any other snapshot).
+     *
+     * @return the body length in bytes
+     */
+    public int encode(MutableDirectBuffer buffer, MatchingEngine engine, long inboundSeq, long inboundPosition,
+                      long inboundRecordingId, long outboundLastSeq, long lastCommandTimestamp,
+                      boolean sessionOpen, int businessDate, int lastClosedBusinessDate, byte[] symbol,
+                      long outboundRecordingId, long outboundPosition, int closeDate) {
         orderWriter.start(buffer, HEADER_LENGTH);
         engine.visitResting(orderWriter);
         snapshotEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
@@ -90,7 +108,10 @@ public final class SnapshotCodec {
                 .businessDate(sessionOpen ? businessDate : -1)
                 .lastClosedBusinessDate(lastClosedBusinessDate)
                 .sessionOpen(sessionOpen ? BooleanCode.TRUE : BooleanCode.FALSE)
-                .putSymbol(symbol, 0);
+                .putSymbol(symbol, 0)
+                .outboundRecordingId(outboundRecordingId)
+                .outboundPosition(outboundPosition)
+                .closeDate(closeDate);
         return orderWriter.offset;
     }
 
@@ -147,8 +168,7 @@ public final class SnapshotCodec {
         }
         header.wrap(buffer, 0);
         // A version 0 root block is shorter; its session fields then decode as their null values.
-        checkHeader(header, EngineSnapshotDecoder.TEMPLATE_ID,
-                header.version() >= 1 ? EngineSnapshotDecoder.BLOCK_LENGTH : V0_BLOCK_LENGTH);
+        checkHeader(header, EngineSnapshotDecoder.TEMPLATE_ID, rootBlockLength(header.version()));
         if (MessageHeaderDecoder.ENCODED_LENGTH + header.blockLength() > length) {
             throw new InvalidSnapshotException("body of " + length + " bytes is shorter than the snapshot header");
         }
@@ -182,6 +202,22 @@ public final class SnapshotCodec {
             lastClosed = snapshot.lastClosedBusinessDate();
             snapshot.getSymbol(symbol, 0);
             checkSession(sessionOpen, businessDate, lastClosed, symbol);
+        }
+
+        // Retention fields (P16-7, sinceVersion 2). Older snapshots read as unknown.
+        long outboundRecordingId = -1L;
+        long outboundPosition = -1L;
+        int closeDate = -1;
+        if (version >= 2) {
+            outboundRecordingId = snapshot.outboundRecordingId();
+            outboundPosition = snapshot.outboundPosition();
+            closeDate = snapshot.closeDate();
+            if (outboundRecordingId < -1 || outboundPosition < -1) {
+                throw new InvalidSnapshotException("negative outbound recording id or position");
+            }
+            if (closeDate != -1 && !SessionRules.isValidDate(closeDate)) {
+                throw new InvalidSnapshotException("invalid close date " + closeDate);
+            }
         }
 
         List<RestoredSnapshot.RestoredOrder> orders = new ArrayList<>((int) orderCount);
@@ -236,7 +272,39 @@ public final class SnapshotCodec {
 
         return new RestoredSnapshot(snapshot.inboundSeq(), snapshot.inboundPosition(), snapshot.inboundRecordingId(),
                 snapshot.outboundLastSeq(), snapshot.nextTradeId(), snapshot.lastCommandTimestamp(),
-                List.copyOf(orders), version, sessionOpen, businessDate, lastClosed, symbol);
+                List.copyOf(orders), version, sessionOpen, businessDate, lastClosed, symbol,
+                outboundRecordingId, outboundPosition, closeDate);
+    }
+
+    /** The smallest root block a snapshot of {@code version} may carry. */
+    private static int rootBlockLength(int version) {
+        if (version >= 2) return EngineSnapshotDecoder.BLOCK_LENGTH;
+        if (version == 1) return V1_BLOCK_LENGTH;
+        return V0_BLOCK_LENGTH;
+    }
+
+    /**
+     * The close date of a snapshot body, read from its root block only, without validating the rest
+     * (P16-7): how {@link SnapshotStore} recognises a close snapshot when pruning. -1 for a body that is
+     * not a version 2 snapshot or cannot be read; such a file is pruned like any other.
+     */
+    static int peekCloseDate(DirectBuffer buffer, int length) {
+        try {
+            if (length < MessageHeaderDecoder.ENCODED_LENGTH) return -1;
+            MessageHeaderDecoder header = new MessageHeaderDecoder().wrap(buffer, 0);
+            if (header.schemaId() != MessageHeaderDecoder.SCHEMA_ID
+                    || header.templateId() != EngineSnapshotDecoder.TEMPLATE_ID
+                    || header.version() < 2 || header.blockLength() < EngineSnapshotDecoder.BLOCK_LENGTH
+                    || MessageHeaderDecoder.ENCODED_LENGTH + header.blockLength() > length) {
+                return -1;
+            }
+            int date = new EngineSnapshotDecoder()
+                    .wrap(buffer, MessageHeaderDecoder.ENCODED_LENGTH, header.blockLength(), header.version())
+                    .closeDate();
+            return SessionRules.isValidDate(date) ? date : -1;
+        } catch (RuntimeException e) {
+            return -1;
+        }
     }
 
     /** The session state must be one the handler could have reached: the same rules the engine applies. */
