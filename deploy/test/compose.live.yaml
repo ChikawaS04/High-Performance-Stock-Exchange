@@ -1,0 +1,22 @@
+# Local live check only (deploy/test/live-local.sh), layered after compose.yaml and compose.local.yaml; never
+# shipped. Adds a stub of Alpaca's snapshot route (so /market/ignition answers 200 with test keys) and a Caddy
+# with basic_auth in front of the venue on 127.0.0.1:18081 (the "through Caddy" rows of the check).
+
+services:
+
+  alpaca-stub:
+    image: busybox:1.37
+    command: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+    volumes:
+      - ./live/www:/www:ro
+    networks:
+      - credo
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "127.0.0.1:18081:80"
+    volumes:
+      - ./live/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - credo

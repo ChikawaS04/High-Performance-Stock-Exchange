@@ -112,6 +112,30 @@ class MigratorTest {
                 "SELECT count(*) FROM information_schema.tables WHERE table_name = 'broken'"));
     }
 
+    /**
+     * P16-12, rollback compatibility: an older image against a database a newer image has migrated. Flyway
+     * ignores applied migrations newer than its own (its default {@code ignoreMigrationPatterns} is
+     * {@code *:future}), so both the validate-only start and the migrate job pass and the old code runs on
+     * the newer schema. Nothing in the venue stops that; the deploy script's compatibility floor does.
+     */
+    @Test
+    @RequiresTestDatabase
+    void anOlderImageAcceptsASchemaOneMigrationAhead() {
+        TestDatabase.cleanAndMigrate();
+        try {
+            TestDatabase.execute("INSERT INTO flyway_schema_history (installed_rank, version, description, type, script,"
+                    + " checksum, installed_by, execution_time, success) SELECT max(installed_rank) + 1, '999',"
+                    + " 'from a newer image', 'SQL', 'V999__from_a_newer_image.sql', 0, current_user, 1, true"
+                    + " FROM flyway_schema_history");
+            Database database = TestDatabase.database();
+            new Migrator(database, false).run();
+            new Migrator(database, true).run();
+            assertTrue(source(database, new Migrator(database, false)).prepare());
+        } finally {
+            TestDatabase.cleanAndMigrate();
+        }
+    }
+
     @Test
     @RequiresTestDatabase
     void aWrongPasswordRefusesStartupWithoutRetrying() {

@@ -11,6 +11,97 @@ The venue's container stack (Phase 16). One image, `credo-exchange:<git short sh
 | `credo.env.example` | Every setting, no secret. Copy to `credo.env`, mode 600 |
 | `postgres-init/01-exchange-role.sh` | Creates the login role `exchange` and the database `exchange` |
 | `backup/` | Nightly `pg_dump` script, systemd service and timer (P16-6) |
+| `Caddyfile`, `install-caddy.sh` | Production Caddy config (hash placeholder only) and its one-time installer (P16-10) |
+| `deploy.sh` | Deploy, roll back, check and drill from David's PC, in Git Bash (P16-11) |
+| `credo-server.sh`, `credo-lib.sh` | The server half: copied up by `deploy.sh` with scp and run with one ssh, never pasted |
+| `test/check-files.sh` | Static checks: `bash -n`, shellcheck if installed, no CR, the Caddyfile placeholder |
+| `bench/` | The P16-12 measurement runner (its own README) |
+
+## Deploy, rollback and checks (P16-11)
+
+Everything runs from Git Bash on the PC (not PowerShell, which corrupts binary data piped to ssh). The target
+is `david@104.204.69.188` (override with `--target` or `CREDO_TARGET`); ssh runs with `BatchMode=yes` and
+`StrictHostKeyChecking=yes`, so a missing key or an unknown host key refuses instead of prompting.
+
+```bash
+deploy/deploy.sh
+```
+
+Builds HEAD and deploys it. It refuses a tree with tracked changes (except `.idea/workspace.xml` and
+`app/frontend/DESIGN_SYSTEM.md`) and a HEAD that is not on `origin/main`. It builds only from
+`git -c core.autocrlf=false archive HEAD`, so nothing uncommitted reaches the image or the bundle, and every file
+keeps its committed LF. The tag is the first 12 hex digits of HEAD. Steps on the PC: `npm ci`, `npm run build`
+(the dist check must pass), `docker build` with the labels `credo.sha`, `credo.flyway` (newest migration) and
+`credo.snapshot` (snapshot schema version), then `docker save | gzip | ssh docker load` unless the server already
+has that image, one `scp` of the stage and one `ssh` that runs `credo-server.sh`.
+
+On the server, in order (nothing changes until the preflight passes):
+
+1. Lock (`/opt/credo/.deploy.lock`); refuse as root; `credo.env` present, owned by david, mode 600; every key of
+   this tag's `credo.env.example` present in it (key names only are printed); the image present with a matching
+   `credo.sha`; the compatibility floor (below).
+2. The tag's bundle (`compose.yaml`, `credo.env.example`, `postgres-init/`, `backup/`) to
+   `/opt/credo/bundles/<tag>/`, and the static release extracted to `releases/.incoming-<tag>` and renamed to
+   `releases/<tag>` (files readable by Caddy whatever the umask).
+3. The bundle's files installed into `/opt/credo`; the backup script to `/opt/credo/backup/`; the two units to
+   `/etc/systemd/system` only when they changed (then `daemon-reload`); `enable --now` of the timer only, so an
+   install never runs a dump by itself.
+4. `IMAGE_TAG` set in `credo.env` (rewritten under umask 077, so mode 600 and owner david are kept).
+5. `docker compose stop bots`, then `stop exchange`: the maker cancels its ladder while the old venue is up, and
+   migrations never run under a live venue. (A plain `up -d` recreates the exchange before the bots.)
+6. `docker compose up -d` and the `/health` 200 wait, under one deadline (`--health-timeout`, default 600 s).
+7. Only after 200: `current` switched with `ln -sfn` to `current.tmp` and `mv -T` (absolute target).
+8. A line in `/opt/credo/deploy-history`; pruning; the previous tag printed.
+
+Every Compose call unsets, for that call, every key named in `credo.env` or `credo.env.example`, because the
+calling shell beats `--env-file` (P16-5).
+
+**On a timeout** the script prints the services' states, the last 60 lines of the exchange log and the exact
+rollback command, leaves `current` on the old release and exits 1. Nothing is rolled back automatically.
+
+```bash
+deploy/deploy.sh --tag <previous tag>
+```
+
+Rollback (or forward) to a tag still on the server: no build and no shipping. It installs that tag's own bundle
+(its compose file and its example's key set), not the newest one.
+
+**Compatibility floor.** Each attempt that reaches `compose up` records the image's `credo.flyway` and
+`credo.snapshot` in the history. A tag below the highest of either is refused unless `--force`, naming the floor
+and the tag that set it: Flyway ignores migrations newer than its own (`*:future`, pinned by `MigratorTest`), so an
+older image would start on a newer schema, and a newer snapshot cannot be undone.
+
+**Pruning.** The newest 5 tags recorded `ok` are kept (failed attempts never take a slot), plus the current and
+the previous tag and `placeholder`; other `credo-exchange:<tag>` images, releases and bundles are removed.
+
+```bash
+deploy/deploy.sh --check
+```
+
+One PASS, FAIL, WAIT or SKIP line per item: migrate exited 0; postgres and exchange healthy and bots running on
+the `credo.env` tag; `/health` 200 on 127.0.0.1:8080; `/market/ignition` 200 with `openPx` and `date`;
+`/health` through Caddy 401 without the password; recovery and session open in the exchange log;
+`access.xffFallback` 0 with at least one public connection (WAIT when there is none: open the site in a browser
+and re-run), 5 exempt connections, the network gateway at 172.30.0.1 equal to `WS_TRUSTED_PROXIES` and the bots at
+172.30.0.10 equal to `WS_EXEMPT_ADDRESSES`; `disk.freeBytes` within 256 MiB of `df /`; `journal.retention` and
+`database.retention` present; the backup timer listed and enabled; `current` pointing at the tag. Then the last
+RESEND completions and bot catch-ups (for P16-12). `--check --password` asks for the site password on the
+server (not shown, not stored, never in a command line) and adds `/health` and `/market/ignition` through Caddy.
+
+```bash
+deploy/deploy.sh --drill
+```
+
+The P16-6 restore drill: the newest dump into `exchange_drill`, compared with the live database on the rows
+stamped before the dump began (minus 5 minutes for the Reporter's lag): `clearing_run` by `closed_ts`, and
+`executions` by `event_ts` outside purged dates, each equal and non-zero; the Flyway version equal. The scratch
+database is dropped afterwards.
+
+`deploy.sh --dry-run` runs every local step for real, writes the image to a local file and prints each ssh and
+scp line instead of running it.
+
+A nightly backup can resume the Reporter only while the journal still holds the dump's checkpoint, so keep
+`JOURNAL_RETENTION_DAYS` at 1 or more (P16-7).
 
 ## Running
 
@@ -64,10 +155,14 @@ does not change the role: run `ALTER ROLE exchange PASSWORD '...'` as `postgres`
 `migrate` service fails with "password authentication failed for user exchange". (P16-5 hit exactly
 this when a shell's `DB_PASSWORD` reached the first `up`.)
 
-## Server layout (for P16-10)
+## Server layout (P16-10, as built)
 
-- `/opt/credo/`: `compose.yaml`, `credo.env` (owner `david`, mode 600), `postgres-init/`,
-  `backup/credo-pg-backup.sh`.
+- `/opt/credo/` (david 755): `credo.env` (david, 600, never shipped or overwritten by a deploy), and the running
+  tag's `compose.yaml`, `credo.env.example`, `postgres-init/` and `backup/credo-pg-backup.sh`, installed by each
+  deploy from `bundles/<tag>/`; `deploy-history`; `.deploy.lock`.
+- `/var/www/directroute/releases/<tag>/` and `current`, an absolute link to the live release; `placeholder` is
+  never pruned.
+- `/etc/caddy/Caddyfile`: installed once by `install-caddy.sh` (P16-10); a deploy never touches it.
 - `/srv/credo/data`: the exchange's journal and snapshots, bind-mounted at `/data`. The container
   runs as uid 10001, so: `sudo chown 10001:10001 /srv/credo/data && sudo chmod 700 /srv/credo/data`.
 - `/srv/credo/backups`: nightly dumps, created by the backup script, mode 700, files 600.
@@ -124,21 +219,10 @@ and renamed only on success), and deletes dumps older than 14 days. The timer ru
 06:15 UTC (after the New York midnight roll and clearing in winter and summer time),
 `Persistent=true`, with up to 5 minutes of random delay.
 
-Install on the server:
+Every deploy installs the script and the units (only when they changed) and enables the timer (P16-11);
+nothing needs installing by hand. `deploy/deploy.sh --drill` runs the restore drill below and compares the counts.
 
-```bash
-sudo install -m 755 -o david -g david backup/credo-pg-backup.sh /opt/credo/backup/credo-pg-backup.sh
-```
-
-```bash
-sudo install -m 644 backup/credo-pg-backup.service backup/credo-pg-backup.timer /etc/systemd/system/
-```
-
-```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now credo-pg-backup.timer
-```
-
-Restore drill (into a scratch database, then compare and drop):
+Restore drill by hand (into a scratch database, then compare and drop):
 
 ```bash
 docker exec credo-postgres-1 createdb -U postgres -O exchange exchange_drill
