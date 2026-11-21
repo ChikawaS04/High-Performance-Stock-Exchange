@@ -352,4 +352,35 @@ class DatabaseRetentionTest {
         assertEquals(200, r.status(), text);
         return text;
     }
+
+    // --- P16-12: one pass on the calling thread, and the per-step line ---
+
+    @Test
+    void runOnceRunsOnePassOnTheCallingThread() {
+        DatabaseRetention r = retention(1, 5_000);
+        DatabaseRetentionStatus s = r.runOnce();
+        assertEquals(DatabaseRetentionStatus.PURGED, s.outcome(), String.valueOf(s.skipReason()));
+        assertEquals(D2, s.purgedThrough());
+        assertEquals(1, r.completedRuns());
+        assertEquals(DatabaseRetentionStatus.NOTHING_TO_PURGE, r.runOnce().outcome());
+    }
+
+    @Test
+    void runOnceIsRefusedOnceTheThreadWasStarted() {
+        DatabaseRetention r = retention(1, 5_000);
+        r.start();
+        try {
+            assertThrows(IllegalStateException.class, r::runOnce);
+        } finally {
+            assertTrue(r.stop());
+        }
+    }
+
+    @Test
+    void theStepLineNamesRowsTimeAndRate() {
+        StringBuilder sb = new StringBuilder();
+        assertTrue(DatabaseRetention.rate(sb, RetentionStore.Step.AUDIT, 6_010, 20_581_000L));
+        assertEquals("audit 6010 rows in 20 ms (292016/s)", sb.toString());
+        assertFalse(DatabaseRetention.rate(new StringBuilder(), RetentionStore.Step.ORDERS, 0, 5L), "no rows, no entry");
+    }
 }

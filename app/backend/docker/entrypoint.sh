@@ -3,6 +3,8 @@
 #
 #   exchange   the venue (Main)
 #   migrate    apply pending Flyway migrations and exit (db.MigrateCommand)
+#   retention-once  one database retention pass against a scratch copy of the database, then exit
+#              (clearing.RetentionOnceCommand, P16-12; refuses any database not named *_bench or *_test)
 #   bots       the five-bot simulation (participant.ParticipantSimMain); further arguments are
 #              passed to it as flags
 #
@@ -20,8 +22,9 @@ case "$mode" in
     exchange) main="Main" ;;
     migrate)  main="db.MigrateCommand" ;;
     bots)     main="participant.ParticipantSimMain" ;;
+    retention-once) main="clearing.RetentionOnceCommand" ;;
     *)
-        echo "usage: entrypoint.sh exchange|migrate|bots [bot flags...]; got '$mode'" >&2
+        echo "usage: entrypoint.sh exchange|migrate|retention-once|bots [bot flags...]; got '$mode'" >&2
         exit 64
         ;;
 esac

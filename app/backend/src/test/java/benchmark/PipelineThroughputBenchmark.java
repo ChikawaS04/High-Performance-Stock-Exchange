@@ -69,6 +69,14 @@ public class PipelineThroughputBenchmark {
     @Param({"busy-spin"})
     public String idle;
 
+    /** {@code JOURNAL_IDLE_STRATEGY} (journaled only; P16-12 measures the others on the server). */
+    @Param({"backoff"})
+    public String journalIdle;
+
+    /** {@code RING_WAIT_STRATEGY} of the journaled pipeline's rings (P16-12). */
+    @Param({"blocking"})
+    public String ringWait;
+
     private Path root;
     private JournaledVenue venue;
     private InboundPipeline inbound;
@@ -83,7 +91,8 @@ public class PipelineThroughputBenchmark {
         counter = new BenchSupport.OutcomeCounter();
         if ("journaled".equals(pipeline)) {
             root = BenchSupport.newRoot("pipeline");
-            venue = JournaledVenue.create(BenchSupport.productionConfig(root, idle), JournaledPipeline.Seams.NONE);
+            venue = JournaledVenue.create(BenchSupport.productionConfig(root, idle,
+                    config.ExchangeConfig.ArchiveThreading.SHARED.value(), journalIdle, ringWait), JournaledPipeline.Seams.NONE);
             venue.outbound().handleEventsWith(counter);
             venue.snapshots().handleEventsWith(new BenchSupport.NoOpSnapshots());
             venue.startAndOpen(venue.gateway());

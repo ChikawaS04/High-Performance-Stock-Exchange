@@ -67,6 +67,52 @@ class OutboundHistoryTest {
         }
     }
 
+    /** The seq and count fields of a result (the read statistics are checked on their own). */
+    private static void assertRead(long lastSeq, long count, boolean stopped, long firstSeq,
+                                   ExecutionHistory.Result result) {
+        assertEquals(lastSeq, result.lastSeq(), "lastSeq");
+        assertEquals(count, result.count(), "count");
+        assertEquals(stopped, result.stopped(), "stopped");
+        assertEquals(firstSeq, result.firstSeq(), "firstSeq");
+    }
+
+    private static long recordedPosition(Fixture f) {
+        long recordingId = f.journal().findRecording(Journal.OUTBOUND_STREAM_ID).recordingId();
+        return f.journal().archive().getRecordingPosition(recordingId);
+    }
+
+    /**
+     * P16-12: the linear read goes through the recording from its start whatever {@code fromSeq} is, and
+     * the result says how far: every event read (sent or skipped) and the bytes from the start position.
+     */
+    @Test
+    void reportsEventsAndBytesReadFromTheStart() {
+        try (Fixture f = fixture()) {
+            f.record(1, 700);
+            readAll(f.journal(), 700);
+            ExecutionHistory.Result tail = f.history().replay(691, 700, new Collecting(Integer.MAX_VALUE));
+
+            assertRead(700, 10, false, 1, tail);
+            assertEquals(700, tail.scanned(), "a request for the last 10 still reads all 700");
+            assertEquals(0, tail.startPosition());
+            assertEquals(recordedPosition(f), tail.bytesRead(), "read to the recorded end");
+
+            ExecutionHistory.Result empty = new ExecutionHistory.Result(0, 0, false);
+            assertEquals(-1, empty.startPosition(), "the short constructors report no read");
+            assertEquals(0, empty.scanned());
+        }
+    }
+
+    @Test
+    void anEmptyHistoryReadsNothing() {
+        try (Fixture f = fixture()) {
+            ExecutionHistory.Result result = f.history().replay(1, 0, new Collecting(Integer.MAX_VALUE));
+            assertEquals(0, result.scanned());
+            assertEquals(0, result.bytesRead());
+            assertEquals(0, result.startPosition());
+        }
+    }
+
     @Test
     void returnsExactlyTheRecordedEventsFromFromSeq() {
         try (Fixture f = fixture()) {
@@ -75,7 +121,7 @@ class OutboundHistoryTest {
             Collecting visitor = new Collecting(Integer.MAX_VALUE);
             ExecutionHistory.Result result = f.history().replay(42, f.history().publishedSeq(), visitor);
 
-            assertEquals(new ExecutionHistory.Result(700, 659, false, 1), result);
+            assertRead(700, 659, false, 1, result);
             for (int i = 0; i < visitor.seen.size(); i++) assertEquals(observe(fill(42 + i)), visitor.seen.get(i));
         }
     }
@@ -87,11 +133,11 @@ class OutboundHistoryTest {
             readAll(f.journal(), 20);
 
             Collecting fromStart = new Collecting(Integer.MAX_VALUE);
-            assertEquals(new ExecutionHistory.Result(20, 20, false, 1), f.history().replay(1, 20, fromStart));
+            assertRead(20, 20, false, 1, f.history().replay(1, 20, fromStart));
             assertEquals(1, fromStart.seen.get(0).seq());
 
             Collecting beyond = new Collecting(Integer.MAX_VALUE);
-            assertEquals(new ExecutionHistory.Result(20, 0, false, 1), f.history().replay(21, 20, beyond));
+            assertRead(20, 0, false, 1, f.history().replay(21, 20, beyond));
             assertTrue(beyond.seen.isEmpty());
         }
     }
@@ -100,7 +146,7 @@ class OutboundHistoryTest {
     void anEmptyHistoryAnswersAtOnce() {
         try (Fixture f = fixture()) {
             Collecting visitor = new Collecting(Integer.MAX_VALUE);
-            assertEquals(new ExecutionHistory.Result(0, 0, false), f.history().replay(1, 0, visitor));
+            assertRead(0, 0, false, 0, f.history().replay(1, 0, visitor));
             assertTrue(visitor.seen.isEmpty());
         }
     }
@@ -120,7 +166,7 @@ class OutboundHistoryTest {
             ExecutionHistory.Result result = f.history().replay(5, 15, visitor);
             late.join(10_000);
 
-            assertEquals(new ExecutionHistory.Result(15, 11, false, 1), result);
+            assertRead(15, 11, false, 1, result);
             for (int i = 0; i < visitor.seen.size(); i++) assertEquals(5 + i, visitor.seen.get(i).seq());
         }
     }
@@ -138,7 +184,7 @@ class OutboundHistoryTest {
             assertEquals(3, visitor.seen.size());
             // The next replay is unaffected.
             Collecting again = new Collecting(Integer.MAX_VALUE);
-            assertEquals(new ExecutionHistory.Result(50, 41, false, 1), f.history().replay(10, 50, again));
+            assertRead(50, 41, false, 1, f.history().replay(10, 50, again));
         }
     }
 
@@ -159,6 +205,9 @@ class OutboundHistoryTest {
             assertTrue(result.firstSeq() > 1, "the oldest events are gone");
             assertEquals(1500, result.lastSeq());
             assertEquals(1500 - result.firstSeq() + 1, result.count());
+            assertEquals(2L * JournalTestSupport.SMALL, result.startPosition(), "read from the new start");
+            assertEquals(result.count(), result.scanned(), "nothing below the start is read");
+            assertEquals(recordedPosition(f) - result.startPosition(), result.bytesRead());
             for (int i = 0; i < visitor.seen.size(); i++) {
                 assertEquals(observe(fill(result.firstSeq() + i)), visitor.seen.get(i));
             }

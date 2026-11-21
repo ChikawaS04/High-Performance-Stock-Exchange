@@ -334,8 +334,8 @@ public final class ResendService implements AutoCloseable {
         done.put("toSeq", result.lastSeq());
         done.put("count", result.count());
         channel.writeAndFlush(new TextWebSocketFrame(done.toString()));
-        log.info("RESEND fromSeq {} to {}: {} frames to {} in {} ms", request.fromSeq(), result.lastSeq(),
-                result.count(), channel.remoteAddress(), (System.nanoTime() - startNanos) / 1_000_000L);
+        log.info(ResendLog.complete(request.fromSeq(), result, channel.remoteAddress(),
+                (System.nanoTime() - startNanos) / 1_000_000L));
     }
 
     private void reject(Channel channel, long fromSeq, String reason) {

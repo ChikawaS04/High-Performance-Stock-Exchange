@@ -61,6 +61,14 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *       start on the Reporter's replay streams, over and over, discarding what it reads, until the
  *       measurement ends. It reads as fast as the Archive serves, so it is an upper bound on the
  *       replay pressure of a catching-up Reporter, whose reads the database slows down.</li>
+ *   <li>{@code e2e.purgeEveryMs}: journaled open loop only (P16-12, the Archive delete blip). A purge thread
+ *       with its own Archive client calls {@code purgeSegments} on both recordings every N ms, up to the
+ *       segment base below the recorded position (the active segment is never touched), then polls until
+ *       the purged segment files are gone. The report adds each purge's call time and time to deletion,
+ *       and the worst latency of orders due between a purge call and its deletion plus 50 ms.</li>
+ *   <li>{@code bench.journalIdle}, {@code bench.ringWait}, {@code bench.segment}, {@code bench.aeronDir}:
+ *       {@code JOURNAL_IDLE_STRATEGY}, {@code RING_WAIT_STRATEGY}, {@code JOURNAL_SEGMENT_LENGTH} and the
+ *       base folder of the Aeron directory (see {@link BenchSupport}).</li>
  *   <li>{@code e2e.tag}: a label for the result file under {@code bench.results}
  *       (default {@code ../../bench-results/p15-13}).</li>
  * </ul>
@@ -109,9 +117,11 @@ final class JournaledEndToEndLatencyBenchmark {
         final boolean open = "open".equals(mode);
         final boolean journaled = "journaled".equals(pipelineName);
         final boolean replayLoad = Boolean.getBoolean("e2e.replayLoad");
+        final long purgeEveryMs = Long.getLong("e2e.purgeEveryMs", 0L);
         if (!open && !"closed".equals(mode)) throw new IllegalArgumentException("e2e.mode " + mode);
         if (!journaled && !"unjournaled".equals(pipelineName)) throw new IllegalArgumentException("e2e.pipeline " + pipelineName);
         if (replayLoad && !journaled) throw new IllegalArgumentException("e2e.replayLoad needs the journaled pipeline");
+        if (purgeEveryMs > 0 && !(journaled && open)) throw new IllegalArgumentException("e2e.purgeEveryMs needs the journaled open loop");
         final int rate = Integer.getInteger("e2e.rate", 20_000);
         final int warmup = Integer.getInteger("e2e.warmup", open ? 120_000 : 200_000);
         final int measure = Integer.getInteger("e2e.measure", open ? 600_000 : 1_000_000);
@@ -127,9 +137,9 @@ final class JournaledEndToEndLatencyBenchmark {
         try {
             if (open) {
                 OpenLoop run = new OpenLoop(venue, symbol, backlog, warmup, measure, rate);
-                samples = run.run(replayLoad);
+                samples = run.run(replayLoad, purgeEveryMs);
                 unexpected = run.recorder.mismatches();
-                extra = "sender max lag behind schedule: " + run.maxLagNanos + " ns\n" + run.loadReport;
+                extra = "sender max lag behind schedule: " + run.maxLagNanos + " ns\n" + run.loadReport + run.purgeReport;
             } else {
                 samples = closedLoop(venue, symbol, warmup, measure);
                 unexpected = venue.closedRecorder.unexpected();
@@ -140,7 +150,8 @@ final class JournaledEndToEndLatencyBenchmark {
 
         String config = "pipeline=" + pipelineName + " mode=" + mode
                 + (open ? " rate=" + rate + "/s" : "")
-                + (journaled ? " idle=" + idle + " archive=" + archive + " replayLoad=" + replayLoad + (replayLoad ? " backlog=" + backlog : "") : "");
+                + (journaled ? " idle=" + idle + " archive=" + archive + " replayLoad=" + replayLoad + (replayLoad ? " backlog=" + backlog : "")
+                        + " " + BenchSupport.settingsLabel() + (purgeEveryMs > 0 ? " purgeEveryMs=" + purgeEveryMs : "") : "");
         report(config, timer, extra, samples, warmup, unexpected);
     }
 
@@ -222,6 +233,7 @@ final class JournaledEndToEndLatencyBenchmark {
         final OpenRecorder recorder;
         long maxLagNanos;
         String loadReport = "";
+        String purgeReport = "";
 
         OpenLoop(Venue venue, String symbol, int backlog, int warmup, int measure, int rate) {
             this.venue = venue;
@@ -246,7 +258,7 @@ final class JournaledEndToEndLatencyBenchmark {
             return (k & 1) == 0 ? restFrames[pair] : crossFrames[pair];
         }
 
-        long[] run(boolean replayLoad) {
+        long[] run(boolean replayLoad, long purgeEveryMs) {
             final OrderGateway gateway = venue.gateway;
             long k = 0;
             for (; k < backlog; k++) {
@@ -258,6 +270,8 @@ final class JournaledEndToEndLatencyBenchmark {
             }
             ReplayLoad load = replayLoad ? new ReplayLoad(venue.venue) : null;
             if (load != null) load.start();
+            PurgeLoad purge = purgeEveryMs > 0 ? new PurgeLoad(venue.venue, purgeEveryMs) : null;
+            if (purge != null) purge.start();
             final long total = (long) backlog + warmup + measure;
             final long first = k;
             final long t0 = System.nanoTime() + 1_000_000L;
@@ -275,6 +289,7 @@ final class JournaledEndToEndLatencyBenchmark {
                 awaitCount(() -> recorder.count() >= total, "every terminal event");
             } finally {
                 if (load != null) loadReport = load.stop();
+                if (purge != null) purge.stop();
             }
             maxLagNanos = maxLag;
             final long[] egress = recorder.egress();
@@ -284,6 +299,7 @@ final class JournaledEndToEndLatencyBenchmark {
                 long index = measuredFrom + i;
                 samples[i] = egress[(int) index] - (t0 + (long) ((index - first) * periodNanos));
             }
+            if (purge != null) purgeReport = purge.report(samples, t0 + (long) ((measuredFrom - first) * periodNanos), periodNanos);
             return samples;
         }
     }
@@ -420,6 +436,126 @@ final class JournaledEndToEndLatencyBenchmark {
                 LockSupport.parkNanos(100_000L);
             }
             return subscription.imageAtIndex(0);
+        }
+    }
+
+    /**
+     * P16-12, the Archive delete blip (P16-7 finding 6): purges both recordings up to the segment holding
+     * their last recorded byte every {@code everyMs}, with its own Archive client, as journal retention does.
+     * {@code purgeSegments} returns before the Archive has deleted the files, so each purge is timed twice:
+     * the call, and until every purged segment file is gone from the Archive directory.
+     */
+    private static final class PurgeLoad {
+        private static final long DELETE_WAIT_MS = 10_000L;
+        private final Journal journal;
+        private final Path archiveDir;
+        private final long segment;
+        private final long[] ids;
+        private final long everyMs;
+        private final Thread thread;
+        private final java.util.List<long[]> purges = new java.util.ArrayList<>();  // call start, call end, deleted, files
+        private volatile boolean stop;
+        private volatile Throwable failure;
+
+        PurgeLoad(JournaledVenue venue, long everyMs) {
+            this.journal = venue.journal();
+            this.archiveDir = venue.config().archiveDir();
+            this.segment = venue.config().journalSegmentLength();
+            this.ids = new long[] {venue.pipeline().inboundRecording().recordingId(),
+                    venue.pipeline().outboundRecording().recordingId()};
+            this.everyMs = everyMs;
+            this.thread = new Thread(this::run, "purge-load");
+            this.thread.setDaemon(true);
+        }
+
+        void start() {
+            thread.start();
+        }
+
+        void stop() {
+            stop = true;
+            try {
+                thread.join(TIMEOUT_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (thread.isAlive()) throw new IllegalStateException("purge load thread did not stop");
+            if (failure != null) throw new IllegalStateException("purge load failed", failure);
+        }
+
+        private void run() {
+            try (AeronArchive client = journal.connectArchiveClient()) {
+                while (!stop) {
+                    LockSupport.parkNanos(everyMs * 1_000_000L);
+                    for (long id : ids) {
+                        if (stop) break;
+                        long start = client.getStartPosition(id);
+                        long recorded = client.getRecordingPosition(id);
+                        long newStart = ((recorded - 1) / segment) * segment;
+                        if (newStart <= start) continue;
+                        long files = (newStart - start) / segment;
+                        long callStart = System.nanoTime();
+                        client.purgeSegments(id, newStart);
+                        long callEnd = System.nanoTime();
+                        long deadline = callEnd + DELETE_WAIT_MS * 1_000_000L;
+                        while (!Journal.segmentFiles(archiveDir, id).headMap(newStart).isEmpty()) {
+                            if (System.nanoTime() > deadline) throw new IllegalStateException("segment files of "
+                                    + id + " below " + newStart + " still present " + DELETE_WAIT_MS + " ms after the purge");
+                            LockSupport.parkNanos(200_000L);
+                        }
+                        synchronized (purges) {
+                            purges.add(new long[] {callStart, callEnd, System.nanoTime(), files});
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                failure = t;
+            }
+        }
+
+        /**
+         * @param samples      measured latencies, sample i due at {@code firstDue + i * periodNanos}
+         */
+        String report(long[] samples, long firstDue, double periodNanos) {
+            final long windowTailNanos = 50_000_000L;
+            long[] sorted = samples.clone();
+            Arrays.sort(sorted);
+            long p999 = pct(sorted, 99.9);
+            StringBuilder sb = new StringBuilder();
+            java.util.List<long[]> all;
+            synchronized (purges) {
+                all = new java.util.ArrayList<>(purges);
+            }
+            long worstInWindows = 0;
+            long inWindows = 0;
+            long maxCall = 0;
+            long maxDelete = 0;
+            long sumCall = 0;
+            long sumDelete = 0;
+            long files = 0;
+            for (long[] p : all) {
+                long call = p[1] - p[0];
+                long delete = p[2] - p[0];
+                maxCall = Math.max(maxCall, call);
+                maxDelete = Math.max(maxDelete, delete);
+                sumCall += call;
+                sumDelete += delete;
+                files += p[3];
+                long from = (long) Math.ceil((p[0] - firstDue) / periodNanos);
+                long to = (long) Math.floor((p[2] + windowTailNanos - firstDue) / periodNanos);
+                for (long i = Math.max(0, from); i <= Math.min(samples.length - 1L, to); i++) {
+                    worstInWindows = Math.max(worstInWindows, samples[(int) i]);
+                    inWindows++;
+                }
+            }
+            int n = Math.max(1, all.size());
+            sb.append(String.format("purges     : %d (%d segment files), every %d ms%n", all.size(), files, everyMs));
+            sb.append(String.format("purge call : mean %,d ns, max %,d ns%n", sumCall / n, maxCall));
+            sb.append(String.format("purge done : mean %,d ns, max %,d ns (call start to files gone)%n", sumDelete / n,
+                    maxDelete));
+            sb.append(String.format("in windows : %d measured orders due from a purge call to its deletion + 50 ms;"
+                    + " worst %,d ns against the run's p99.9 %,d ns%n", inWindows, worstInWindows, p999));
+            return sb.toString();
         }
     }
 

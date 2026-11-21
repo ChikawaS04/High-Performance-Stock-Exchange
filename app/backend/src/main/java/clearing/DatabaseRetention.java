@@ -115,6 +115,20 @@ public final class DatabaseRetention implements AutoCloseable {
         thread.start();
     }
 
+    /**
+     * Runs exactly one pass on the calling thread and returns its status (P16-12: the {@code retention-once}
+     * measurement command). Only for an instance whose thread was never started, so a pass never overlaps
+     * another.
+     *
+     * @throws IllegalStateException if {@link #start()} was called
+     */
+    public DatabaseRetentionStatus runOnce() {
+        if (started) throw new IllegalStateException("runOnce is for a retention whose thread was never started");
+        runSafely();
+        completedRuns++;
+        return status;
+    }
+
     /** Asks for a pass as soon as the thread is free. Any thread; never blocks (clearing's completion hook). */
     public void requestRun() {
         runRequested = true;
@@ -334,10 +348,12 @@ public final class DatabaseRetention implements AutoCloseable {
         return true;
     }
 
-    private static boolean rate(StringBuilder out, RetentionStore.Step step, long rows, long nanos) {
+    /** One step of the per-date line: {@code <step> N rows in T ms (R/s)} (P16-12: rows, time and rate per table). */
+    static boolean rate(StringBuilder out, RetentionStore.Step step, long rows, long nanos) {
         if (rows == 0) return false;
         long perSecond = nanos <= 0 ? rows : rows * 1_000_000_000L / nanos;
-        out.append(step.name().toLowerCase()).append(' ').append(rows).append(" rows (").append(perSecond).append("/s)");
+        out.append(step.name().toLowerCase()).append(' ').append(rows).append(" rows in ").append(nanos / 1_000_000L)
+                .append(" ms (").append(perSecond).append("/s)");
         return true;
     }
 

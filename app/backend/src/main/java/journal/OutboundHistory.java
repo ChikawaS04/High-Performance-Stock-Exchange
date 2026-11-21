@@ -72,7 +72,7 @@ public final class OutboundHistory implements ExecutionHistory {
         final long endPosition = recordedPosition.limit();
         long startPosition = archive.getStartPosition(recordingId);
         if (endPosition <= startPosition && throughSeq <= 0) {
-            return new Result(0, 0, false);
+            return new Result(0, 0, false, 0, 0, 0, startPosition);
         }
         Subscription subscription;
         try {
@@ -83,7 +83,7 @@ public final class OutboundHistory implements ExecutionHistory {
             startPosition = archive.getStartPosition(recordingId);
             subscription = openReplay(startPosition);
         }
-        return read(subscription, fromSeq, throughSeq, endPosition, visitor);
+        return read(subscription, fromSeq, throughSeq, startPosition, endPosition, visitor);
     }
 
     private Subscription openReplay(long startPosition) {
@@ -91,8 +91,10 @@ public final class OutboundHistory implements ExecutionHistory {
                 Journal.RESEND_STREAM_ID);
     }
 
-    private Result read(Subscription replay, long fromSeq, long throughSeq, long endPosition, Visitor visitor) {
-        final long[] state = {0L, 0L, 0L};      // last seq read, count sent, first seq read
+    private Result read(Subscription replay, long fromSeq, long throughSeq, long startPosition, long endPosition,
+                        Visitor visitor) {
+        // last seq read, count sent, first seq read, events read, position after the last event read
+        final long[] state = {0L, 0L, 0L, 0L, startPosition};
         final boolean[] stopped = {false};
         final Throwable[] failure = {null};
         ControlledFragmentHandler handler = (buffer, offset, length, header) -> {
@@ -103,6 +105,8 @@ public final class OutboundHistory implements ExecutionHistory {
                 codec.decode(buffer, offset, scratch);
                 if (state[2] == 0L) state[2] = scratch.seq;
                 state[0] = scratch.seq;
+                state[3]++;
+                state[4] = header.position();
                 if (scratch.seq >= fromSeq) {
                     if (!visitor.onEvent(scratch)) {
                         stopped[0] = true;
@@ -137,10 +141,10 @@ public final class OutboundHistory implements ExecutionHistory {
                                 + " failed after seq " + state[0] + ": " + failure[0], failure[0]);
                     }
                     if (stopped[0]) {
-                        return new Result(state[0], state[1], true, state[2]);
+                        return result(state, true, startPosition);
                     }
                     if (done(image.position(), state[0], endPosition, throughSeq)) {
-                        return new Result(state[0], state[1], false, state[2]);
+                        return result(state, false, startPosition);
                     }
                     if (fragments > 0) {
                         deadline = System.currentTimeMillis() + STALL_TIMEOUT_MS;
@@ -153,7 +157,7 @@ public final class OutboundHistory implements ExecutionHistory {
                     }
                 }
                 if (!visitor.keepWaiting()) {
-                    return new Result(state[0], state[1], true, state[2]);
+                    return result(state, true, startPosition);
                 }
                 if (System.currentTimeMillis() > deadline) {
                     throw new IllegalStateException("Resend replay of outbound recording " + recordingId
@@ -163,6 +167,11 @@ public final class OutboundHistory implements ExecutionHistory {
                 idle.idle();
             }
         }
+    }
+
+    /** The result, with how much of the recording the read went through (P16-12). */
+    private static Result result(long[] state, boolean stopped, long startPosition) {
+        return new Result(state[0], state[1], stopped, state[2], state[3], state[4] - startPosition, startPosition);
     }
 
     private static boolean done(long position, long lastSeq, long endPosition, long throughSeq) {

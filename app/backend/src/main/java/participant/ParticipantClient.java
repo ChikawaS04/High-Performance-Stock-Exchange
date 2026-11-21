@@ -119,6 +119,10 @@ public final class ParticipantClient {
     private long sentNew;
     private long sentCancel;
     private long reconnects;
+    // Catch-up timing (P16-12): when the outage began and when the first RESEND of this catch-up went out.
+    private long disconnectedNanos = -1L;
+    private long resendStartNanos = -1L;
+    private long resendFromSeq;
 
     /**
      * @param gate the bot's risk gate; null for a connection that never sends (the observer)
@@ -258,9 +262,12 @@ public final class ParticipantClient {
         }
         if (c.resendFrom() > 0) {
             resendTries = 1;
+            resendStartNanos = System.nanoTime();
+            resendFromSeq = c.resendFrom();
             sendResend(c.resendFrom());
         } else {
             backoff = BACKOFF_MIN_MILLIS;
+            disconnectedNanos = -1L;
         }
         sendAll(c.actions());
     }
@@ -294,6 +301,7 @@ public final class ParticipantClient {
             return;
         }
         log.warn("{} lost its connection to {} ({}); reconnecting", name(), wsUri, why);
+        if (disconnectedNanos < 0) disconnectedNanos = System.nanoTime();
         WebSocket ws = webSocket;
         webSocket = null;
         sendTail = null;
@@ -308,7 +316,10 @@ public final class ParticipantClient {
         }
         Core.Resync r = core.onResendComplete();
         if (r.done()) {
-            log.info("{} caught up through seq {}; trading resumes", name(), core.seqs.lastApplied());
+            long now = System.nanoTime();
+            log.info(CatchUpLog.caughtUp(name(), core.seqs.lastApplied(), (now - resendStartNanos) / 1_000_000L,
+                    resendFromSeq, resendTries, disconnectedNanos < 0 ? -1L : (now - disconnectedNanos) / 1_000_000L));
+            disconnectedNanos = -1L;
             backoff = BACKOFF_MIN_MILLIS;
             resendTries = 0;
             sendAll(r.actions());

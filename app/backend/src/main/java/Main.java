@@ -1,6 +1,7 @@
 import clearing.Clearing;
 import clearing.DatabaseRetention;
 import config.ExchangeConfig;
+import config.SpinBudget;
 import db.DatabaseReferenceSource;
 import engine.MatchingEngine;
 import gateway.OrderGateway;
@@ -128,6 +129,9 @@ public final class Main {
         try {
             config = ExchangeConfig.fromEnvironment();
             log.info("Starting with {}", config);
+            for (String warning : SpinBudget.warnings(config, Runtime.getRuntime().availableProcessors())) {
+                log.warn(warning);
+            }
 
             // Before the journal: a database that answers with something wrong refuses startup here.
             if (config.dbUrl() == null) {

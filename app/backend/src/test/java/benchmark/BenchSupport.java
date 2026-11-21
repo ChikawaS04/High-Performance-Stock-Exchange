@@ -78,12 +78,45 @@ final class BenchSupport {
 
     /** As {@link #productionConfig(Path, String)}, with {@code JOURNAL_ARCHIVE_THREADING} set. */
     static ExchangeConfig productionConfig(Path root, String engineIdle, String archiveThreading) {
+        return productionConfig(root, engineIdle, archiveThreading, System.getProperty("bench.journalIdle"),
+                System.getProperty("bench.ringWait"));
+    }
+
+    /**
+     * As {@link #productionConfig(Path, String, String)}, with the P16-2 settings given explicitly (JMH
+     * parameters; null keeps the production default). Two more settings come from system properties, for
+     * the P16-12 server runs: {@code bench.segment} ({@code JOURNAL_SEGMENT_LENGTH}) and
+     * {@code bench.aeronDir}, a base folder for the Aeron directory (for example {@code /dev/shm}, as in
+     * production), so the Archive stays on the disk under {@code root} while the driver's files are on tmpfs.
+     */
+    static ExchangeConfig productionConfig(Path root, String engineIdle, String archiveThreading, String journalIdle,
+                                           String ringWait) {
         Map<String, String> env = new HashMap<>();
         env.put(ExchangeConfig.EXCHANGE_DATA_DIR, root.resolve("data").toString());
-        env.put(ExchangeConfig.AERON_DIR, root.resolve("aeron").toString());
+        String aeronBase = System.getProperty("bench.aeronDir");
+        env.put(ExchangeConfig.AERON_DIR, aeronBase == null || aeronBase.isBlank()
+                ? root.resolve("aeron").toString()
+                : Path.of(aeronBase).resolve(root.getFileName() + "-aeron").toString());
         env.put(ExchangeConfig.ENGINE_IDLE_STRATEGY, engineIdle);
         env.put(ExchangeConfig.JOURNAL_ARCHIVE_THREADING, archiveThreading);
+        if (journalIdle != null && !journalIdle.isBlank()) env.put(ExchangeConfig.JOURNAL_IDLE_STRATEGY, journalIdle);
+        if (ringWait != null && !ringWait.isBlank()) env.put(ExchangeConfig.RING_WAIT_STRATEGY, ringWait);
+        String segment = System.getProperty("bench.segment");
+        if (segment != null && !segment.isBlank()) env.put(ExchangeConfig.JOURNAL_SEGMENT_LENGTH, segment);
         return ExchangeConfig.from(env);
+    }
+
+    /** The P16-2 settings and the segment length a benchmark ran with, for its report line. */
+    static String settingsLabel() {
+        return "journalIdle=" + orDefault(System.getProperty("bench.journalIdle"), "backoff")
+                + " ringWait=" + orDefault(System.getProperty("bench.ringWait"), "blocking")
+                + " segment=" + orDefault(System.getProperty("bench.segment"), "default")
+                + " aeronDir=" + orDefault(System.getProperty("bench.aeronDir"), "tmp")
+                + " processors=" + Runtime.getRuntime().availableProcessors();
+    }
+
+    private static String orDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     /** Segment files and their total bytes under the archive directory. */
