@@ -1,0 +1,44 @@
+# /etc/caddy/Caddyfile: production (Phase 16, P16-10, D11).
+# On the server the placeholder below is replaced by the bcrypt hash; the repo copy never holds it.
+# No trusted_proxies anywhere, so Caddy replaces any X-Forwarded-For a visitor sends (P16-9).
+
+davidsexchange.com {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	# Bring-up password (D11, D15); removed at P16-13 once the caps are accepted.
+	basic_auth {
+		credo REPLACE_WITH_HASH
+	}
+
+	# The venue: exact paths only (the router passes only the exact /ws).
+	@backend path /ws /health /api /api/* /market/*
+	handle @backend {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# Vite's hashed files: cached for a year, and a missing file is a real 404.
+	handle /assets/* {
+		root * /var/www/directroute/current
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Everything else: the terminal, with React routes such as /charts falling back to index.html.
+	handle {
+		root * /var/www/directroute/current
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+www.davidsexchange.com {
+	redir https://davidsexchange.com{uri} permanent
+}
