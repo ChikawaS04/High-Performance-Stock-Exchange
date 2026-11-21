@@ -284,6 +284,12 @@ class JournalRetentionTest {
             assertTrue(run.status().outbound().startPosition() > 0, "the outbound start moved");
             firstClose = closeSnapshot(new SnapshotStore(run.venue.config().snapshotDir()), FIRST_DAY).inboundSeq();
             run.trade(20);
+            // trade() waits for the commands to be applied, not for their events to reach the capture: wait for
+            // the captured stream to reach the published seq, or "last" can be read a few commands early (P16-9).
+            await(() -> {
+                List<CapturingExecutionHandler.Observed> s = run.execs.snapshot();
+                return !s.isEmpty() && s.get(s.size() - 1).seq() == run.pipeline().publishedSeq();
+            }, "every published event captured");
             List<CapturingExecutionHandler.Observed> seen = run.execs.snapshot();
             last = seen.get(seen.size() - 1);
             run.close();   // graceful: drains, then a shutdown snapshot (removed below)
