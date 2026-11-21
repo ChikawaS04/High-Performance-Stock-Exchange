@@ -331,6 +331,87 @@ class ExchangeConfigTest {
         assertEquals(68_719_476_736L, off.journalLowStorageBytes());
     }
 
+    // --- public access limits (P16-9) ---
+
+    @Test
+    void theAccessLimitsHaveTheirDefaults() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.of());
+        assertEquals(10, cfg.wsChannelRate());
+        assertEquals(30, cfg.wsChannelBurst());
+        assertEquals(10, cfg.wsClientRate());
+        assertEquals(30, cfg.wsClientBurst());
+        assertEquals(20, cfg.wsPublicRate());
+        assertEquals(100, cfg.wsPublicBurst());
+        assertEquals(5_000, cfg.wsOverLimitCloseMillis());
+        assertEquals(200, cfg.wsMaxConnections());
+        assertEquals(10, cfg.wsMaxConnectionsPerClient());
+        assertEquals(4_096, cfg.wsIdleClientsMax());
+        assertEquals(java.util.List.of(), cfg.wsTrustedProxies());
+        assertEquals(java.util.List.of("127.0.0.1", "::1"), cfg.wsExemptAddresses(),
+                "loopback, so development and the existing tests are unchanged");
+        assertEquals(1, cfg.resendPublicMaxPending());
+        assertEquals(60_000L, cfg.resendPublicIntervalMillis());
+        assertEquals(10_000, cfg.resendPublicMaxEvents());
+    }
+
+    @Test
+    void theAccessLimitsCanBeSetAndAddressesAreCanonical() {
+        ExchangeConfig cfg = ExchangeConfig.from(Map.ofEntries(
+                Map.entry("WS_CHANNEL_RATE", "5"), Map.entry("WS_CHANNEL_BURST", "6"),
+                Map.entry("WS_CLIENT_RATE", "7"), Map.entry("WS_CLIENT_BURST", "8"),
+                Map.entry("WS_PUBLIC_RATE", "9"), Map.entry("WS_PUBLIC_BURST", "10"),
+                Map.entry("WS_OVER_LIMIT_CLOSE_MS", "2000"), Map.entry("WS_MAX_CONNECTIONS", "50"),
+                Map.entry("WS_MAX_CONNECTIONS_PER_CLIENT", "4"), Map.entry("WS_IDLE_CLIENTS_MAX", "100"),
+                Map.entry("WS_TRUSTED_PROXIES", " 172.30.0.1 "),
+                Map.entry("WS_EXEMPT_ADDRESSES", "172.30.0.10, 2001:DB8:0:0::1"),
+                Map.entry("RESEND_PUBLIC_MAX_PENDING", "0"), Map.entry("RESEND_PUBLIC_INTERVAL_MS", "0"),
+                Map.entry("RESEND_PUBLIC_MAX_EVENTS", "500")));
+        assertEquals(5, cfg.wsChannelRate());
+        assertEquals(10, cfg.wsPublicBurst());
+        assertEquals(2_000, cfg.wsOverLimitCloseMillis());
+        assertEquals(4, cfg.wsMaxConnectionsPerClient());
+        assertEquals(java.util.List.of("172.30.0.1"), cfg.wsTrustedProxies());
+        assertEquals(java.util.List.of("172.30.0.10", "2001:db8::1"), cfg.wsExemptAddresses(), "canonical spelling");
+        assertEquals(0, cfg.resendPublicMaxPending());
+        assertEquals(0L, cfg.resendPublicIntervalMillis());
+        assertEquals(500, cfg.resendPublicMaxEvents());
+        assertTrue(cfg.toString().contains("wsExemptAddresses=[172.30.0.10"), cfg.toString());
+        assertEquals(java.util.List.of(), ExchangeConfig.from(Map.of("WS_EXEMPT_ADDRESSES", "none")).wsExemptAddresses());
+    }
+
+    @Test
+    void theAccessLimitsAreValidated() {
+        assertRejected(Map.of("WS_CHANNEL_RATE", "0"), "WS_CHANNEL_RATE");
+        assertRejected(Map.of("WS_PUBLIC_BURST", "1000001"), "WS_PUBLIC_BURST");
+        assertRejected(Map.of("WS_OVER_LIMIT_CLOSE_MS", "999"), "WS_OVER_LIMIT_CLOSE_MS");
+        assertRejected(Map.of("WS_MAX_CONNECTIONS", "5", "WS_MAX_CONNECTIONS_PER_CLIENT", "6"),
+                "WS_MAX_CONNECTIONS_PER_CLIENT");
+        assertRejected(Map.of("WS_IDLE_CLIENTS_MAX", "15"), "WS_IDLE_CLIENTS_MAX");
+        assertRejected(Map.of("RESEND_PUBLIC_MAX_PENDING", "5"), "RESEND_PUBLIC_MAX_PENDING");
+        assertRejected(Map.of("RESEND_PUBLIC_INTERVAL_MS", "86400001"), "RESEND_PUBLIC_INTERVAL_MS");
+        assertRejected(Map.of("RESEND_PUBLIC_MAX_EVENTS", "0"), "RESEND_PUBLIC_MAX_EVENTS");
+        // Literals only: never a host name (no DNS), a port, brackets or a zone.
+        assertRejected(Map.of("WS_TRUSTED_PROXIES", "caddy"), "WS_TRUSTED_PROXIES");
+        assertRejected(Map.of("WS_TRUSTED_PROXIES", "172.30.0.1:80"), "WS_TRUSTED_PROXIES");
+        assertRejected(Map.of("WS_EXEMPT_ADDRESSES", "[::1]"), "WS_EXEMPT_ADDRESSES");
+        assertRejected(Map.of("WS_EXEMPT_ADDRESSES", "fe80::1%eth0"), "WS_EXEMPT_ADDRESSES");
+        // A per-client cap above a smaller venue cap is clamped by default, not refused.
+        assertEquals(3, ExchangeConfig.from(Map.of("WS_MAX_CONNECTIONS", "3")).wsMaxConnectionsPerClient());
+    }
+
+    @Test
+    void theTrustedProxyCanNeverBeExempt() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(Map.of(
+                "WS_TRUSTED_PROXIES", "172.30.0.1", "WS_EXEMPT_ADDRESSES", "172.30.0.10,172.30.0.1")));
+        assertTrue(e.getMessage().contains("WS_EXEMPT_ADDRESSES") && e.getMessage().contains("WS_TRUSTED_PROXIES"),
+                e.getMessage());
+        // Two spellings of one address still overlap.
+        assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(Map.of(
+                "WS_TRUSTED_PROXIES", "::1")));   // the default exempt list holds loopback
+        assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(Map.of(
+                "WS_TRUSTED_PROXIES", "0:0:0:0:0:0:0:1", "WS_EXEMPT_ADDRESSES", "::1")));
+    }
+
     private static void assertRejected(Map<String, String> env, String variable) {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ExchangeConfig.from(env));
         assertTrue(e.getMessage().contains(variable), e.getMessage());

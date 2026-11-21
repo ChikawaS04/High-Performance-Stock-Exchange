@@ -8,6 +8,7 @@ import http.ApiService;
 import journal.JournaledPipeline;
 import market.IgnitionService;
 import market.MarketDataService;
+import net.AccessControl;
 import net.ResendService;
 import net.WebSocketServer;
 import publisher.ExecutionFrames;
@@ -171,7 +172,19 @@ public final class Main {
         disk.countRefusalsFrom(gateway::refusedNewOrders);
         disk.start();
         // RESEND: replays the outbound recording with the live EXEC serializer; the server owns it.
-        ResendService resend = new ResendService(pipeline.outboundHistory(), new ExecutionFrames()::toJson);
+        // Public clients get their own small pool, an interval and a depth floor (P16-9).
+        ResendService resend = new ResendService(pipeline.outboundHistory(), new ExecutionFrames()::toJson,
+                new ResendService.Limits(config.resendPublicMaxPending(),
+                        config.resendPublicIntervalMillis() * 1_000_000L, config.resendPublicMaxEvents()));
+        // Public access limits on the WebSocket port (P16-9, D15): frame buckets, the 1008 close, connection caps.
+        AccessControl access = new AccessControl(new AccessControl.Limits(
+                config.wsChannelRate(), config.wsChannelBurst(), config.wsClientRate(), config.wsClientBurst(),
+                config.wsPublicRate(), config.wsPublicBurst(), config.wsOverLimitCloseMillis(),
+                config.wsMaxConnections(), config.wsMaxConnectionsPerClient(), config.wsIdleClientsMax(),
+                config.wsTrustedProxies(), config.wsExemptAddresses()));
+        log.info("Access limits: exempt {}, trusted proxies {}, public connections at most {} ({} per client)",
+                config.wsExemptAddresses(), config.wsTrustedProxies(), config.wsMaxConnections(),
+                config.wsMaxConnectionsPerClient());
         // Constructed before the publisher: the server owns the ChannelGroup and the BOOK cache.
         // The pipeline is what GET /health reports (P15-7). With a database, /api serves the reports (P15-12);
         // the server owns the api and closes it when it stops.
@@ -182,7 +195,8 @@ public final class Main {
         if (ignition != null) {
             ignition.start();
         }
-        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend, pipeline, api, ignition);
+        WebSocketServer server = new WebSocketServer(config.port(), gateway, clock, resend, pipeline, api, ignition,
+                access);
         WebSocketPublisher publisher = new WebSocketPublisher(server.getChannelGroup(), server.getBookFrameCache());
 
         // --- 4. Subscribers (must precede start). Independent consumers, each with its own

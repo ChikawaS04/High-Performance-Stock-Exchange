@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 
 /**
  * Serves RESEND requests (SRS §3.6, D16): {@code {"type":"RESEND","fromSeq":N}} replays every
@@ -35,6 +36,21 @@ import java.util.function.Function;
  * {@code {"type":"RESEND_REJECTED","fromSeq":N,"reason":"IN_PROGRESS"|"BUSY"}}; a resend that
  * fails part-way on a live channel ends with reason {@code FAILED}, and the client retries from
  * its highest contiguous seq.
+ *
+ * Public limits (P16-9). A channel that {@link AccessControl} admitted as public (not exempt) is limited
+ * further, because every resend reads the outbound recording from its start and so costs a read of the
+ * whole retained window, and any public client could ask from seq 1 (P16-7 finding 4):
+ * <ul>
+ *   <li>public requests have a pool of their own ({@link Limits#publicMaxPending}), so they can never take the
+ *       {@link #MAX_PENDING} slots of exempt clients (the bots' catch-up after every venue restart);</li>
+ *   <li>queued exempt requests are always served before queued public ones;</li>
+ *   <li>one public request per client address per {@link Limits#publicIntervalNanos};</li>
+ *   <li>a public {@code fromSeq} more than {@link Limits#publicMaxEvents} events before the newest is raised to
+ *       that floor (as a request below the retained window is, P16-7 R5), with a rate-limited WARN, and
+ *       {@code RESEND_COMPLETE} keeps the client's own {@code fromSeq}.</li>
+ * </ul>
+ * A request refused by the public pool or interval gets {@code BUSY}, so the wire protocol is unchanged. A
+ * channel with no access state (a server built without access control) counts as exempt, as before.
  *
  * Interleaving. Live EXEC frames (publisher thread) and resent frames (this thread) reach the
  * channel's event loop with no order between them, so a client can see a seq twice, in either
@@ -60,26 +76,69 @@ public final class ResendService implements AutoCloseable {
     private static final long CLOSE_TIMEOUT_MS = 5_000L;
     private static final int FLUSH_EVERY = 64;
 
+    /**
+     * The public RESEND limits (P16-9).
+     *
+     * @param publicMaxPending    public requests queued or being served at once; 0 refuses every public request
+     * @param publicIntervalNanos at most one public request per client address in this time
+     * @param publicMaxEvents     a public request is served from at most this many events before the newest
+     */
+    public record Limits(int publicMaxPending, long publicIntervalNanos, long publicMaxEvents) {
+        /** The ExchangeConfig defaults: one pending, one a minute per client, the last 10,000 events. */
+        public static final Limits DEFAULT = new Limits(1, 60_000_000_000L, 10_000L);
+
+        public Limits {
+            if (publicMaxPending < 0 || publicIntervalNanos < 0 || publicMaxEvents < 1) {
+                throw new IllegalArgumentException("bad public resend limits");
+            }
+        }
+    }
+
     private final ExecutionHistory history;
     private final Function<ExecutionEvent, String> frames;
+    private final Limits limits;
+    private final LongSupplier nanos;
     private final ObjectMapper mapper = new ObjectMapper();
-    private final ConcurrentLinkedQueue<Request> queue = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Request> exemptQueue = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Request> publicQueue = new ConcurrentLinkedQueue<>();
     private final AtomicInteger pending = new AtomicInteger();
+    private final AtomicInteger publicPending = new AtomicInteger();
     private final Set<ChannelId> inFlight = ConcurrentHashMap.newKeySet();
     private final AtomicLong finished = new AtomicLong();
+    private final AtomicLong refusedInProgress = new AtomicLong();
+    private final AtomicLong refusedBusy = new AtomicLong();
+    private final AtomicLong refusedPublicPool = new AtomicLong();
+    private final AtomicLong refusedPublicInterval = new AtomicLong();
     private final Thread thread;
     private final ResendRangeLog rangeLog = new ResendRangeLog();
+    /** The public depth floor's WARN; resend thread only. */
+    private final MinuteLog floorLog = new MinuteLog();
     private volatile boolean running = true;
 
-    private record Request(Channel channel, long fromSeq, long throughSeq) { }
+    /**
+     * @param servedFrom where the replay starts: {@code fromSeq}, or the public depth floor above it
+     */
+    private record Request(Channel channel, long fromSeq, long throughSeq, boolean isPublic, long servedFrom) { }
 
     /**
      * @param history the recorded execution history
      * @param frames  the live EXEC serializer ({@code publisher.ExecutionFrames::toJson})
      */
     public ResendService(ExecutionHistory history, Function<ExecutionEvent, String> frames) {
+        this(history, frames, Limits.DEFAULT);
+    }
+
+    /** With the public RESEND limits (P16-9); Main's form. */
+    public ResendService(ExecutionHistory history, Function<ExecutionEvent, String> frames, Limits limits) {
+        this(history, frames, limits, System::nanoTime);
+    }
+
+    ResendService(ExecutionHistory history, Function<ExecutionEvent, String> frames, Limits limits,
+                  LongSupplier nanos) {
         this.history = history;
         this.frames = frames;
+        this.limits = limits;
+        this.nanos = nanos;
         this.thread = new Thread(this::run, "resend");
         this.thread.setDaemon(true);
         this.thread.start();
@@ -95,26 +154,80 @@ public final class ResendService implements AutoCloseable {
             return;
         }
         if (!inFlight.add(channel.id())) {
+            refusedInProgress.incrementAndGet();
             log.warn("RESEND fromSeq {} from {} rejected: a resend for this channel is in progress",
                     fromSeq, channel.remoteAddress());
             reject(channel, fromSeq, "IN_PROGRESS");
             return;
         }
+        ChannelAccess access = channel.attr(ChannelAccess.KEY).get();
+        if (access != null && access.isPublic()) {
+            requestPublic(channel, fromSeq, access.client);
+            return;
+        }
         if (pending.incrementAndGet() > MAX_PENDING) {
             pending.decrementAndGet();
             inFlight.remove(channel.id());
+            refusedBusy.incrementAndGet();
             log.warn("RESEND fromSeq {} from {} rejected: {} resends already pending", fromSeq,
                     channel.remoteAddress(), MAX_PENDING);
             reject(channel, fromSeq, "BUSY");
             return;
         }
-        queue.add(new Request(channel, fromSeq, history.publishedSeq()));
+        exemptQueue.add(new Request(channel, fromSeq, history.publishedSeq(), false, fromSeq));
+        LockSupport.unpark(thread);
+    }
+
+    /**
+     * A public client's request (P16-9), on the worker thread: the client's interval first, then the public pool.
+     * Both refusals answer BUSY; neither is logged per request (the counters show them on {@code /health}).
+     */
+    private void requestPublic(Channel channel, long fromSeq, ChannelAccess.ClientState client) {
+        long now = nanos.getAsLong();
+        if (client.resent && now - client.lastResendNanos < limits.publicIntervalNanos()) {
+            inFlight.remove(channel.id());
+            refusedPublicInterval.incrementAndGet();
+            reject(channel, fromSeq, "BUSY");
+            return;
+        }
+        if (publicPending.incrementAndGet() > limits.publicMaxPending()) {
+            publicPending.decrementAndGet();
+            inFlight.remove(channel.id());
+            refusedPublicPool.incrementAndGet();
+            reject(channel, fromSeq, "BUSY");
+            return;
+        }
+        client.resent = true;
+        client.lastResendNanos = now;
+        long through = history.publishedSeq();
+        long floor = Math.max(1L, through - limits.publicMaxEvents() + 1L);
+        publicQueue.add(new Request(channel, fromSeq, through, true, Math.max(fromSeq, floor)));
         LockSupport.unpark(thread);
     }
 
     /** Requests served or abandoned so far; a reader sees every write of those requests. */
     public long finishedRequests() {
         return finished.get();
+    }
+
+    /** Refused because the channel had a resend pending (IN_PROGRESS). */
+    public long refusedInProgress() {
+        return refusedInProgress.get();
+    }
+
+    /** Exempt requests refused because {@link #MAX_PENDING} were pending (BUSY). */
+    public long refusedBusy() {
+        return refusedBusy.get();
+    }
+
+    /** Public requests refused because the public pool was full (BUSY, P16-9). */
+    public long refusedPublicPool() {
+        return refusedPublicPool.get();
+    }
+
+    /** Public requests refused by the per-client interval (BUSY, P16-9). */
+    public long refusedPublicInterval() {
+        return refusedPublicInterval.get();
     }
 
     /** Stops the resend thread, abandoning any request in progress. Bounded. */
@@ -134,7 +247,11 @@ public final class ResendService implements AutoCloseable {
 
     private void run() {
         while (running) {
-            Request request = queue.poll();
+            // Exempt first (P16-9): a bot's catch-up never waits behind a queued public request.
+            Request request = exemptQueue.poll();
+            if (request == null) {
+                request = publicQueue.poll();
+            }
             if (request == null) {
                 LockSupport.parkNanos(this, 100_000_000L);
                 continue;
@@ -145,7 +262,7 @@ public final class ResendService implements AutoCloseable {
                 log.warn("RESEND fromSeq {} for {} failed", request.fromSeq(), request.channel().remoteAddress(), e);
             } finally {
                 inFlight.remove(request.channel().id());
-                pending.decrementAndGet();
+                (request.isPublic() ? publicPending : pending).decrementAndGet();
                 finished.incrementAndGet();
             }
         }
@@ -158,7 +275,15 @@ public final class ResendService implements AutoCloseable {
                     channel.remoteAddress());
             return;
         }
-        long from = request.fromSeq();
+        long from = request.servedFrom();
+        if (from > request.fromSeq()) {
+            long held = floorLog.occurrence(System.nanoTime());
+            if (held >= 0) {
+                log.warn("Public RESEND fromSeq {} from {} served from seq {}: public resends reach back at most {} "
+                        + "events{}", request.fromSeq(), channel.remoteAddress(), from, limits.publicMaxEvents(),
+                        held > 0 ? " (" + held + " more since the last warning)" : "");
+            }
+        }
         if (from < 1) {
             log.warn("RESEND fromSeq {} from {} is before the first recorded event; resending from seq 1",
                     from, channel.remoteAddress());

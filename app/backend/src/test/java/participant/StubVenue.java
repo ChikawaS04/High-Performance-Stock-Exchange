@@ -48,6 +48,8 @@ final class StubVenue implements AutoCloseable {
     final AtomicInteger healthCalls = new AtomicInteger();
     final AtomicInteger connections = new AtomicInteger();
     volatile String session = "OPEN";
+    /** The {@code disk.state} in {@code /health} (P16-9); null leaves the {@code disk} object out. */
+    volatile String diskState;
     /** Called on the event loop for every text frame, after it is recorded; may answer with {@link #send}. */
     volatile Consumer<String> onText = s -> { };
 
@@ -135,8 +137,9 @@ final class StubVenue implements AutoCloseable {
             if (msg instanceof FullHttpRequest req && req.uri().equals("/health")) {
                 healthCalls.incrementAndGet();
                 boolean fail = healthFailuresLeft.getAndUpdate(n -> Math.max(0, n - 1)) > 0;
+                String disk = diskState;
                 String body = "{\"running\":true,\"session\":\"" + session + "\",\"publishedOutboundSeq\":"
-                        + publishedSeq.get() + "}";
+                        + publishedSeq.get() + (disk == null ? "" : ",\"disk\":{\"state\":\"" + disk + "\"}") + "}";
                 FullHttpResponse res = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
                         fail ? HttpResponseStatus.SERVICE_UNAVAILABLE : HttpResponseStatus.OK,
                         Unpooled.copiedBuffer(fail ? "{}" : body, StandardCharsets.UTF_8));

@@ -55,6 +55,11 @@ import java.util.concurrent.locks.LockSupport;
  * handed back to the strategy as a local reject. One WARN at the first refusal, then at most one a
  * minute with the count.
  *
+ * <p><b>Venue refusals (P16-9).</b> After consecutive seq-less ORDER_REJECTED for its own orders (the disk guard's
+ * hard stop) the bot stops ticking its strategy and backs off, doubling up to a cap, reading {@code /health} at
+ * the end of each pause; it resumes once the disk is out of STOP or an own order is accepted
+ * ({@link RejectBackoff}). One WARN per episode, one INFO on resume.
+ *
  * <p><b>Stop.</b> {@link #stopAll} stops every client together: no more ticks, the cancels sent,
  * one shared bounded wait for the venue to confirm them (re-sending each second), then the sockets
  * are closed. A SIGTERM therefore leaves nothing behind within about 4 s.
@@ -120,12 +125,22 @@ public final class ParticipantClient {
      */
     public ParticipantClient(URI wsUri, URI healthUri, String symbol, Strategy strategy, RiskGate gate,
                              long tickMillis, MarketListener listener, ObjectMapper mapper) {
+        this(wsUri, healthUri, symbol, strategy, gate, tickMillis, listener, mapper, RejectBackoff.DEFAULT_MAX_MILLIS);
+    }
+
+    /**
+     * @param rejectBackoffMaxMillis the longest pause after the venue's seq-less refusals (P16-9,
+     *                               {@code BOTS_REJECT_BACKOFF_MAX_MS})
+     */
+    public ParticipantClient(URI wsUri, URI healthUri, String symbol, Strategy strategy, RiskGate gate,
+                             long tickMillis, MarketListener listener, ObjectMapper mapper,
+                             long rejectBackoffMaxMillis) {
         this.wsUri = wsUri;
         this.healthUri = healthUri;
         this.symbol = symbol;
         this.tickMillis = tickMillis;
         this.mapper = mapper;
-        this.core = new Core(strategy, gate, listener);
+        this.core = new Core(strategy, gate, listener, rejectBackoffMaxMillis);
         this.exec = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "participant-" + strategy.name());
             t.setDaemon(true);
@@ -173,6 +188,8 @@ public final class ParticipantClient {
                         + (g == null ? "" : " position=" + g.position() + " limit=" + g.risk().maxPosition()
                                 + " open=" + g.openOrders() + " refused=" + g.refused())
                         + " sentNew=" + sentNew + " sentCancel=" + sentCancel + " reconnects=" + reconnects
+                        + " venueRefused=" + core.backoff.refusals()
+                        + " backoff=" + (core.backoff.paused() ? core.backoff.delayMillis() + "ms" : "none")
                         + " lastSeq=" + core.seqs.lastApplied();
             }).get(1, TimeUnit.SECONDS);
         } catch (Exception e) {
@@ -326,9 +343,49 @@ public final class ParticipantClient {
     private void safeTick() {
         try {
             sendAll(core.onTick(System.currentTimeMillis()));
+            RejectBackoff b = core.backoff;
+            if (b.takeEpisodeStarted()) {
+                log.warn("{}: the venue refused {} NEW orders in a row (its disk guard is refusing new orders); "
+                        + "pausing new orders, back-off from {} ms up to {} ms, resuming once /health shows the "
+                        + "disk out of STOP or an order is accepted", name(), RejectBackoff.TRIGGER,
+                        RejectBackoff.START_MILLIS, b.maxMillis());
+            }
+            if (b.takeProbe()) {
+                probeHealth();
+            }
         } catch (RuntimeException e) {
             log.warn("{} tick failed: {}", name(), e.toString());
         }
+    }
+
+    /** One {@code GET /health} at the end of a back-off pause (P16-9); the answer comes back on the executor. */
+    private void probeHealth() {
+        HttpRequest req = HttpRequest.newBuilder(healthUri).timeout(Duration.ofSeconds(5)).GET().build();
+        http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .whenComplete((res, err) -> post(() -> onProbe(res, err)));
+    }
+
+    private void onProbe(HttpResponse<String> res, Throwable err) {
+        boolean stopped = true;   // a venue that cannot be read is not assumed to accept orders
+        if (err == null && res.statusCode() == 200) {
+            try {
+                stopped = diskStopped(mapper.readTree(res.body()));
+            } catch (Exception e) {
+                stopped = true;
+            }
+        }
+        RejectBackoff b = core.backoff;
+        if (b.onProbe(stopped, System.currentTimeMillis())) {
+            log.info("{}: /health shows the disk out of STOP; new orders resume ({} refused so far)", name(),
+                    b.refusals());
+        } else if (b.paused()) {
+            log.debug("{}: still refusing new orders; next check in {} ms", name(), b.delayMillis());
+        }
+    }
+
+    /** Whether a {@code /health} body shows the disk guard in STOP; no {@code disk} object means no guard. */
+    static boolean diskStopped(JsonNode health) {
+        return "STOP".equals(health.path("disk").path("state").asText(null));
     }
 
     private void dispatch(int gen, String json) {
@@ -515,6 +572,8 @@ public final class ParticipantClient {
         final SeqTracker<JsonNode> seqs = new SeqTracker<>();
 
         Phase phase;
+        /** The back-off after the venue's seq-less refusals (P16-9); see {@link RejectBackoff}. */
+        final RejectBackoff backoff;
         private long bestBid = Prices.NA;
         private long bestAsk = Prices.NA;
         private long lastTradeUnits = Prices.NA;
@@ -534,10 +593,15 @@ public final class ParticipantClient {
         }
 
         Core(Strategy strategy, RiskGate gate, MarketListener listener) {
+            this(strategy, gate, listener, RejectBackoff.DEFAULT_MAX_MILLIS);
+        }
+
+        Core(Strategy strategy, RiskGate gate, MarketListener listener, long backoffMaxMillis) {
             this.strategy = strategy;
             this.gate = gate;
             this.listener = listener;
             this.phase = Phase.CONNECTING;
+            this.backoff = new RejectBackoff(backoffMaxMillis);
         }
 
         void setSessionOpen(boolean open) {
@@ -607,8 +671,14 @@ public final class ParticipantClient {
         }
 
         List<Action> onTick(long nowMillis) {
-            return (phase == Phase.LIVE && sessionOpen && !stopping)
-                    ? filter(strategy.onTick(view(), nowMillis)) : List.of();
+            if (phase != Phase.LIVE || !sessionOpen || stopping) {
+                return List.of();
+            }
+            // While the venue refuses NEW (P16-9), the strategy is not ticked; cancels on other paths still go.
+            if (backoff.holdsTick(nowMillis)) {
+                return List.of();
+            }
+            return filter(strategy.onTick(view(), nowMillis));
         }
 
         List<Action> onStop() {
@@ -648,6 +718,16 @@ public final class ParticipantClient {
         private List<Action> apply(JsonNode node) {
             if ("EXEC".equals(node.path("type").asText())) {
                 ExecReport r = parseExec(node);
+                // Only the venue's own frames reach here (a RiskGate refusal goes straight to the strategy in
+                // filter), so the back-off counts venue refusals only: a seq-less ORDER_REJECTED is the disk
+                // guard's hard stop refusing this bot's NEW (P16-8); an own ORDER_ACCEPTED means NEW works again.
+                if (strategy.owner().isBot() && Bots.owner(r.orderId()) == strategy.owner()) {
+                    if (r.execType() == ExecutionEventType.ORDER_REJECTED && node.path("seq").asLong(-1) < 1) {
+                        backoff.onVenueRefusal();
+                    } else if (r.execType() == ExecutionEventType.ORDER_ACCEPTED) {
+                        backoff.onAccepted();
+                    }
+                }
                 if (isFill(r.execType()) && r.priceUnits() > 0) {
                     lastTradeUnits = r.priceUnits();
                 }

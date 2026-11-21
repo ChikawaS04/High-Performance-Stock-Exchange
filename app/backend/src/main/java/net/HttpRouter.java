@@ -91,6 +91,11 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
     private static final byte[] BAD_REQUEST = "{\"error\":\"BAD_REQUEST\"}".getBytes(StandardCharsets.UTF_8);
     private static final byte[] UPSTREAM_UNAVAILABLE =
             "{\"error\":\"UPSTREAM_UNAVAILABLE\"}".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] TOO_MANY_CONNECTIONS =
+            "{\"error\":\"TOO_MANY_CONNECTIONS\"}".getBytes(StandardCharsets.UTF_8);
+    /** Retry-After on a refused upgrade (P16-9). */
+    static final int UPGRADE_RETRY_AFTER_SECONDS = 10;
+    private static final String X_FORWARDED_FOR = "X-Forwarded-For";
 
     static final String IGNITION_PATH = "/market/ignition";
 
@@ -103,6 +108,12 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
     private final ObjectMapper objectMapper;
     private final ApiHandler api;
     private final IgnitionSource ignition;
+    /** The public access limits (P16-9); null when the server has none, and every upgrade is admitted. */
+    private final AccessControl access;
+    /** This channel's access state, shared with its {@link InboundFrameLimiter}; null with no access control. */
+    private final ChannelAccess channelAccess;
+    /** For the RESEND refusal counters in {@code /health}; null when the server has no resend service. */
+    private final ResendService resend;
 
     /** True while an /api answer for this channel is outstanding; event loop only. */
     private boolean awaitingApi;
@@ -131,11 +142,28 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
      */
     public HttpRouter(String webSocketPath, VenueStatus status, ObjectMapper objectMapper, ApiHandler api,
                       IgnitionSource ignition) {
+        this(webSocketPath, status, objectMapper, api, ignition, null, null, null);
+    }
+
+    /**
+     * @param access        the public access limits (P16-9): the connection caps are applied at the upgrade, and
+     *                      {@code /health} gains an {@code access} object; null for none
+     * @param channelAccess this channel's access state, shared with its frame limiter; required with {@code access}
+     * @param resend        the resend service whose refusal counters {@code /health} shows; may be null
+     */
+    HttpRouter(String webSocketPath, VenueStatus status, ObjectMapper objectMapper, ApiHandler api,
+               IgnitionSource ignition, AccessControl access, ChannelAccess channelAccess, ResendService resend) {
+        if (access != null && channelAccess == null) {
+            throw new IllegalArgumentException("access control needs the channel's access state");
+        }
         this.webSocketPath = webSocketPath;
         this.status = status;
         this.objectMapper = objectMapper;
         this.api = api;
         this.ignition = ignition;
+        this.access = access;
+        this.channelAccess = channelAccess;
+        this.resend = resend;
     }
 
     @Override
@@ -159,6 +187,9 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             return;
         }
         if (req.uri().equals(webSocketPath)) {
+            if (access != null && !channelAccess.admitted && !admit(ctx, req)) {
+                return;
+            }
             // Balances SimpleChannelInboundHandler's release; the handshaker releases it after.
             ctx.fireChannelRead(req.retain());
             return;
@@ -183,6 +214,25 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             return;
         }
         send(ctx, req, HttpResponseStatus.NOT_FOUND, NOT_FOUND, HttpUtil.isKeepAlive(req));
+    }
+
+    /**
+     * The connection caps (P16-9), once per channel at its first {@code /ws} request. Admitted: the channel's
+     * access state is filled, set on the channel for the resend service, and given back exactly once when the
+     * channel closes (its close future completes once, and {@link AccessControl#release} is idempotent besides).
+     * Refused: 503 {@code TOO_MANY_CONNECTIONS} with {@code Retry-After}, and the connection is closed; nothing
+     * was counted. A transport-level answer, before any WebSocket frame.
+     */
+    private boolean admit(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (!access.admit(channelAccess, ctx.channel().remoteAddress(), req.headers().getAll(X_FORWARDED_FOR))) {
+            FullHttpResponse response = response(req, HttpResponseStatus.SERVICE_UNAVAILABLE, TOO_MANY_CONNECTIONS);
+            response.headers().set(HttpHeaderNames.RETRY_AFTER, UPGRADE_RETRY_AFTER_SECONDS);
+            write(ctx, response, false);
+            return false;
+        }
+        ctx.channel().attr(ChannelAccess.KEY).set(channelAccess);
+        ctx.channel().closeFuture().addListener(f -> access.release(channelAccess));
+        return true;
     }
 
     private void ignition(ChannelHandlerContext ctx, FullHttpRequest req) {
@@ -426,6 +476,32 @@ public final class HttpRouter extends SimpleChannelInboundHandler<FullHttpReques
             putNullable(node, "lastPurgeTs", dbRetention.lastPurgeTs());
             node.put("rowsDeleted", dbRetention.rowsDeleted());
             node.put("asOfTs", dbRetention.asOfTs());
+        }
+
+        // The public access limits (P16-9): counters kept on this worker thread, read here on it.
+        if (access != null) {
+            ObjectNode node = body.putObject("access");
+            ObjectNode connections = node.putObject("connections");
+            connections.put("public", access.publicConnections());
+            connections.put("exempt", access.exemptConnections());
+            connections.put("clients", access.activeClients());
+            connections.put("idleClients", access.idleClients());
+            ObjectNode dropped = node.putObject("framesDropped");
+            dropped.put("channel", access.droppedChannel());
+            dropped.put("client", access.droppedClient());
+            dropped.put("public", access.droppedPublic());
+            node.put("closed1008", access.closed1008());
+            ObjectNode refused = node.putObject("upgradesRefused");
+            refused.put("venue", access.refusedVenue());
+            refused.put("client", access.refusedClient());
+            node.put("xffFallback", access.xffFallback());
+            if (resend != null) {
+                ObjectNode resends = node.putObject("resendsRefused");
+                resends.put("inProgress", resend.refusedInProgress());
+                resends.put("busy", resend.refusedBusy());
+                resends.put("publicPool", resend.refusedPublicPool());
+                resends.put("publicInterval", resend.refusedPublicInterval());
+            }
         }
 
         byte[] bytes;

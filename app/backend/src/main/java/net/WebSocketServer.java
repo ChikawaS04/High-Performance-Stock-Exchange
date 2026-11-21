@@ -80,6 +80,9 @@ public final class WebSocketServer {
     /** The {@code /market/ignition} source (P16-3); null when this server serves none. Closed by {@link #stop()}. */
     private final IgnitionService ignition;
 
+    /** The public access limits (P16-9); null when this server applies none. */
+    private final AccessControl access;
+
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock) {
         this(port, gateway, clock, null);
     }
@@ -120,6 +123,18 @@ public final class WebSocketServer {
      */
     public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend,
                            VenueStatus status, ApiHandler api, IgnitionService ignition) {
+        this(port, gateway, clock, resend, status, api, ignition, null);
+    }
+
+    /**
+     * @param ignition what {@code GET /market/ignition} serves, as in the seven-argument constructor
+     * @param access   the public access limits (P16-9): connection caps at the upgrade, the frame buckets and
+     *                 the 1008 close on every channel, and an {@code access} object in {@code /health}; null means
+     *                 no limits, as before. Confined, like everything here, to the single worker thread
+     */
+    public WebSocketServer(int port, OrderGateway gateway, LongSupplier clock, ResendService resend,
+                           VenueStatus status, ApiHandler api, IgnitionService ignition, AccessControl access) {
+        this.access = access;
         this.port = port;
         this.gateway = gateway;
         this.clock = clock;
@@ -186,8 +201,16 @@ public final class WebSocketServer {
                         ChannelPipeline p = ch.pipeline();
                         p.addLast(new HttpServerCodec());
                         p.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH));
-                        // Exact /ws passes to the handshake; /health and every other path end here.
-                        p.addLast(new HttpRouter(WEBSOCKET_PATH, status, objectMapper, api, ignition));
+                        // Exact /ws passes to the handshake (past the connection caps, P16-9); /health and
+                        // every other path end here.
+                        ChannelAccess channelAccess = access == null ? null : new ChannelAccess();
+                        p.addLast(new HttpRouter(WEBSOCKET_PATH, status, objectMapper, api, ignition, access,
+                                channelAccess, resend));
+                        if (access != null) {
+                            // Ahead of the protocol handler (and the UTF-8 validator Netty puts directly before
+                            // it), so every frame, pings and garbage included, is metered before anything acts.
+                            p.addLast(new InboundFrameLimiter(access, channelAccess));
+                        }
                         p.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH));
                         p.addLast(new WebSocketHeartbeatHandler(HEARTBEAT_INTERVAL_SECONDS));
                         p.addLast(new WebSocketFrameHandler(channelGroup, gateway, objectMapper, clock, bookFrameCache,

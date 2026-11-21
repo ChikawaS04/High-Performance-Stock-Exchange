@@ -140,6 +140,13 @@ class HealthEndpointTest {
         assertTrue(journal.path("retention").path("lastRunTs").isNull());
     }
 
+    /** P16-9: a server built without access control (every pre-P16-9 constructor) has no access object. */
+    @Test
+    void healthHasNoAccessObjectWithoutAccessControl() throws Exception {
+        JsonNode body = mapper.readTree(get("/health").body());
+        assertTrue(body.path("access").isMissingNode(), body.toString());
+    }
+
     @Test
     void healthReportsTheSessionClosedAfterAClose() throws Exception {
         sessions.close(JournaledVenue.BUSINESS_DATE);   // published on the server's worker, as Main would

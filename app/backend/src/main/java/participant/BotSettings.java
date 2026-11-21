@@ -56,7 +56,8 @@ public record BotSettings(
         long noiseMaxPosition,
         long instMinParent,
         long instMaxParent,
-        long instMaxPosition) {
+        long instMaxPosition,
+        long rejectBackoffMaxMillis) {    // P16-9: the longest pause after the venue's seq-less refusals
 
     public static final List<String> ALL_BOTS = List.of("maker", "trend", "revert", "noise", "inst");
     static final List<String> FLAGS = List.of("port", "venueUrl", "symbol", "openPx", "duration", "seed",
@@ -173,7 +174,9 @@ public record BotSettings(
                 s.integer(null, "BOTS_NOISE_MEAN_ARRIVAL_MS", 1, Long.MAX_VALUE, 1_200),
                 s.integer(null, "BOTS_NOISE_MAX_POSITION", 1, Long.MAX_VALUE, 1_000),
                 instMin, instMax,
-                s.integer(null, "BOTS_INST_MAX_POSITION", 1, Long.MAX_VALUE, 40_000));
+                s.integer(null, "BOTS_INST_MAX_POSITION", 1, Long.MAX_VALUE, 40_000),
+                s.integer(null, "BOTS_REJECT_BACKOFF_MAX_MS", RejectBackoff.START_MILLIS, 3_600_000,
+                        RejectBackoff.DEFAULT_MAX_MILLIS));
     }
 
     @Override
@@ -190,7 +193,8 @@ public record BotSettings(
                 + ", maxPos=" + trendMaxPosition + "}"
                 + ", revert{interval=" + revertRequoteIntervalMillis + ", maxPos=" + revertMaxPosition + "}"
                 + ", noise{meanArrival=" + noiseMeanArrivalMillis + ", maxPos=" + noiseMaxPosition + "}"
-                + ", inst{parent=" + instMinParent + ".." + instMaxParent + ", maxPos=" + instMaxPosition + "}}";
+                + ", inst{parent=" + instMinParent + ".." + instMaxParent + ", maxPos=" + instMaxPosition + "}"
+                + ", rejectBackoffMax=" + rejectBackoffMaxMillis + "ms}";
     }
 
     // --- parsing ---------------------------------------------------------------------------

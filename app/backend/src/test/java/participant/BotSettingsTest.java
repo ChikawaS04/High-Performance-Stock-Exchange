@@ -66,6 +66,15 @@ class BotSettingsTest {
         assertEquals(10_000, s.instMinParent());
         assertEquals(30_000, s.instMaxParent());
         assertEquals(40_000, s.instMaxPosition());
+        assertEquals(30_000, s.rejectBackoffMaxMillis());
+    }
+
+    /** P16-9: the cap on the back-off after the venue's seq-less refusals. */
+    @Test
+    void theRejectBackOffCapIsReadAndBounded() {
+        assertEquals(5_000, parse(Map.of("BOTS_REJECT_BACKOFF_MAX_MS", "5000")).rejectBackoffMaxMillis());
+        assertTrue(error(Map.of("BOTS_REJECT_BACKOFF_MAX_MS", "999")).contains("BOTS_REJECT_BACKOFF_MAX_MS"));
+        assertTrue(error(Map.of("BOTS_REJECT_BACKOFF_MAX_MS", "3600001")).contains("BOTS_REJECT_BACKOFF_MAX_MS"));
     }
 
     @Test

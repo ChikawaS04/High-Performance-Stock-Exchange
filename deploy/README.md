@@ -76,6 +76,19 @@ this when a shell's `DB_PASSWORD` reached the first `up`.)
   Docker Desktop); P16-10 confirms the address on the server for `X-Forwarded-For` trust (D15).
 - The bots have the static address `BOTS_IPV4` (default `172.30.0.10`) for P16-9's exemption.
 
+## Public access limits (P16-9)
+
+- `WS_TRUSTED_PROXIES` (`172.30.0.1`, the Compose gateway Caddy's connections arrive from) is the only
+  socket address whose `X-Forwarded-For` is honoured, and only its rightmost entry. The Caddyfile must not
+  set `trusted_proxies`, so Caddy replaces any `X-Forwarded-For` a visitor sends.
+- `WS_EXEMPT_ADDRESSES` (`172.30.0.10`, the bots) skips every limit, matched on the socket address only.
+- Every other WebSocket frame passes a channel, a client and a venue-wide public bucket; a channel over its
+  own or its client's limit for 5 s is closed with 1008; connections beyond 200 venue-wide or 10 per client
+  are refused 503 at the upgrade. `/health` `access` shows the counts. After a deploy, `access.xffFallback`
+  must stay 0: anything else means every visitor shares one client key.
+- `RESEND_PUBLIC_MAX_PENDING=0`: public RESEND is off, because the terminal does not use it and every RESEND
+  reads the whole retained outbound journal; raise it when the terminal adopts RESEND.
+
 ## Disk space and retention (P16-7, P16-8)
 
 - **Journal retention** keeps the current day plus `JOURNAL_RETENTION_DAYS` closed days (P16-7).

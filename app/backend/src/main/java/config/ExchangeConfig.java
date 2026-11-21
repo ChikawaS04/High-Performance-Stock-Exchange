@@ -5,9 +5,13 @@ import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.time.DateTimeException;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
+
+import io.netty.util.NetUtil;
 
 /**
  * Every setting of the exchange process (D9), read once at startup from environment
@@ -59,6 +63,24 @@ public final class ExchangeConfig {
     public static final String DISK_STOP_HYSTERESIS_BYTES = "DISK_STOP_HYSTERESIS_BYTES";
     /** The Archive's low storage threshold (P16-8): no recording starts or extends at or below this. */
     public static final String JOURNAL_LOW_STORAGE_BYTES  = "JOURNAL_LOW_STORAGE_BYTES";
+    // Public access limits (P16-9, D15 as replaced): three token buckets on every inbound frame of a non-exempt
+    // connection (per channel, per client address, one venue-wide public bucket), the 1008 close, connection caps
+    // at the upgrade, the trusted proxy for X-Forwarded-For, the exempt addresses and the public RESEND limits.
+    public static final String WS_CHANNEL_RATE               = "WS_CHANNEL_RATE";
+    public static final String WS_CHANNEL_BURST              = "WS_CHANNEL_BURST";
+    public static final String WS_CLIENT_RATE                = "WS_CLIENT_RATE";
+    public static final String WS_CLIENT_BURST               = "WS_CLIENT_BURST";
+    public static final String WS_PUBLIC_RATE                = "WS_PUBLIC_RATE";
+    public static final String WS_PUBLIC_BURST               = "WS_PUBLIC_BURST";
+    public static final String WS_OVER_LIMIT_CLOSE_MS        = "WS_OVER_LIMIT_CLOSE_MS";
+    public static final String WS_MAX_CONNECTIONS            = "WS_MAX_CONNECTIONS";
+    public static final String WS_MAX_CONNECTIONS_PER_CLIENT = "WS_MAX_CONNECTIONS_PER_CLIENT";
+    public static final String WS_IDLE_CLIENTS_MAX           = "WS_IDLE_CLIENTS_MAX";
+    public static final String WS_TRUSTED_PROXIES            = "WS_TRUSTED_PROXIES";
+    public static final String WS_EXEMPT_ADDRESSES           = "WS_EXEMPT_ADDRESSES";
+    public static final String RESEND_PUBLIC_MAX_PENDING     = "RESEND_PUBLIC_MAX_PENDING";
+    public static final String RESEND_PUBLIC_INTERVAL_MS     = "RESEND_PUBLIC_INTERVAL_MS";
+    public static final String RESEND_PUBLIC_MAX_EVENTS      = "RESEND_PUBLIC_MAX_EVENTS";
     // Session reference data (P15-8). With DB_URL set, the database supplies all but the symbol, which names its row.
     public static final String SESSION_SYMBOL        = "SESSION_SYMBOL";
     public static final String SESSION_TICK_SIZE      = "SESSION_TICK_SIZE";
@@ -143,7 +165,27 @@ public final class ExchangeConfig {
     public static final long   DEFAULT_DISK_STOP_HYSTERESIS_BYTES = GIB;
     public static final long   DEFAULT_JOURNAL_LOW_STORAGE_BYTES  = GIB;
 
-    public static final String DEFAULT_SESSION_SYMBOL         = "ASML";
+    public static final int    DEFAULT_WS_CHANNEL_RATE        = 10;
+    public static final int    DEFAULT_WS_CHANNEL_BURST       = 30;
+    public static final int    DEFAULT_WS_CLIENT_RATE         = 10;
+    public static final int    DEFAULT_WS_CLIENT_BURST        = 30;
+    public static final int    DEFAULT_WS_PUBLIC_RATE         = 20;
+    public static final int    DEFAULT_WS_PUBLIC_BURST        = 100;
+    public static final int    MAX_WS_RATE_OR_BURST           = 1_000_000;
+    public static final int    DEFAULT_WS_OVER_LIMIT_CLOSE_MS = 5_000;
+    public static final int    DEFAULT_WS_MAX_CONNECTIONS     = 200;
+    public static final int    DEFAULT_WS_MAX_CONNECTIONS_PER_CLIENT = 10;
+    public static final int    DEFAULT_WS_IDLE_CLIENTS_MAX    = 4_096;
+    /** Loopback by default, so a development venue, its bots and every local test run as before (P16-9). */
+    public static final String DEFAULT_WS_EXEMPT_ADDRESSES    = "127.0.0.1,::1";
+    public static final int    DEFAULT_RESEND_PUBLIC_MAX_PENDING = 1;
+    /** The size of the resend service's venue-wide exempt pool ({@code net.ResendService.MAX_PENDING}). */
+    public static final int    MAX_RESEND_PUBLIC_MAX_PENDING  = 4;
+    public static final long   DEFAULT_RESEND_PUBLIC_INTERVAL_MS = 60_000L;
+    public static final long   MAX_RESEND_PUBLIC_INTERVAL_MS  = 86_400_000L;
+    public static final int    DEFAULT_RESEND_PUBLIC_MAX_EVENTS  = 10_000;
+
+    public static final String DEFAULT_SESSION_SYMBOL        = "ASML";
     public static final long   DEFAULT_SESSION_TICK_SIZE      = 100L;
     public static final long   DEFAULT_SESSION_LOT_SIZE       = 1L;
     public static final long   DEFAULT_SESSION_PRICE_SCALE    = 10_000L;
@@ -192,6 +234,21 @@ public final class ExchangeConfig {
     private final String  alpacaKeyId;
     private final String  alpacaSecretKey;
     private final String  alpacaDataUrl;
+    private final int     wsChannelRate;
+    private final int     wsChannelBurst;
+    private final int     wsClientRate;
+    private final int     wsClientBurst;
+    private final int     wsPublicRate;
+    private final int     wsPublicBurst;
+    private final int     wsOverLimitCloseMillis;
+    private final int     wsMaxConnections;
+    private final int     wsMaxConnectionsPerClient;
+    private final int     wsIdleClientsMax;
+    private final List<String> wsTrustedProxies;
+    private final List<String> wsExemptAddresses;
+    private final int     resendPublicMaxPending;
+    private final long    resendPublicIntervalMillis;
+    private final int     resendPublicMaxEvents;
 
     private ExchangeConfig(Map<String, String> env) {
         this.port                 = intValue(env, EXCHANGE_PORT, DEFAULT_PORT, 1, 65_535);
@@ -231,6 +288,37 @@ public final class ExchangeConfig {
         this.alpacaKeyId          = stringValue(env, ALPACA_KEY_ID, null);
         this.alpacaSecretKey      = stringValue(env, ALPACA_SECRET_KEY, null);
         this.alpacaDataUrl        = baseUrlValue(env, ALPACA_DATA_URL, DEFAULT_ALPACA_DATA_URL);
+        this.wsChannelRate        = intValue(env, WS_CHANNEL_RATE, DEFAULT_WS_CHANNEL_RATE, 1, MAX_WS_RATE_OR_BURST);
+        this.wsChannelBurst       = intValue(env, WS_CHANNEL_BURST, DEFAULT_WS_CHANNEL_BURST, 1, MAX_WS_RATE_OR_BURST);
+        this.wsClientRate         = intValue(env, WS_CLIENT_RATE, DEFAULT_WS_CLIENT_RATE, 1, MAX_WS_RATE_OR_BURST);
+        this.wsClientBurst        = intValue(env, WS_CLIENT_BURST, DEFAULT_WS_CLIENT_BURST, 1, MAX_WS_RATE_OR_BURST);
+        this.wsPublicRate         = intValue(env, WS_PUBLIC_RATE, DEFAULT_WS_PUBLIC_RATE, 1, MAX_WS_RATE_OR_BURST);
+        this.wsPublicBurst        = intValue(env, WS_PUBLIC_BURST, DEFAULT_WS_PUBLIC_BURST, 1, MAX_WS_RATE_OR_BURST);
+        this.wsOverLimitCloseMillis = intValue(env, WS_OVER_LIMIT_CLOSE_MS, DEFAULT_WS_OVER_LIMIT_CLOSE_MS,
+                1_000, 600_000);
+        this.wsMaxConnections     = intValue(env, WS_MAX_CONNECTIONS, DEFAULT_WS_MAX_CONNECTIONS, 1, 100_000);
+        this.wsMaxConnectionsPerClient = intValue(env, WS_MAX_CONNECTIONS_PER_CLIENT,
+                Math.min(DEFAULT_WS_MAX_CONNECTIONS_PER_CLIENT, wsMaxConnections), 1, wsMaxConnections);
+        this.wsIdleClientsMax     = intValue(env, WS_IDLE_CLIENTS_MAX, DEFAULT_WS_IDLE_CLIENTS_MAX, 16, 1_000_000);
+        this.wsTrustedProxies     = addressListValue(env, WS_TRUSTED_PROXIES, "");
+        this.wsExemptAddresses    = addressListValue(env, WS_EXEMPT_ADDRESSES, DEFAULT_WS_EXEMPT_ADDRESSES);
+        this.resendPublicMaxPending = intValue(env, RESEND_PUBLIC_MAX_PENDING, DEFAULT_RESEND_PUBLIC_MAX_PENDING,
+                0, MAX_RESEND_PUBLIC_MAX_PENDING);
+        this.resendPublicIntervalMillis = longValue(env, RESEND_PUBLIC_INTERVAL_MS, DEFAULT_RESEND_PUBLIC_INTERVAL_MS,
+                0L);
+        if (resendPublicIntervalMillis > MAX_RESEND_PUBLIC_INTERVAL_MS) {
+            throw new IllegalArgumentException(RESEND_PUBLIC_INTERVAL_MS + " must be at most "
+                    + MAX_RESEND_PUBLIC_INTERVAL_MS + ": " + resendPublicIntervalMillis);
+        }
+        this.resendPublicMaxEvents = intValue(env, RESEND_PUBLIC_MAX_EVENTS, DEFAULT_RESEND_PUBLIC_MAX_EVENTS,
+                1, 10_000_000);
+        for (String address : wsExemptAddresses) {
+            if (wsTrustedProxies.contains(address)) {
+                // A connection from the trusted proxy carries any client's traffic: exempting it would exempt everyone.
+                throw new IllegalArgumentException(address + " is in both " + WS_EXEMPT_ADDRESSES + " and "
+                        + WS_TRUSTED_PROXIES + ": a connection from the trusted proxy is never exempt");
+            }
+        }
         if ((alpacaKeyId == null) != (alpacaSecretKey == null)) {
             String missing = alpacaKeyId == null ? ALPACA_KEY_ID : ALPACA_SECRET_KEY;
             String present = alpacaKeyId == null ? ALPACA_SECRET_KEY : ALPACA_KEY_ID;
@@ -389,6 +477,51 @@ public final class ExchangeConfig {
     /** Whether both Alpaca keys are set, so the venue serves {@code /market/ignition} (P16-3). */
     public boolean ignitionEnabled() { return alpacaKeyId != null; }
 
+    /** Per channel token bucket (P16-9): frames a second. */
+    public int wsChannelRate() { return wsChannelRate; }
+
+    /** Per channel token bucket (P16-9): burst. */
+    public int wsChannelBurst() { return wsChannelBurst; }
+
+    /** Per client address token bucket (P16-9): frames a second. */
+    public int wsClientRate() { return wsClientRate; }
+
+    /** Per client address token bucket (P16-9): burst. */
+    public int wsClientBurst() { return wsClientBurst; }
+
+    /** The venue-wide public bucket shared by every non-exempt client (P16-9): frames a second. */
+    public int wsPublicRate() { return wsPublicRate; }
+
+    /** The venue-wide public bucket (P16-9): burst. */
+    public int wsPublicBurst() { return wsPublicBurst; }
+
+    /** A channel over its own or its client's limit for this long is closed with 1008 (P16-9). */
+    public int wsOverLimitCloseMillis() { return wsOverLimitCloseMillis; }
+
+    /** Open non-exempt WebSocket connections, venue-wide, at most (P16-9). */
+    public int wsMaxConnections() { return wsMaxConnections; }
+
+    /** Open WebSocket connections per client address, at most (P16-9). */
+    public int wsMaxConnectionsPerClient() { return wsMaxConnectionsPerClient; }
+
+    /** Client addresses remembered after their last connection closed, at most (P16-9). */
+    public int wsIdleClientsMax() { return wsIdleClientsMax; }
+
+    /** Socket addresses whose X-Forwarded-For is honoured (P16-9): canonical IP literals, possibly none. */
+    public List<String> wsTrustedProxies() { return wsTrustedProxies; }
+
+    /** Socket addresses exempt from every access limit (P16-9): canonical IP literals, possibly none. */
+    public List<String> wsExemptAddresses() { return wsExemptAddresses; }
+
+    /** Public RESEND requests queued or being served at once (P16-9); 0 refuses every public RESEND. */
+    public int resendPublicMaxPending() { return resendPublicMaxPending; }
+
+    /** At most one public RESEND per client address in this many milliseconds (P16-9). */
+    public long resendPublicIntervalMillis() { return resendPublicIntervalMillis; }
+
+    /** A public RESEND is served from at most this many events before the newest (P16-9). */
+    public int resendPublicMaxEvents() { return resendPublicMaxEvents; }
+
     @Override
     public String toString() {
         return "ExchangeConfig{port=" + port
@@ -424,6 +557,18 @@ public final class ExchangeConfig {
                 + ", alpacaKeyId=" + (alpacaKeyId == null ? "<unset>" : "***")
                 + ", alpacaSecretKey=" + (alpacaSecretKey == null ? "<unset>" : "***")
                 + ", alpacaDataUrl=" + alpacaDataUrl
+                + ", wsChannel=" + wsChannelRate + "/s burst " + wsChannelBurst
+                + ", wsClient=" + wsClientRate + "/s burst " + wsClientBurst
+                + ", wsPublic=" + wsPublicRate + "/s burst " + wsPublicBurst
+                + ", wsOverLimitCloseMillis=" + wsOverLimitCloseMillis
+                + ", wsMaxConnections=" + wsMaxConnections
+                + ", wsMaxConnectionsPerClient=" + wsMaxConnectionsPerClient
+                + ", wsIdleClientsMax=" + wsIdleClientsMax
+                + ", wsTrustedProxies=" + wsTrustedProxies
+                + ", wsExemptAddresses=" + wsExemptAddresses
+                + ", resendPublicMaxPending=" + resendPublicMaxPending
+                + ", resendPublicIntervalMillis=" + resendPublicIntervalMillis
+                + ", resendPublicMaxEvents=" + resendPublicMaxEvents
                 + '}';
     }
 
@@ -543,6 +688,32 @@ public final class ExchangeConfig {
             if (wait.value().equals(wanted)) return wait;
         }
         throw new IllegalArgumentException(name + " must be blocking, yielding or busy-spin: " + value);
+    }
+
+    /**
+     * A comma-separated list of IPv4 or IPv6 literals (P16-9), each returned in its canonical form so that two
+     * spellings of one address compare equal. Never a host name: nothing here resolves through DNS. Blank means
+     * the fallback; {@code none} means an empty list.
+     */
+    private static List<String> addressListValue(Map<String, String> env, String name, String fallback) {
+        String value = stringValue(env, name, fallback);
+        List<String> out = new ArrayList<>();
+        if (value.equalsIgnoreCase("none")) {
+            return List.of();
+        }
+        for (String part : value.split(",")) {
+            String literal = part.trim();
+            if (literal.isEmpty()) continue;
+            byte[] bytes = literal.indexOf('[') >= 0 || literal.indexOf('%') >= 0 ? null
+                    : NetUtil.createByteArrayFromIpAddressString(literal);
+            if (bytes == null) {
+                throw new IllegalArgumentException(name + " must list IPv4 or IPv6 addresses (no host names, "
+                        + "ports or brackets): " + literal);
+            }
+            String canonical = NetUtil.bytesToIpAddress(bytes);
+            if (!out.contains(canonical)) out.add(canonical);
+        }
+        return List.copyOf(out);
     }
 
     private static boolean booleanValue(Map<String, String> env, String name, boolean fallback) {

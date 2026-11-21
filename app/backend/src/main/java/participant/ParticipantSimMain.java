@@ -91,7 +91,7 @@ public final class ParticipantSimMain {
         for (Bot b : bots) {
             RiskGate gate = new RiskGate(b.strategy().owner(), b.risk(), cfg.maxOrderQty(), cfg.maxOpenOrders());
             clients.add(new ParticipantClient(cfg.wsUri(), cfg.healthUri(), cfg.symbol(), b.strategy(), gate,
-                    cfg.tickMillis(), null, mapper));
+                    cfg.tickMillis(), null, mapper, cfg.rejectBackoffMaxMillis()));
         }
 
         // The maker re-reads the open at each live session open, on its own thread.

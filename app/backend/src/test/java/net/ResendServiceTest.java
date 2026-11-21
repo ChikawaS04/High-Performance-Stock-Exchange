@@ -342,6 +342,162 @@ class ResendServiceTest {
         assertTrue(drain(a).isEmpty());
     }
 
+    // --- public limits (P16-9) ---
+
+    private final AtomicLong nanos = new AtomicLong(1_000_000_000L);
+
+    /** A service with public limits on a test clock: {@code pool} public slots, a 60 s interval, {@code depth} events. */
+    private ResendService limited(int pool, long depth) {
+        service.close();
+        service = new ResendService(history, frames::toJson,
+                new ResendService.Limits(pool, 60_000_000_000L, depth), nanos::get);
+        return service;
+    }
+
+    /** A channel admitted as public for client {@code key} (or exempt), as HttpRouter marks it at the upgrade. */
+    private EmbeddedChannel connect(ChannelAccess.ClientState client, boolean exempt) {
+        EmbeddedChannel ch = connect();
+        ChannelAccess access = new ChannelAccess();
+        access.admitted = true;
+        access.exempt = exempt;
+        access.client = client;
+        ch.attr(ChannelAccess.KEY).set(access);
+        return ch;
+    }
+
+    private static ChannelAccess.ClientState client(int n) {
+        return new ChannelAccess.ClientState(ClientKey.of(new byte[] {(byte) 203, 0, 113, (byte) n}), 0L);
+    }
+
+    @Test
+    void publicRequestsHaveTheirOwnPoolAndAFullPublicPoolAnswersBusy() {
+        limited(1, 1_000);
+        history.hold = new CountDownLatch(1);
+        EmbeddedChannel first = connect(client(1), false);
+        resend(first, "9");
+        await(() -> history.lastThroughSeq.get() >= 0, "the public resend started");
+        EmbeddedChannel second = connect(client(2), false);
+        resend(second, "9");
+        assertEquals(List.of(rejected(9, "BUSY")), drain(second), "the one public slot is taken");
+        assertEquals(1, service.refusedPublicPool());
+
+        history.hold.countDown();
+        awaitFinished(1);
+        assertEquals(List.of(frames.toJson(OutboundRecordings.fill(9)), frames.toJson(OutboundRecordings.fill(10)),
+                complete(9, EVENTS, 2)), drain(first));
+    }
+
+    @Test
+    void aClientGetsOnePublicResendPerIntervalOnAnyOfItsChannels() {
+        limited(1, 1_000);
+        ChannelAccess.ClientState one = client(1);
+        EmbeddedChannel a = connect(one, false);
+        resend(a, "10");
+        awaitFinished(1);
+        drain(a);
+
+        EmbeddedChannel b = connect(one, false);   // the same client on another connection
+        resend(b, "10");
+        assertEquals(List.of(rejected(10, "BUSY")), drain(b));
+        assertEquals(1, service.refusedPublicInterval());
+
+        nanos.addAndGet(60_000_000_000L);           // the interval has passed
+        resend(b, "10");
+        awaitFinished(2);
+        assertEquals(List.of(frames.toJson(OutboundRecordings.fill(10)), complete(10, EVENTS, 1)), drain(b));
+    }
+
+    @Test
+    void publicResendsCannotStarveAnExemptOne() {
+        limited(1, 1_000);
+        history.hold = new CountDownLatch(1);
+        EmbeddedChannel publicChannel = connect(client(1), false);
+        resend(publicChannel, "9");
+        await(() -> history.lastThroughSeq.get() >= 0, "the public resend is being served");
+        // Public clients flood: every further public request is refused, none takes an exempt slot.
+        for (int i = 2; i <= 10; i++) {
+            EmbeddedChannel p = connect(client(i), false);
+            resend(p, "1");
+            assertEquals(List.of(rejected(1, "BUSY")), drain(p));
+        }
+        // Every exempt slot is still free: MAX_PENDING bots are all accepted.
+        List<EmbeddedChannel> bots = new ArrayList<>();
+        for (int i = 0; i < ResendService.MAX_PENDING; i++) {
+            EmbeddedChannel bot = connect(null, true);
+            resend(bot, "10");
+            assertTrue(drain(bot).isEmpty(), "the exempt request was queued, not refused");
+            bots.add(bot);
+        }
+        history.hold.countDown();
+        awaitFinished(1 + ResendService.MAX_PENDING);
+        for (EmbeddedChannel bot : bots) {
+            assertEquals(List.of(frames.toJson(OutboundRecordings.fill(10)), complete(10, EVENTS, 1)), drain(bot));
+        }
+        assertEquals(0, service.refusedBusy());
+    }
+
+    @Test
+    void queuedExemptRequestsAreServedBeforeQueuedPublicOnes() {
+        limited(1, 1_000);
+        history.hold = new CountDownLatch(1);
+        EmbeddedChannel blocker = connect(null, true);
+        resend(blocker, "10");                         // occupies the resend thread
+        await(() -> history.lastThroughSeq.get() >= 0, "the first resend is being served");
+        List<Long> order = new java.util.concurrent.CopyOnWriteArrayList<>();
+        EmbeddedChannel publicChannel = connect(client(1), false);
+        EmbeddedChannel exempt = connect(null, true);
+        publicChannel.pipeline().addFirst(recorder(order, 1L));
+        exempt.pipeline().addFirst(recorder(order, 2L));
+        resend(publicChannel, "10");                   // queued first
+        resend(exempt, "10");                          // queued second
+        history.hold.countDown();
+        awaitFinished(3);
+        assertEquals(List.of(2L, 1L), order, "the exempt request went first");
+    }
+
+    private static ChannelOutboundHandlerAdapter recorder(List<Long> order, long tag) {
+        return new ChannelOutboundHandlerAdapter() {
+            boolean seen;
+
+            @Override
+            public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
+                if (!seen) {
+                    seen = true;
+                    order.add(tag);
+                }
+                ctx.write(msg, promise);
+            }
+        };
+    }
+
+    @Test
+    void aPublicRequestReachesBackAtMostTheConfiguredDepth() {
+        limited(1, 3);
+        EmbeddedChannel a = connect(client(1), false);
+        resend(a, "1");
+        awaitFinished(1);
+        List<String> expected = execs(EVENTS - 2, EVENTS);       // the last 3 events only
+        expected.add(complete(1, EVENTS, 3));                    // the client's own fromSeq, as for R5
+        assertEquals(expected, drain(a));
+
+        EmbeddedChannel bot = connect(null, true);               // an exempt request is not floored
+        resend(bot, "1");
+        awaitFinished(2);
+        List<String> all = execs(1, EVENTS);
+        all.add(complete(1, EVENTS, EVENTS));
+        assertEquals(all, drain(bot));
+    }
+
+    @Test
+    void aZeroPublicPoolRefusesEveryPublicRequest() {
+        limited(0, 1_000);
+        EmbeddedChannel a = connect(client(1), false);
+        resend(a, "10");
+        assertEquals(List.of(rejected(10, "BUSY")), drain(a));
+        assertEquals(1, service.refusedPublicPool());
+        assertEquals(0, service.finishedRequests());
+    }
+
     private static void await(BooleanSupplier condition, String what) {
         long deadline = System.currentTimeMillis() + 10_000;
         while (!condition.getAsBoolean()) {
