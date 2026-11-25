@@ -12,9 +12,9 @@ The venue's container stack (Phase 16). One image, `credo-exchange:<git short sh
 | `postgres-init/01-exchange-role.sh` | Creates the login role `exchange` and the database `exchange` |
 | `backup/` | Nightly `pg_dump` script, systemd service and timer (P16-6) |
 | `Caddyfile`, `install-caddy.sh` | Production Caddy config (hash placeholder only) and its one-time installer (P16-10) |
-| `deploy.sh` | Deploy, roll back, check and drill from David's PC, in Git Bash (P16-11) |
+| `deploy.sh` | Deploy, roll back, restart the exchange alone, check and drill from David's PC, in Git Bash (P16-11, Session G) |
 | `credo-server.sh`, `credo-lib.sh` | The server half: copied up by `deploy.sh` with scp and run with one ssh, never pasted |
-| `test/check-files.sh` | Static checks: `bash -n`, shellcheck if installed, no CR, the Caddyfile placeholder |
+| `test/check-files.sh` | Static checks: `bash -n`, shellcheck if installed, no CR, the Caddyfile placeholder, and `credo-lib.sh`'s helpers on planted input |
 | `bench/` | The P16-12 measurement runner (its own README) |
 
 ## Deploy, rollback and checks (P16-11)
@@ -53,6 +53,16 @@ On the server, in order (nothing changes until the preflight passes):
 7. Only after 200: `current` switched with `ln -sfn` to `current.tmp` and `mv -T` (absolute target).
 8. A line in `/opt/credo/deploy-history`; pruning; the previous tag printed.
 
+Messages: step 4 prints `IMAGE_TAG unchanged (<tag>)` when `credo.env` already named the tag, otherwise
+`IMAGE_TAG set to <tag> (was <old>)`. The previous tag is always the last tag recorded `ok` other than the one
+being deployed (never `credo.env`'s old value, which can name a failed attempt or the same tag); with none,
+the script says `previous tag: none (no tag other than <tag> is recorded ok)`. The rollback line printed after
+a failure follows the same rule.
+
+Every server mode except `--check` refuses while a benchmark run holds `~/credo-bench/.lock` (see
+`bench/README.md`); deploy, `--tag` and `--restart-exchange` also hold `/opt/credo/.deploy.lock` for their
+whole run and refuse while another holds it.
+
 Every Compose call unsets, for that call, every key named in `credo.env` or `credo.env.example`, because the
 calling shell beats `--env-file` (P16-5).
 
@@ -75,12 +85,46 @@ older image would start on a newer schema, and a newer snapshot cannot be undone
 the previous tag and `placeholder`; other `credo-exchange:<tag>` images, releases and bundles are removed.
 
 ```bash
+deploy/deploy.sh --restart-exchange
+```
+
+Restarts the exchange alone with `docker compose restart exchange`, under the deploy lock and the same Compose
+wrapper, with the bots left running. `restart` names only the exchange: it never recreates the container, never
+runs `migrate` and never touches the bots, whose process keeps running, loses its connection and reconnects.
+Docker sends SIGTERM, waits up to the 60 s stop timeout (`stop_grace_period`) while the venue writes its shutdown
+snapshot, and starts the same container only after the old process has exited.
+
+- **Refuses** (exit 2, nothing changed) when the exchange or the bots are not running (paused counts as not
+  running), when `/health` does not answer 200, when no bot is connected (`access.connections.exempt` 0), when
+  another deploy holds the lock, or while a benchmark run holds its lock.
+- **Waits** for `/health` 200 under `--health-timeout` (default 600 s, over the restart and the wait), checks the
+  container and image are unchanged, and prints the old process's exit code (143 is graceful; anything else is
+  a WARN, since 137 means it was killed after the stop timeout and wrote no snapshot), its `Snapshot written` and
+  `Shutdown complete.` lines, and the new process's `Using snapshot` and `Recovered in` lines.
+- **Then waits** for every connected bot's catch-up line under `--catchup-timeout` (default 600 s from `/health`
+  200, a progress line every 30 s). The venue serves RESENDs one at a time, 4 exempt slots, so the fifth bot is
+  refused BUSY and retries every 5 s; with a full-window read of R s per bot, all five are done in about
+  5R + 30 s (65 s at R = 7, 160 s at R = 26). A bot that never catches up gives
+  `FAILED: n of 5 bots caught up within 600 s; not caught up: <names>`, the bots' last 20 WARN lines, and exit 1;
+  nothing else is restarted, and the bots keep retrying on their own.
+- **Prints** every RESEND completion line, the BUSY refusals and every catch-up line of the new process (lines
+  from `docker logs --since` the exchange's new `StartedAt`, so an earlier run's or restart's lines never count),
+  then `journal.outbound` `startPosition` and `recordedPosition` from `/health`, whose difference is what every
+  full RESEND reads, and confirms the bots container is the same one, never restarted.
+- **Never** writes a history line, switches `current` or prunes.
+
+Use it for the P16-12 full-window RESEND figure once the journal holds three closes, and for P16-13 acceptance
+item 4. A deploy cannot give that figure: it stops the bots, which come back fresh and send no RESEND.
+
+```bash
 deploy/deploy.sh --check
 ```
 
 One PASS, FAIL, WAIT or SKIP line per item: migrate exited 0; postgres and exchange healthy and bots running on
 the `credo.env` tag; `/health` 200 on 127.0.0.1:8080; `/market/ignition` 200 with `openPx` and `date`;
-`/health` through Caddy 401 without the password; recovery and session open in the exchange log;
+`/health` through Caddy 401 without the password; recovery and session open in the exchange log, read only
+from the current process (`--since` its `StartedAt`), with the newest session-open line's business date equal
+to the one `/health` reports (SKIP while `/health` says the session is closed);
 `access.xffFallback` 0 with at least one public connection (WAIT when there is none: open the site in a browser
 and re-run), 5 exempt connections, the network gateway at 172.30.0.1 equal to `WS_TRUSTED_PROXIES` and the bots at
 172.30.0.10 equal to `WS_EXEMPT_ADDRESSES`; `disk.freeBytes` within 256 MiB of `df /`; `journal.retention` and
@@ -133,9 +177,10 @@ env -u DB_URL -u DB_USER -u DB_PASSWORD -u ALPACA_KEY_ID -u ALPACA_SECRET_KEY do
   resting orders, waits up to 3 s for the venue to confirm, and exits within 5 s. Then the
   exchange shuts down gracefully, writing a snapshot, and exits 143 (the JVM's SIGTERM code; this
   is normal). Then `postgres`.
-- `docker compose restart exchange` alone: the bots log one WARN each, reconnect with back-off
-  (250 ms doubling to 5 s), send `RESEND` from their last seq + 1, catch up, cancel any order the
-  venue never acknowledged, and trade again.
+- `docker compose restart exchange` alone (`deploy.sh --restart-exchange` runs it and times it): the
+  bots log one WARN each, reconnect with back-off (250 ms doubling to 5 s), send `RESEND` from their
+  last seq + 1, catch up, cancel any order whose fate is uncertain (one the venue never acknowledged,
+  or one whose cancel was in flight; the maker too since Session G), and trade again.
 
 **Host reboot, and PostgreSQL not up yet.** After a reboot the Docker daemon, not Compose,
 restarts the containers and ignores `depends_on`, so the exchange can start before PostgreSQL

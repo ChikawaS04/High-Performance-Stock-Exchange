@@ -4,10 +4,13 @@
 #
 #   deploy/deploy.sh                       build HEAD and deploy it
 #   deploy/deploy.sh --tag <sha12>         roll back (or forward) to a tag already on the server; no build
+#   deploy/deploy.sh --restart-exchange    restart the exchange alone, the bots left running; wait for their
+#                                          catch-up and print the RESEND and catch-up timing lines
 #   deploy/deploy.sh --check [--password]  the first-deploy checks, PASS or FAIL per item
 #   deploy/deploy.sh --drill               restore the newest nightly dump into a scratch database and compare
 #
 # Options: --force (with --tag: below the compatibility floor), --health-timeout <s> (default 600),
+# --catchup-timeout <s> (with --restart-exchange: the wait for every bot's catch-up, default 600),
 # --target <user@host> (default $CREDO_TARGET, else david@104.204.69.188), --dry-run (every local step runs
 # for real, the image is written to a local file, and each ssh and scp line is printed instead of run).
 #
@@ -20,14 +23,18 @@ set -euo pipefail
 TARGET="${CREDO_TARGET:-david@104.204.69.188}"
 SSH=/usr/bin/ssh
 SCP=/usr/bin/scp
-SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+# Keepalives, so a long session (a restart-exchange can hold one for about 20 min) is not dropped by an idle
+# NAT or firewall in the middle of its report.
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4)
 ALLOWED_DIRTY=(".idea/workspace.xml" "app/frontend/DESIGN_SYSTEM.md")
 TAG_RE='^[0-9a-f]{12}$'
 
-mode=deploy tag="" force=0 dry=0 password=0 bound=600
+mode=deploy tag="" force=0 dry=0 password=0 bound=600 catchup=600
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --tag) mode=rollback; tag="${2:-}"; shift 2 ;;
+        --restart-exchange) mode=restart; shift ;;
+        --catchup-timeout) catchup="${2:-}"; shift 2 ;;
         --check) mode=check; shift ;;
         --drill) mode=drill; shift ;;
         --password) password=1; shift ;;
@@ -35,7 +42,7 @@ while [ "$#" -gt 0 ]; do
         --health-timeout) bound="${2:-}"; shift 2 ;;
         --target) TARGET="${2:-}"; shift 2 ;;
         --dry-run) dry=1; shift ;;
-        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "deploy.sh: unknown option $1 (see --help)" >&2; exit 64 ;;
     esac
 done
@@ -57,6 +64,7 @@ cd "$REPO"
 [ "$dry" -eq 1 ] || { [ -x "$SSH" ] && [ -x "$SCP" ]; } || die "Git Bash's $SSH and $SCP are needed (run this in Git Bash)"
 case "$mode" in rollback) [[ "$tag" =~ $TAG_RE ]] || die "--tag needs the 12 hex digit tag printed by a deploy" ;; esac
 [[ "$bound" =~ ^[0-9]+$ ]] || die "--health-timeout must be a number of seconds"
+[[ "$catchup" =~ ^[0-9]+$ ]] || die "--catchup-timeout must be a number of seconds"
 
 WORK="$(mktemp -d)"
 cleanup() {
@@ -94,6 +102,10 @@ check)
     exit 0 ;;
 drill)
     run_on_server "$TARGET" "bash $REMOTE_STAGE/credo-server.sh drill; rc=\$?; rm -rf $REMOTE_STAGE; exit \$rc"
+    exit 0 ;;
+restart)
+    say "restarting the exchange alone on $TARGET (bots left running)"
+    run_on_server "$TARGET" "bash $REMOTE_STAGE/credo-server.sh restart-exchange --health-timeout $bound --catchup-timeout $catchup; rc=\$?; rm -rf $REMOTE_STAGE; exit \$rc"
     exit 0 ;;
 rollback)
     say "rolling to credo-exchange:$tag (no build, no shipping) on $TARGET"

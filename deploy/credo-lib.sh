@@ -1,17 +1,30 @@
-# credo-lib.sh: shared by credo-server.sh (deploy, check, drill) and bench/credo-bench.sh (P16-11, P16-12).
-# Sourced, never run. Shipped beside each script that sources it.
+# credo-lib.sh: shared by credo-server.sh (deploy, restart-exchange, check, drill) and bench/credo-bench.sh
+# (P16-11, P16-12, Session G). Sourced, never run. Shipped beside each script that sources it.
 #
 # The one Compose wrapper: every docker compose call on the server goes through credo_compose, which
 #  - runs from CREDO_DIR with credo.env as the env file and compose.yaml (plus CREDO_COMPOSE_EXTRA, a
 #    space-separated list of extra files in CREDO_DIR, empty in production);
 #  - unsets, for that call only, every key named in credo.env.example or in credo.env, because a variable
 #    exported by the calling shell beats --env-file for any key (P16-5 finding, generalised).
+# Also: the two locks (deploy and benchmark, which exclude each other), the log-line filters shared by the
+# check and restart-exchange, and the pure helpers of the deploy messages (tested by test/check-files.sh).
 # Nothing here prints a value from credo.env.
 
 CREDO_DIR="${CREDO_DIR:-/opt/credo}"
 CREDO_ENV="$CREDO_DIR/credo.env"
 CREDO_COMPOSE_EXTRA="${CREDO_COMPOSE_EXTRA:-}"
 CREDO_PROJECT=credo
+# deploy, rollback and restart-exchange hold the first for their whole run; a benchmark run holds the second.
+CREDO_DEPLOY_LOCK="$CREDO_DIR/.deploy.lock"
+CREDO_BENCH_LOCK="${BENCH_ROOT:-$HOME/credo-bench}/.lock"
+
+# Whether another process holds the lock file $1 (a missing file is free). Probes with a non-blocking flock
+# on a private descriptor, released at once, so it never keeps the lock.
+credo_lock_held() {
+    [ -e "$1" ] || return 1
+    ( flock -n 7 ) 7< "$1" && return 1
+    return 0
+}
 
 # Key names of an env file (KEY=value lines), one per line, sorted. Values are never read.
 credo_env_keys() {
@@ -72,4 +85,64 @@ credo_wait_200() {
         fi
         sleep 2
     done
+}
+
+# --- log-line filters (stdin to stdout), shared by check and restart-exchange -----------------------------
+# Each prints the matched part of a line only, never the logger prefix. The formats are pinned by ResendLogTest,
+# CatchUpLogTest and ResendService; test/check-files.sh proves each filter on planted lines.
+
+# The venue's RESEND completion lines (net.ResendLog).
+credo_resend_lines() {
+    grep -oE "RESEND fromSeq [0-9]+ to [0-9]+: [0-9]+ frames to [^ ]+ in [0-9]+ ms( \(read [0-9]+ events, [0-9]+ bytes from position [0-9]+\))?" || true
+}
+
+# The venue's RESEND refusals for a full exempt pool (BUSY).
+credo_resend_busy_lines() {
+    grep -oE "RESEND fromSeq [0-9]+ from [^ ]+ rejected: [0-9]+ resends already pending" || true
+}
+
+# The bots' catch-up lines (participant.CatchUpLog).
+credo_catchup_lines() {
+    grep -oE "[A-Za-z]+ caught up through seq [0-9]+ in [0-9]+ ms \(RESEND from seq [0-9]+, [0-9]+ request\(s\)(, offline [0-9]+ ms)?\)" || true
+}
+
+# The bot names in "<NAME> lost its connection to ..." lines, one per line, sorted, unique.
+credo_lost_names() {
+    grep -oE "[A-Za-z]+ lost its connection to " | sed 's/ lost its connection to $//' | sort -u || true
+}
+
+# The session-open lines of the venue (a fresh open, or one recovered at start), matched part only.
+credo_session_open_lines() {
+    grep -oE "Session open for business date [0-9]+|Session for business date [0-9]+ is open \(recovered\)" || true
+}
+
+# --- pure helpers of the deploy messages ------------------------------------------------------------------
+
+# The last tag recorded ok in the history file $1 that is not $2 (empty if none). Failed and attempt lines
+# never count, so a failed attempt is never named as the rollback target.
+credo_previous_ok() {
+    [ -f "$1" ] || return 0
+    awk -v t="$2" '$3 == "ok" && $2 != t { p = $2 } END { print p }' "$1"
+}
+
+# The IMAGE_TAG message: old value $1 (may be empty), new value $2.
+credo_tag_note() {
+    if [ "$1" = "$2" ]; then
+        echo "IMAGE_TAG unchanged ($2)"
+    elif [ -z "$1" ]; then
+        echo "IMAGE_TAG set to $2 (was unset)"
+    else
+        echo "IMAGE_TAG set to $2 (was $1)"
+    fi
+}
+
+# The first number after "key": in a JSON text (keys read this way are unique in /health), or empty.
+credo_json_num() {
+    grep -o "\"$2\":-\?[0-9]*" <<< "$1" | head -n 1 | sed 's/.*://'
+}
+
+# One field of /health's journal.outbound object ("startPosition", "recordedPosition", "bytesOnDisk").
+credo_outbound_field() {
+    grep -o '"outbound":{"recordingId":[0-9-]*,"startPosition":[0-9-]*,"recordedPosition":[0-9-]*,"bytesOnDisk":[0-9-]*' <<< "$1" \
+        | grep -o "\"$2\":-\?[0-9]*" | sed 's/.*://'
 }

@@ -3,6 +3,7 @@
 # scp, beside credo-lib.sh, and runs it with one ssh command. It is never pasted into a terminal.
 #
 #   credo-server.sh deploy --tag <12 hex> --stage <dir> [--rollback] [--force] [--health-timeout <s>]
+#   credo-server.sh restart-exchange [--health-timeout <s>] [--catchup-timeout <s>]
 #   credo-server.sh check [--password]
 #   credo-server.sh drill
 #
@@ -10,8 +11,12 @@
 # files installed into /opt/credo, IMAGE_TAG set in credo.env, bots then exchange stopped, compose up under
 # one bounded deadline with the /health wait, then the static symlink switch, the history line and pruning.
 # A rollback (--rollback) uses the bundle and release already on the server for that tag.
+# restart-exchange: `compose restart exchange` alone under the deploy lock, with the bots left running; waits
+# for /health 200 and for every bot's catch-up, then prints the RESEND and catch-up timing lines of the new
+# process and the outbound journal's size. No history line, no symlink change, no prune (Session G).
 # check: one PASS, FAIL, WAIT or SKIP line per item of the first-deploy checks; exit 1 on any FAIL.
 # drill: restores the newest nightly dump into a scratch database and compares it with the live one (P16-6).
+# deploy, restart-exchange and drill refuse while a benchmark run holds its lock (CREDO_BENCH_LOCK).
 #
 # Paths, overridable only so the local live check can run this file unchanged (production uses the defaults):
 #   CREDO_DIR (/opt/credo), CREDO_WEB_DIR (/var/www/directroute), CREDO_UNIT_DIR (/etc/systemd/system),
@@ -88,9 +93,18 @@ rollback_cmd() {
     fi
 }
 
-previous_good() {   # the last tag recorded ok that is not $1
-    [ -f "$HISTORY" ] || return 0
-    awk -v t="$1" '$3 == "ok" && $2 != t { p = $2 } END { print p }' "$HISTORY"
+refuse_during_bench() {
+    if credo_lock_held "$CREDO_BENCH_LOCK"; then
+        die "a benchmark run holds $CREDO_BENCH_LOCK (deploy/bench/bench.sh status <run id>); wait for it to finish"
+    fi
+}
+
+take_deploy_lock() {
+    mkdir -p "$CREDO_DIR"
+    exec 9> "$CREDO_DEPLOY_LOCK"
+    flock -n 9 || die "another deploy holds $CREDO_DEPLOY_LOCK"
+    # Checked while holding the deploy lock; a benchmark checks the deploy lock while holding its own.
+    refuse_during_bench
 }
 
 history_add() {   # tag status flyway snapshot
@@ -204,9 +218,7 @@ cmd_deploy() {
     [[ "$tag" =~ $TAG_RE ]] || die "--tag must be 12 lowercase hex digits"
     [[ "$bound" =~ ^[0-9]+$ ]] && [ "$bound" -ge 10 ] || die "--health-timeout must be a number of seconds, at least 10"
 
-    mkdir -p "$CREDO_DIR"
-    exec 9> "$CREDO_DIR/.deploy.lock"
-    flock -n 9 || die "another deploy holds $CREDO_DIR/.deploy.lock"
+    take_deploy_lock
 
     # S0 preflight: nothing changes until every check passes.
     check_env_file
@@ -239,10 +251,11 @@ cmd_deploy() {
             die "$why. Add --force only if you know this tag works on them"
         fi
     fi
-    local previous
-    # The previous tag is the last one recorded ok other than this one: credo.env may name a failed attempt.
-    previous=$(previous_good "$tag")
-    [ -n "$previous" ] || { previous=$(credo_env_get IMAGE_TAG); [ "$previous" != "$tag" ] || previous=""; }
+    local previous old_tag
+    # The previous tag is only ever the last one recorded ok other than this one; credo.env's value is never
+    # used for it, because it may name a failed attempt or this same tag (P16-11 first-deploy finding 1).
+    previous=$(credo_previous_ok "$HISTORY" "$tag")
+    old_tag=$(credo_env_get IMAGE_TAG)
 
     # S1, S2: the tag's bundle and release, then its files in place (the running stack reads them only at up).
     if [ "$rollback" -eq 0 ]; then
@@ -254,7 +267,7 @@ cmd_deploy() {
 
     # S3: credo.env names the new tag (mode 600, owner kept).
     set_image_tag "$tag"
-    say "IMAGE_TAG set to $tag (previous: ${previous:-none})"
+    say "$(credo_tag_note "$old_tag" "$tag")"
 
     # S4: bots first, so the maker cancels its ladder against a venue that is still up; then the exchange
     # (graceful shutdown, snapshot), so migrate never runs under a live venue.
@@ -297,7 +310,7 @@ cmd_deploy() {
         if [ -n "$previous" ]; then
             say "to roll back:  $(rollback_cmd "$previous")"
         else
-            say "no previous tag (first deploy): fix the cause and deploy again"
+            say "no tag other than $tag is recorded ok, so there is nothing to roll back to: fix the cause and deploy again"
         fi
         exit 1
     fi
@@ -314,7 +327,182 @@ cmd_deploy() {
     if [ -n "$stage" ] && [ -d "$stage" ]; then rm -rf "$stage"; fi
     echo
     say "DEPLOYED $tag"
-    say "previous tag: ${previous:-none}$( [ -n "$previous" ] && [ "$previous" != "$tag" ] && echo " (roll back with: $(rollback_cmd "$previous"))")"
+    if [ -n "$previous" ]; then
+        say "previous tag: $previous (roll back with: $(rollback_cmd "$previous"))"
+    else
+        say "previous tag: none (no tag other than $tag is recorded ok)"
+    fi
+}
+
+# --- restart-exchange -------------------------------------------------------------------------------------
+
+container_state() { docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null || echo missing; }
+
+restart_failed() {   # why, exchange container, since (RFC 3339)
+    echo
+    say "FAILED: restart-exchange: $1"
+    credo_compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}' || true
+    echo "--- last 60 lines of the exchange log since the restart began ---"
+    docker logs --since "$3" --tail 60 "$2" 2>&1 || true
+    echo "---"
+    say "nothing else was restarted or rolled back; the bots keep reconnecting on their own"
+    exit 1
+}
+
+# The timing evidence of one restart: the venue's RESEND lines and the bots' catch-ups of the new process,
+# and the outbound journal's size (every RESEND reads it from its start).
+restart_report() {   # exchange, bots, since (the new process's StartedAt)
+    local venue bots_log health s r
+    venue=$(docker logs --since "$3" "$1" 2>&1 || true)
+    bots_log=$(docker logs --since "$3" "$2" 2>&1 || true)
+    echo
+    echo "INFO  RESEND completions (venue, since $3):"
+    credo_resend_lines <<< "$venue" | sed 's/^/        /'
+    echo "INFO  RESEND refusals, pool full (venue): $(credo_resend_busy_lines <<< "$venue" | wc -l)"
+    credo_resend_busy_lines <<< "$venue" | sed 's/^/        /'
+    echo "INFO  catch-ups (bots, since $3):"
+    credo_catchup_lines <<< "$bots_log" | sed 's/^/        /'
+    health=$(curl -s -m 5 "$CREDO_HEALTH_URL" || true)
+    s=$(credo_outbound_field "$health" startPosition)
+    r=$(credo_outbound_field "$health" recordedPosition)
+    if [ -n "$s" ] && [ -n "$r" ]; then
+        echo "INFO  journal.outbound (/health, as last computed by the retention thread): startPosition $s," \
+            "recordedPosition $r: $((r - s)) bytes ($(( (r - s) / 1048576 )) MiB) read by every full RESEND"
+    else
+        echo "INFO  journal.outbound: not in /health"
+    fi
+}
+
+cmd_restart_exchange() {
+    local bound=600 catchup=600
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --health-timeout) bound="${2:-}"; shift 2 ;;
+            --catchup-timeout) catchup="${2:-}"; shift 2 ;;
+            *) die "unknown option $1" ;;
+        esac
+    done
+    [[ "$bound" =~ ^[0-9]+$ ]] && [ "$bound" -ge 10 ] || die "--health-timeout must be a number of seconds, at least 10"
+    [[ "$catchup" =~ ^[0-9]+$ ]] && [ "$catchup" -ge 1 ] || die "--catchup-timeout must be a number of seconds, at least 1"
+
+    check_env_file
+    take_deploy_lock
+
+    # Preflight: nothing changes until it passes.
+    local ex bots code health exempt image bots_started cfg_tag state
+    ex=$(credo_container exchange)
+    bots=$(credo_container bots)
+    [ -n "$ex" ] || die "there is no exchange container; deploy first"
+    [ -n "$bots" ] || die "there is no bots container; deploy first"
+    state=$(container_state "$ex")
+    [ "$state" = running ] || die "the exchange is $state, not running; restart-exchange restarts a running venue only"
+    state=$(container_state "$bots")
+    [ "$state" = running ] || die "the bots are $state, not running, so no bot would catch up; start them first"
+    code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$CREDO_HEALTH_URL" || true)
+    [ "$code" = 200 ] || die "/health answers ${code:-nothing} on $CREDO_HEALTH_URL, not 200; investigate before restarting"
+    health=$(curl -s -m 5 "$CREDO_HEALTH_URL" || true)
+    exempt=$(grep -o '"connections":{"public":[0-9]*,"exempt":[0-9]*' <<< "$health" | sed -n 's/.*"exempt":\([0-9]*\).*/\1/p' || true)
+    [ -n "$exempt" ] || die "/health has no access.connections.exempt"
+    [ "$exempt" -ge 1 ] || die "no bot is connected (access.connections.exempt 0), so no bot would catch up"
+    image=$(docker inspect -f '{{.Config.Image}}' "$ex")
+    bots_started=$(started_at "$bots")
+    cfg_tag=$(credo_env_get IMAGE_TAG)
+    [ "$image" = "credo-exchange:$cfg_tag" ] \
+        || say "WARN the exchange runs $image while credo.env names ${cfg_tag:-nothing}; a restart keeps $image"
+    say "restart-exchange of $image: exchange ${ex:0:12}, bots ${bots:0:12} left running ($exempt connected)"
+
+    # The restart: compose restart names the exchange only (no migrate, no recreate, the bots untouched).
+    # Docker sends SIGTERM, waits up to the stop timeout (stop_grace_period, 60 s) for the shutdown snapshot,
+    # and starts the same container only once the old process has exited.
+    local t0 t0_unix start rc=0 remaining up_s new_ex new_image started
+    t0=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+    t0_unix=$(date +%s)
+    start=$t0_unix
+    say "compose restart exchange (bound $bound s over the restart and the /health wait)"
+    timeout "$bound" bash -c '. "$1"; credo_compose restart exchange' _ "$HERE/credo-lib.sh" || rc=$?
+    if [ "$rc" -eq 124 ]; then restart_failed "compose restart did not finish within the $bound s bound" "$ex" "$t0"
+    elif [ "$rc" -ne 0 ]; then restart_failed "compose restart failed (exit $rc)" "$ex" "$t0"; fi
+    remaining=$((bound - ($(date +%s) - start)))
+    [ "$remaining" -lt 1 ] && remaining=1
+    credo_wait_200 "$CREDO_HEALTH_URL" "$remaining" || restart_failed "/health did not answer 200 within the $bound s bound" "$ex" "$t0"
+    up_s=$(( $(date +%s) - start ))
+    new_ex=$(credo_container exchange)
+    new_image=$(docker inspect -f '{{.Config.Image}}' "$new_ex" 2>/dev/null || true)
+    [ "$new_ex" = "$ex" ] || restart_failed "the exchange container changed (${ex:0:12} to ${new_ex:0:12})" "$new_ex" "$t0"
+    [ "$new_image" = "$image" ] || restart_failed "the exchange runs $new_image, not $image" "$ex" "$t0"
+    started=$(started_at "$ex")
+    say "/health 200 after $up_s s; same container, same image; the new process started at $started"
+
+    # The old process's end: its exit code (143 is the JVM's SIGTERM exit) and its shutdown lines.
+    local code_old
+    code_old=$(docker events --since "$t0_unix" --until "$(date +%s)" --filter "container=$ex" --filter event=die \
+        --format '{{index .Actor.Attributes "exitCode"}}' 2>/dev/null | head -n 1 || true)
+    case "$code_old" in
+        143|0) say "the old process exited $code_old (graceful shutdown)" ;;
+        "") say "WARN no exit event found for the old process" ;;
+        *) say "WARN the old process exited $code_old, not 143: not a graceful shutdown (137 is a kill after the stop timeout), so no shutdown snapshot" ;;
+    esac
+    docker logs --since "$t0" --until "$started" "$ex" 2>&1 \
+        | grep -oE "Snapshot written: [^ ]+ \([0-9]+ bytes\)|Snapshot [^ ]+ already exists and is valid; kept|Shutdown (complete|incomplete)[^\"]*" \
+        | sed 's/^/        stop:  /' || true
+    docker logs --since "$started" "$ex" 2>&1 \
+        | grep -oE "Using snapshot [^ ]+: inbound seq [0-9]+, [0-9]+ resting orders|Recovered in [0-9]+ ms: [^,]*, replayed [0-9]+ commands" \
+        | sed 's/^/        start: /' || true
+
+    # Every bot that was connected must log its catch-up after the new process started. The expected names
+    # are the bots that logged a lost connection since the restart began; their count is cross-checked with
+    # the exempt connections /health showed before it.
+    local names n_names done_names n cstart now next timed_out=0
+    names=$(docker logs --since "$t0" "$bots" 2>&1 | credo_lost_names | tr '\n' ' ')
+    n_names=$(wc -w <<< "$names")
+    [ "$n_names" -eq "$exempt" ] \
+        || say "WARN $n_names bot(s) logged a lost connection (${names% }) but $exempt were connected; waiting for $exempt catch-ups"
+    say "waiting for $exempt catch-up(s) (bound $catchup s)"
+    cstart=$(date +%s)
+    next=$((cstart + 30))
+    while :; do
+        done_names=$(docker logs --since "$started" "$bots" 2>&1 | credo_catchup_lines | awk '{ print $1 }' | sort -u | tr '\n' ' ')
+        n=$(wc -w <<< "$done_names")
+        [ "$n" -ge "$exempt" ] && break
+        now=$(date +%s)
+        if [ $((now - cstart)) -ge "$catchup" ]; then timed_out=1; break; fi
+        if [ "$now" -ge "$next" ]; then
+            echo "  waiting for catch-up: $n of $exempt (${done_names% }) after $((now - cstart)) s (bound $catchup s)" >&2
+            next=$((now + 30))
+        fi
+        sleep 2
+    done
+    local caught_s=$(( $(date +%s) - cstart ))
+
+    restart_report "$ex" "$bots" "$started"
+
+    # The bots' container must be the same one, never restarted.
+    local fails=0 b_now b_started
+    b_now=$(credo_container bots)
+    b_started=$(started_at "$b_now")
+    echo
+    if [ "$b_now" = "$bots" ] && [ "$b_started" = "$bots_started" ]; then
+        say "bots container ${bots:0:12} unchanged (process started $bots_started)"
+    else
+        say "FAILED: the bots container changed: ${bots:0:12} started $bots_started, now ${b_now:0:12} started ${b_started:-?}"
+        fails=1
+    fi
+    if [ "$timed_out" -eq 1 ]; then
+        local missing="" b
+        for b in $names; do
+            grep -qw "$b" <<< "$done_names" || missing="$missing $b"
+        done
+        say "FAILED: $n of $exempt bots caught up within $catchup s; not caught up:${missing:- (names unknown)}"
+        echo "--- last 20 WARN lines of the bots since the restart began ---"
+        docker logs --since "$t0" "$bots" 2>&1 | grep WARN | tail -n 20 || true
+        echo "---"
+        say "nothing was restarted or rolled back; the bots keep retrying on their own; run deploy/deploy.sh --check later"
+        fails=1
+    else
+        say "$n of $exempt bots caught up $caught_s s after /health 200"
+    fi
+    [ "$fails" -eq 0 ] || exit 1
+    say "RESTARTED the exchange ($image); /health 200 after $up_s s, every bot caught up"
 }
 
 # --- check ------------------------------------------------------------------------------------------------
@@ -326,8 +514,21 @@ row() {   # status text
     return 0
 }
 
-json_num() {   # json key -> first number after "key":
-    grep -o "\"$2\":-\?[0-9]*" <<< "$1" | head -n 1 | sed 's/.*://'
+json_num() { credo_json_num "$@"; }   # json key -> first number after "key":
+
+# The daemon's start time of a container's current process (RFC 3339, nanoseconds), or empty. Used as
+# `docker logs --since`, so lines of an earlier run of the same container are never read.
+started_at() {
+    [ -n "$1" ] && docker inspect -f '{{.State.StartedAt}}' "$1" 2>/dev/null || true
+}
+
+# The log of a container's current process only (stdout and stderr), or nothing.
+logs_since_start() {
+    local c="$1" since
+    [ -n "$c" ] || return 0
+    since=$(started_at "$c")
+    [ -n "$since" ] || return 0
+    docker logs --since "$since" "$c" 2>&1 || true
 }
 
 cmd_check() {
@@ -398,15 +599,31 @@ cmd_check() {
         fi
     fi
 
-    # logs of the current exchange container
-    local ex logs
+    # logs of the exchange's current process only (--since its StartedAt): an in-place restart keeps the
+    # container, and with it every earlier run's lines (Session G)
+    local ex logs since open_line open_date h_date h_session
     ex=$(credo_container exchange)
-    logs=$( [ -n "$ex" ] && docker logs "$ex" 2>&1 || true)
-    grep -q "Recovered in [0-9]* ms" <<< "$logs" && row PASS "exchange log: recovery ($(grep -o 'Recovered in [0-9]* ms' <<< "$logs" | tail -n 1))" \
-        || row FAIL "exchange log: no recovery line"
-    grep -qE "Session open for business date [0-9]+|Session for business date [0-9]+ is open \(recovered\)" <<< "$logs" \
-        && row PASS "exchange log: session open ($(grep -oE 'business date [0-9]+' <<< "$logs" | tail -n 1))" \
-        || row FAIL "exchange log: no session-open line"
+    since=$(started_at "$ex")
+    logs=$(logs_since_start "$ex")
+    grep -q "Recovered in [0-9]* ms" <<< "$logs" \
+        && row PASS "exchange log since ${since:-?}: recovery ($(grep -o 'Recovered in [0-9]* ms: [^,]*, replayed [0-9]* commands' <<< "$logs" | tail -n 1))" \
+        || row FAIL "exchange log since ${since:-?}: no recovery line"
+    # The newest session-open line (a roll's "Session open for business date N" or a start's "is open
+    # (recovered)"), compared with the business date /health reports. The date is read from that line
+    # only: other lines name business dates too (clearing's "Cleared business date N" follows a roll).
+    open_line=$(credo_session_open_lines <<< "$logs" | tail -n 1)
+    open_date=$(grep -oE '[0-9]{8}' <<< "$open_line" | head -n 1)
+    h_date=$(json_num "$health" businessDate)
+    h_session=$(grep -o '"session":"[A-Z]*"' <<< "$health" | head -n 1 | sed 's/.*:"\([A-Z]*\)"/\1/')
+    if [ "$h_session" != OPEN ]; then
+        row SKIP "exchange log: session ${h_session:-unknown} on /health (business date ${h_date:-none}); no open line expected"
+    elif [ -z "$open_date" ]; then
+        row FAIL "exchange log since ${since:-?}: no session-open line, /health says OPEN for ${h_date:-?}"
+    elif [ "$open_date" = "$h_date" ]; then
+        row PASS "exchange log: session open ($open_line) = /health business date $h_date"
+    else
+        row FAIL "exchange log: newest open line is for $open_date ($open_line), /health says $h_date"
+    fi
 
     # access, network, addresses
     local xff conn public exempt gw bots_ip trusted exempt_cfg
@@ -465,12 +682,11 @@ cmd_check() {
 
     # P16-12 evidence: the RESEND reads and the bots' catch-ups of the current containers
     echo
-    echo "INFO  last RESEND completions (venue):"
-    grep -oE "RESEND fromSeq [0-9]+ to [0-9]+: [0-9]+ frames to [^ ]+ in [0-9]+ ms( \(read [0-9]+ events, [0-9]+ bytes from position [0-9]+\))?" \
-        <<< "$logs" | tail -n 5 | sed 's/^/        /' || true
-    echo "INFO  last catch-ups (bots):"
+    echo "INFO  last RESEND completions (venue, current process):"
+    credo_resend_lines <<< "$logs" | tail -n 5 | sed 's/^/        /'
+    echo "INFO  last catch-ups (bots, current process):"
     c=$(credo_container bots)
-    { [ -n "$c" ] && docker logs "$c" 2>&1 | grep -oE "[A-Za-z]+ caught up through seq [0-9]+ in [0-9]+ ms \(RESEND from seq [0-9]+, [0-9]+ request\(s\)(, offline [0-9]+ ms)?\)" | tail -n 5 | sed 's/^/        /'; } || true
+    logs_since_start "$c" | credo_catchup_lines | tail -n 5 | sed 's/^/        /'
     echo
     if [ "$FAILS" -eq 0 ]; then echo "check: no FAIL"; else echo "check: $FAILS FAIL"; exit 1; fi
 }
@@ -483,6 +699,7 @@ psql_pg() {   # database sql
 
 cmd_drill() {
     local pg dump stamp cut purged q_cr q_ex live_cr rest_cr live_ex rest_ex live_v rest_v
+    refuse_during_bench
     pg=$(credo_container postgres)
     [ -n "$pg" ] || die "no postgres container"
     dump=$(ls -1 "$CREDO_BACKUP_DIR"/exchange-*.dump 2>/dev/null | sort | tail -n 1 || true)
@@ -512,7 +729,8 @@ cmd_drill() {
 
 case "${1:-}" in
     deploy) shift; cmd_deploy "$@" ;;
+    restart-exchange) shift; cmd_restart_exchange "$@" ;;
     check)  shift; cmd_check "$@" ;;
     drill)  shift; cmd_drill "$@" ;;
-    *) echo "usage: credo-server.sh deploy --tag <sha12> --stage <dir> [--rollback] [--force] [--health-timeout s] | check [--password] | drill" >&2; exit 64 ;;
+    *) echo "usage: credo-server.sh deploy --tag <sha12> --stage <dir> [--rollback] [--force] [--health-timeout s] | restart-exchange [--health-timeout s] [--catchup-timeout s] | check [--password] | drill" >&2; exit 64 ;;
 esac

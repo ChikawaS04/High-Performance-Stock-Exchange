@@ -31,7 +31,15 @@ deploy/bench/bench.sh fetch <run id>
 ```
 
 Results land in `bench-results/p16-12/<run id>/` (git-ignored): one log (and JMH JSON or text report) per cell,
-`manifest.txt` (commit, `uname`, `nproc`, `lscpu`, memory, Docker), `status`, `runner.log`.
+`manifest.txt` (commit, `uname`, `nproc`, `lscpu`, memory, Docker), `status`, `runner.log`. These are the files
+of the run's `results/` folder on the server, directly in the run's folder (no `results/` level). Each fetch
+copies into a fresh folder and then replaces the run's folder whole, so fetching a run again while it is still
+going refreshes it and never leaves a second copy.
+
+**Locks.** A run and a deploy exclude each other: `deploy.sh` (deploy, `--tag`, `--restart-exchange`, `--drill`)
+refuses while the run holds `~/credo-bench/.lock`, and a run refuses to start while a deploy holds
+`/opt/credo/.deploy.lock`. A run started with `--stop-venue` starts the venue again at its end only after
+taking the deploy lock (waiting up to 600 s for it), so its restart never races a deploy.
 
 ## Where it runs
 

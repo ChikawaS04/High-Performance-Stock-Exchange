@@ -14,6 +14,8 @@
 #
 # Refuses while the exchange or the bots run, unless --stop-venue: then it stops bots and exchange itself and
 # starts them again at the end (also after a failure), waiting for /health 200 under a bound.
+# Refuses while a deploy holds /opt/credo/.deploy.lock (deploys refuse while a run holds $BENCH_ROOT/.lock), and
+# the restart at the end waits for the deploy lock and holds it, so it never races a deploy.
 set -euo pipefail
 umask 022
 
@@ -41,6 +43,15 @@ die() { echo "credo-bench: REFUSED: $*" >&2; exit 2; }
 
 venue_running() { credo_service_active exchange || credo_service_active bots; }
 
+# A deploy, rollback or restart-exchange holds the deploy lock for its whole run; a benchmark never starts
+# under one (and deploys refuse while this run holds its own lock; each side checks the other's lock while
+# holding its own, so they exclude each other).
+refuse_during_deploy() {
+    if credo_lock_held "$CREDO_DEPLOY_LOCK"; then
+        die "a deploy holds $CREDO_DEPLOY_LOCK; start the benchmark once it has finished"
+    fi
+}
+
 free_bytes() { df -B1 --output=avail "$1" | tail -n 1 | tr -d ' '; }
 
 # --- start: checks, then detach ---------------------------------------------------------------------------
@@ -54,6 +65,7 @@ cmd_start() {
     exec 9> "$BENCH_ROOT/.lock"
     flock -n 9 || die "another benchmark run holds $BENCH_ROOT/.lock"
     flock -u 9
+    refuse_during_deploy
     if venue_running && [ "$stop_venue" -eq 0 ]; then
         die "the exchange or the bots are running; stop them (docker compose stop bots exchange) or add --stop-venue"
     fi
@@ -88,6 +100,15 @@ status() {
 
 restart_venue() {
     [ "$STOPPED_VENUE" -eq 1 ] || return 0
+    # Under the deploy lock, so the restart never races a deploy or a restart-exchange: wait for it.
+    say "taking $CREDO_DEPLOY_LOCK (waiting up to $VENUE_TIMEOUT s)"
+    exec 8> "$CREDO_DEPLOY_LOCK"
+    if ! flock -w "$VENUE_TIMEOUT" 8; then
+        exec 8>&-
+        VENUE_NOTE="NOT RESTARTED at $(date -u +%H:%M:%SZ): $CREDO_DEPLOY_LOCK stayed held for $VENUE_TIMEOUT s; start it by hand (deploy/deploy.sh --tag <current>)"
+        say "venue: $VENUE_NOTE"
+        return 0
+    fi
     say "starting the venue again (bound $VENUE_TIMEOUT s)"
     if timeout "$VENUE_TIMEOUT" bash -c '. "$1"; credo_compose up -d' _ "$HERE/credo-lib.sh" \
         && credo_wait_200 "$CREDO_HEALTH_URL" "$VENUE_TIMEOUT"; then
@@ -95,6 +116,8 @@ restart_venue() {
     else
         VENUE_NOTE="RESTART FAILED at $(date -u +%H:%M:%SZ): start it by hand (deploy/deploy.sh --tag <current>)"
     fi
+    flock -u 8
+    exec 8>&-
     say "venue: $VENUE_NOTE"
 }
 
@@ -246,6 +269,7 @@ cmd_run() {
     done
     exec 9> "$BENCH_ROOT/.lock"
     flock -n 9 || die "another benchmark run holds $BENCH_ROOT/.lock"
+    refuse_during_deploy
     PHASE=starting; status
     trap on_exit EXIT
     # Bound the whole run: past RUN_TIMEOUT the watchdog ends it (the EXIT trap still restarts the venue).

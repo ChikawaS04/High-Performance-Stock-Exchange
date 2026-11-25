@@ -15,7 +15,7 @@ set -euo pipefail
 TARGET="${CREDO_TARGET:-david@104.204.69.188}"
 SSH=/usr/bin/ssh
 SCP=/usr/bin/scp
-SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4)
 dry=0
 args=()
 cmd="${1:-}"
@@ -64,9 +64,20 @@ status)
     ;;
 fetch)
     id_ok "${args[0]:-}"
+    # One layout: the run's results/ files directly in bench-results/p16-12/<run id>/. scp -r into a fresh
+    # folder first, then replace the run's folder whole, so a second fetch never nests a results/ copy inside
+    # the first (scp -r into an existing folder copies the source folder into it).
+    dest="bench-results/p16-12/${args[0]}"
     mkdir -p "bench-results/p16-12"
-    remote "$SCP" "${SSH_OPTS[@]}" -q -r "$TARGET:credo-bench/runs/${args[0]}/results" "bench-results/p16-12/${args[0]}"
-    say "results in bench-results/p16-12/${args[0]}"
+    incoming="$(mktemp -d "bench-results/p16-12/.fetch-XXXXXX")"
+    trap 'rm -rf "$incoming"' EXIT
+    remote "$SCP" "${SSH_OPTS[@]}" -q -r "$TARGET:credo-bench/runs/${args[0]}/results" "$incoming/"
+    if [ "$dry" -eq 0 ]; then
+        [ -d "$incoming/results" ] || die "scp brought no results folder"
+        rm -rf "$dest"
+        mv -T "$incoming/results" "$dest"
+    fi
+    say "results in $dest (replaced whole on every fetch)"
     ;;
 list)
     remote "$SSH" "${SSH_OPTS[@]}" "$TARGET" ls -1 credo-bench/runs
