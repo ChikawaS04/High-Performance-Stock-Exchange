@@ -23,6 +23,7 @@ import util.JournalStatus;
 import util.ReporterStatus;
 
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -96,6 +97,11 @@ class JournalRetentionTest {
         }
 
         void close(int date) {
+            // The close snapshot records the outbound recording's position as the engine cuts it, a lower bound
+            // that lags with the recorder and the Archive. Settle first, so it covers every event of the day before
+            // the close and the window's outbound edge does not move with machine load (it fell a whole segment
+            // short in a loaded full-suite run, so a test saw the outbound start one segment lower).
+            settleOutbound();
             venue.sessionController(gateway).close(date);
             SnapshotStore store = new SnapshotStore(venue.config().snapshotDir());
             await(() -> closeSnapshot(store, date) != null, "the close snapshot of " + date);
@@ -122,9 +128,23 @@ class JournalRetentionTest {
             close(date);
         }
 
-        /** Two runs, each requested after the previous ended, so the second sees everything on disk now. */
+        /** Every outbound event published so far offered to the recording, and the Archive's recorded position past it. */
+        void settleOutbound() {
+            long position = pipeline().outboundRecording().publication().position();
+            await(() -> pipeline().recordedSeq() >= pipeline().publishedSeq()
+                    && status().outbound().recordedPosition() >= position, "the outbound recording to catch up");
+        }
+
+        /**
+         * Runs until the last two completed runs both started after this call and the last started after the
+         * one before it ended, so the last sees everything on disk now. The first wait can be met by a run that
+         * started earlier: the close snapshot's own request (the snapshot writer asks for a run after every
+         * close), or a request left pending by the previous call; a run that read two closes there let the run
+         * this call asked for be the purging one (expected NOTHING_TO_PURGE, was PURGED). Each later wait is met
+         * only by a run that started after the previous one completed.
+         */
         void runRetention() {
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < 3; i++) {
                 long before = pipeline().retention().completedRuns();
                 pipeline().retention().requestRun();
                 await(() -> pipeline().retention().completedRuns() > before, "a retention run");
@@ -159,28 +179,39 @@ class JournalRetentionTest {
         return JournaledVenue.config(root, env);
     }
 
-    static RestoredSnapshot closeSnapshot(SnapshotStore store, int date) {
-        try {
-            RestoredSnapshot found = null;
-            for (RestoredSnapshot s : store.listValid()) {
-                if (s.closeDate() == date && (found == null || s.inboundSeq() < found.inboundSeq())) found = s;
+    /**
+     * Every valid snapshot, retried while one cannot be opened: on Windows a file the snapshot pruner is deleting
+     * refuses to open for a moment (AccessDeniedException), where Linux would have unlinked it. Bounded.
+     */
+    static List<RestoredSnapshot> listing(SnapshotStore store) {
+        AtomicReference<List<RestoredSnapshot>> found = new AtomicReference<>();
+        await(() -> {
+            try {
+                found.set(store.listValid());
+                return true;
+            } catch (AccessDeniedException e) {
+                return false;
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
             }
-            return found;
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
+        }, "a snapshot listing (a snapshot being pruned is briefly unreadable on Windows)");
+        return found.get();
+    }
+
+    static RestoredSnapshot closeSnapshot(SnapshotStore store, int date) {
+        RestoredSnapshot found = null;
+        for (RestoredSnapshot s : listing(store)) {
+            if (s.closeDate() == date && (found == null || s.inboundSeq() < found.inboundSeq())) found = s;
         }
+        return found;
     }
 
     private static List<RestoredSnapshot> valid(SnapshotStore store) {
-        try {
-            return store.listValid();
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
+        return listing(store);
     }
 
-    private static long minPosition(SnapshotStore store) throws IOException {
-        return store.listValid().stream().mapToLong(RestoredSnapshot::inboundPosition).min().orElseThrow();
+    private static long minPosition(SnapshotStore store) {
+        return listing(store).stream().mapToLong(RestoredSnapshot::inboundPosition).min().orElseThrow();
     }
 
     private static long base(long position) {
@@ -540,8 +571,13 @@ class JournalRetentionTest {
     @Test
     void aResendInProgressBelowTheNewStartHoldsTheOutboundPurge() throws Exception {
         try (Run run = new Run(config(root, 0), 1_000L, 1)) {
-            run.day(FIRST_DAY, 600);
-            run.open(FIRST_DAY + 1);
+            // The resend starts before the close: the close snapshot asks for a run of its own, which with
+            // JOURNAL_RETENTION_DAYS=0 may purge to the new window at once. Started after the close, the resend
+            // could lose that race and find the outbound purged before it read anything (the failure seen
+            // under full-suite load). Started before, every run from the close on meets the active replay.
+            run.open(FIRST_DAY);
+            run.trade(600);
+            run.settleOutbound();
             CountDownLatch holding = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -563,8 +599,11 @@ class JournalRetentionTest {
                 }
             }, "test-resend");
             resend.start();
-            assertTrue(holding.await(10, TimeUnit.SECONDS), "the resend is reading the first segment");
+            assertTrue(holding.await(10, TimeUnit.SECONDS),
+                    "the resend is reading the first segment" + (failure.get() == null ? "" : ": " + failure.get()));
 
+            run.close(FIRST_DAY);
+            run.open(FIRST_DAY + 1);
             run.runRetention();
             assertEquals(JournalStatus.SKIPPED, run.status().outcome());
             assertTrue(run.status().skipReason().startsWith("ARCHIVE_REFUSED_REPLAY"), run.status().skipReason());
