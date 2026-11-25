@@ -93,6 +93,17 @@ class HardKillRecoveryTest {
 
     private static final long HOLD_AT = 6;
 
+    /**
+     * A copy of the child's output so far, taken under the list's own lock: the reader thread appends while
+     * the test reads, and iterating a synchronized list (a stream, String.join) without its lock can throw
+     * ConcurrentModificationException.
+     */
+    private static List<String> snapshot(List<String> output) {
+        synchronized (output) {
+            return new ArrayList<>(output);
+        }
+    }
+
     /** Starts the child with {@code extraArgs}, waits for READY, kills it hard; returns its output. */
     private List<String> killChild(String... extraArgs) throws Exception {
         List<String> command = new ArrayList<>(List.of(
@@ -115,14 +126,15 @@ class HardKillRecoveryTest {
         reader.setDaemon(true);
         reader.start();
         try {
-            RecoveryScenario.await(() -> output.stream().anyMatch(l -> l.startsWith("READY "))
+            RecoveryScenario.await(() -> snapshot(output).stream().anyMatch(l -> l.startsWith("READY "))
                     || !child.isAlive(), "the child to apply the scenario");
-            assertTrue(output.contains("READY " + RecoveryScenario.commands()), String.join("\n", output));
+            List<String> seen = snapshot(output);
+            assertTrue(seen.contains("READY " + RecoveryScenario.commands()), String.join("\n", seen));
         } finally {
             child.destroyForcibly();
             assertTrue(child.waitFor(10, TimeUnit.SECONDS), "the child died");
         }
-        return new ArrayList<>(output);
+        return snapshot(output);
     }
 
     /** The outbound recording under {@code dir}, launching the journal with its one crash retry. */
