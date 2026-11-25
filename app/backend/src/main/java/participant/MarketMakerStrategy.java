@@ -206,6 +206,17 @@ public final class MarketMakerStrategy implements Strategy {
         return !own.resting().isEmpty();
     }
 
+    /**
+     * After a reconnect's catch-up: cancel every order whose fate is uncertain, the unacknowledged ones and
+     * the ones whose cancel was in flight when the connection dropped. A requote's {@code cancelAll} skips an
+     * order with a cancel pending, so without this a cancel lost at a venue restart would leave that quote
+     * resting at its old price until the session closes.
+     */
+    @Override
+    public List<Action> onResync() {
+        return own.cancelUncertain();
+    }
+
     /** A new day's open (P16-5): becomes the pull target. Off-tick or non-positive values are ignored. */
     @Override
     public void onAnchor(long openUnits) {

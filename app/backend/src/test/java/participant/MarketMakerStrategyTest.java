@@ -11,6 +11,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static participant.Fixtures.OPEN;
+import static participant.Fixtures.accepted;
 import static participant.Fixtures.cancels;
 import static participant.Fixtures.emptyView;
 import static participant.Fixtures.fill;
@@ -121,6 +122,36 @@ class MarketMakerStrategyTest {
         List<Action> out = m.onTick(view(OPEN - ticks(1), OPEN + ticks(1), OPEN + 50), 1_000);
         for (Action a : news(out)) assertTrue(Prices.isOnTick(a.priceUnits()), "price " + a.priceUnits());
         assertEquals(OPEN - ticks(2), side(out, Side.BUY).get(0).priceUnits(), "still centred on the open");
+    }
+
+    @Test
+    void aCancelInFlightAtADisconnectIsSentAgainAfterResync() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        List<Action> first = m.onTick(emptyView(), 1_000);
+        for (Action a : first) m.onExec(accepted(a.clOrdId(), a.side(), a.priceUnits(), a.qty()));
+        List<Long> old = first.stream().map(Action::clOrdId).toList();
+
+        // A requote: its 40 cancels and 40 NEWs go into a connection that drops before the venue reads them.
+        m.onExec(print(OPEN + ticks(5)));
+        List<Action> requote = m.onTick(view(OPEN - ticks(2), OPEN + ticks(2), OPEN + ticks(5)), 2_000);
+        assertEquals(old, cancels(requote).stream().map(Action::origClOrdId).toList());
+        List<Long> unacked = news(requote).stream().map(Action::clOrdId).toList();
+
+        List<Action> resync = m.onResync();
+        assertTrue(news(resync).isEmpty());
+        List<Long> targets = cancels(resync).stream().map(Action::origClOrdId).toList();
+        assertTrue(targets.containsAll(old), "every quote whose cancel was in flight is cancelled again");
+        assertTrue(targets.containsAll(unacked), "every unacknowledged NEW is cancelled");
+        assertEquals(old.size() + unacked.size(), targets.size());
+    }
+
+    @Test
+    void resyncWithEveryQuoteAcknowledgedCancelsNothing() {
+        MarketMakerStrategy m = maker(MarketMakerStrategy.Config.defaults(OPEN));
+        for (Action a : m.onTick(emptyView(), 1_000)) {
+            m.onExec(accepted(a.clOrdId(), a.side(), a.priceUnits(), a.qty()));
+        }
+        assertTrue(m.onResync().isEmpty());
     }
 
     @Test
