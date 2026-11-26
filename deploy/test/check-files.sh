@@ -10,7 +10,10 @@
 #  4. the P16-10 files: deploy/Caddyfile holds REPLACE_WITH_HASH, and neither it nor install-caddy.sh holds a
 #     bcrypt string ($2a$, $2b$, $2y$);
 #  5. credo-lib.sh's pure helpers on planted input: the log-line filters, the previous-tag and IMAGE_TAG messages,
-#     the /health field readers, and the lock probe (where flock exists; Git Bash has none).
+#     the /health field readers, the asset, Caddy-mode, time-window and secret-value helpers, and the lock probe
+#     (where flock exists; Git Bash has none);
+#  6. the two Caddy access modes rendered by install-caddy.sh --render, and the HSTS value kept in step;
+#  7. flood-client.mjs never staged for the server, and syntax-checked with node when it is installed.
 # CRs are counted with tr, never grep: Git Bash's grep cannot be trusted with a CR pattern. Both detectors are
 # first proven on planted files (a CRLF file, a bcrypt-shaped string), so a pass is not a broken detector.
 # Exit 1 on any failure.
@@ -81,6 +84,52 @@ for f in deploy/Caddyfile deploy/install-caddy.sh; do
     if has_bcrypt "$f"; then bad "$f contains a bcrypt string"; else ok "$f holds no bcrypt string"; fi
 done
 
+# 6. The two Caddy access modes (P16-13): both rendered by install-caddy.sh --render from the repo copy, which
+#    must keep exactly one `import private` and one placeholder. caddy validate runs in the live check (it needs
+#    the caddy binary); here the renders are checked as text.
+n=$(grep -cE '^[[:space:]]*import[[:space:]]+(private|public)[[:space:]]*$' deploy/Caddyfile || true)
+[ "$n" -eq 1 ] && grep -qE '^[[:space:]]*import[[:space:]]+private[[:space:]]*$' deploy/Caddyfile \
+    && ok "deploy/Caddyfile has one access import line, and it is 'import private'" \
+    || bad "deploy/Caddyfile must have exactly one access import line, 'import private'"
+n=$(grep -c 'REPLACE_WITH_HASH' deploy/Caddyfile || true)
+[ "$n" -eq 1 ] && ok "deploy/Caddyfile holds REPLACE_WITH_HASH exactly once" || bad "deploy/Caddyfile holds REPLACE_WITH_HASH $n times (want 1)"
+planted='$2a$14$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0'
+if printf '%s\n' "$planted" | bash deploy/install-caddy.sh --render private --source deploy/Caddyfile --out "$tmp/private.caddy" > /dev/null \
+    && bash deploy/install-caddy.sh --render public --source deploy/Caddyfile --out "$tmp/public.caddy" < /dev/null > /dev/null; then
+    grep -qE '^[[:space:]]*import[[:space:]]+private[[:space:]]*$' "$tmp/private.caddy" && has_bcrypt "$tmp/private.caddy" \
+        && ! grep -q REPLACE_WITH_HASH "$tmp/private.caddy" && ! grep -qE '^[[:space:]]*import[[:space:]]+public' "$tmp/private.caddy" \
+        && ok "private render: imports private, holds the planted hash, no placeholder, no public import" \
+        || bad "private render is wrong"
+    grep -qE '^[[:space:]]*import[[:space:]]+public[[:space:]]*$' "$tmp/public.caddy" && ! has_bcrypt "$tmp/public.caddy" \
+        && ! grep -qE '^[[:space:]]*import[[:space:]]+private' "$tmp/public.caddy" \
+        && ok "public render: imports public, no import of private, no hash" || bad "public render is wrong"
+    [ "$(diff "$tmp/public.caddy" deploy/Caddyfile | grep -c '^[<>]')" -eq 2 ] \
+        && ok "public render differs from the repo copy in the import line only" || bad "public render changes more than the import line"
+    [ "$(crs "$tmp/private.caddy")" -eq 0 ] && [ "$(crs "$tmp/public.caddy")" -eq 0 ] && ok "renders hold no CR" || bad "a render holds a CR"
+else
+    bad "install-caddy.sh --render failed"
+fi
+printf '%s\n' 'not-a-hash' | bash deploy/install-caddy.sh --render private --source deploy/Caddyfile --out "$tmp/bad.caddy" > /dev/null 2>&1 \
+    && bad "--render private accepted a value that is not a bcrypt hash" || ok "--render private refuses a value that is not a bcrypt hash"
+printf 'x {\n\timport private\n}\n' > "$tmp/foreign.caddy"
+bash deploy/install-caddy.sh --render public --source "$tmp/foreign.caddy" --out "$tmp/bad.caddy" > /dev/null 2>&1 \
+    && bad "--render accepted a source without the snippets and placeholder" || ok "--render refuses a source that is not the repo layout"
+hsts_cf=$(sed -n -E 's/^[[:space:]]*header Strict-Transport-Security "([^"]*)"$/\1/p' deploy/Caddyfile)
+hsts_srv=$(sed -n -E 's/^HSTS_EXPECTED="([^"]*)"$/\1/p' deploy/credo-server.sh)
+hsts_inst=$(sed -n -E 's/^EXPECT_HSTS="([^"]*)"$/\1/p' deploy/install-caddy.sh)
+[ -n "$hsts_cf" ] && [ "$hsts_cf" = "$hsts_srv" ] && [ "$hsts_cf" = "$hsts_inst" ] \
+    && ok "HSTS value '$hsts_cf' is the same in the Caddyfile, credo-server.sh and install-caddy.sh" \
+    || bad "HSTS values differ: Caddyfile '$hsts_cf', credo-server.sh '$hsts_srv', install-caddy.sh '$hsts_inst'"
+
+# 7. The flood client runs on the PC only: deploy.sh stages named files, and none of them is flood-client.mjs.
+if grep -nE 'STAGE|scp' deploy/deploy.sh | grep -q 'flood-client'; then bad "deploy.sh stages or copies flood-client.mjs"
+else ok "flood-client.mjs is never staged or copied to the server"; fi
+if command -v node > /dev/null 2>&1; then
+    node --check deploy/flood-client.mjs 2> "$tmp/err" && ok "node --check deploy/flood-client.mjs" || bad "node --check flood-client.mjs: $(cat "$tmp/err")"
+else
+    echo "SKIP  node is not installed; flood-client.mjs not syntax-checked"
+fi
+
 # 5. The pure helpers of credo-lib.sh (Session G): the log-line filters on planted lines in the formats pinned by
 #    ResendLogTest, CatchUpLogTest, ResendService and SessionController, with a logger prefix, and the
 #    previous-tag and IMAGE_TAG messages on planted histories.
@@ -133,6 +182,38 @@ ${p}Session for business date 20261126 is open (recovered); trading resumes"
   eq "outbound field: startPosition, not the inbound one" "$(credo_outbound_field "$hj" startPosition)" 1048576
   eq "outbound field: recordedPosition" "$(credo_outbound_field "$hj" recordedPosition)" 5242880
   eq "json num: businessDate" "$(credo_json_num "$hj" businessDate)" 20261125
+
+  # P16-13 helpers.
+  h2='{"running":true,"session":"OPEN","businessDate":20261125,"reporter":{"state":"BACKING_OFF","inboundSeq":7,"outboundSeq":9,"outboundLag":12},"clearing":{"state":"IDLE","lastClearedDate":20261124,"pendingDate":null,"heldBy":null},"access":{"connections":{"public":1,"exempt":5,"clients":1,"idleClients":0},"framesDropped":{"channel":452,"client":0,"public":0},"closed1008":1}}'
+  eq "obj field: reporter.state (not clearing's)" "$(credo_obj_field "$h2" reporter state)" BACKING_OFF
+  eq "obj field: reporter.outboundLag" "$(credo_obj_field "$h2" reporter outboundLag)" 12
+  eq "obj field: clearing.state" "$(credo_obj_field "$h2" clearing state)" IDLE
+  eq "obj field: clearing.pendingDate null" "$(credo_obj_field "$h2" clearing pendingDate)" null
+  eq "obj field: connections.exempt" "$(credo_obj_field "$h2" connections exempt)" 5
+  eq "obj field: framesDropped.channel" "$(credo_obj_field "$h2" framesDropped channel)" 452
+  eq "obj field: an absent object gives nothing" "$(credo_obj_field "$h2" database state)" ""
+  idx='<script type="module" crossorigin src="/assets/index-DMUzTTfU.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Cks-PT2Q.css"><link rel="icon" href="/favicon.svg">'
+  eq "index assets: the js and the css, not the icon" "$(credo_index_assets <<< "$idx" | tr '\n' ' ')" "/assets/index-DMUzTTfU.js /assets/index-Cks-PT2Q.css "
+  printf '(private) {\n}\nsite {\n\timport public\n}\n' > "$tmp/mode.caddy"
+  eq "caddy mode: public" "$(credo_caddy_mode "$tmp/mode.caddy")" public
+  eq "caddy mode: the repo copy is private" "$(credo_caddy_mode deploy/Caddyfile)" private
+  printf 'site {\n\tbasic_auth {\n\t}\n}\n' > "$tmp/old.caddy"
+  eq "caddy mode: the P16-10 layout has none" "$(credo_caddy_mode "$tmp/old.caddy")" ""
+  eq "caddy mode: a missing file has none" "$(credo_caddy_mode "$tmp/none.caddy")" ""
+  w=""; for t in 0349 0350 0500 0629 0630 2300; do credo_in_quiet_window "$t" && w="$w $t:in" || w="$w $t:out"; done
+  eq "quiet window 03:50 to 06:30 UTC" "$w" " 0349:out 0350:in 0500:in 0629:in 0630:out 2300:out"
+  mkdir -p "$tmp/credo" "$tmp/scan"
+  CREDO_ENV="$tmp/credo/credo.env"
+  printf 'ALPACA_KEY_ID=PKTESTKEYID123\nALPACA_SECRET_KEY=\nOTHER=x\n' > "$CREDO_ENV"
+  printf 'nothing here\n' > "$tmp/scan/a.js"
+  credo_scan_secret_values "$tmp/scan"; eq "secret scan: absent value gives 1" "$?" 1
+  printf 'x PKTESTKEYID123 y\n' > "$tmp/scan/b.js"
+  out=$(credo_scan_secret_values "$tmp/scan"; echo "rc=$?")
+  eq "secret scan: a present value gives 0 and prints nothing" "$out" "rc=0"
+  printf 'ALPACA_KEY_ID=\nALPACA_SECRET_KEY=\n' > "$CREDO_ENV"
+  credo_scan_secret_values "$tmp/scan"; eq "secret scan: no value set gives 2" "$?" 2
+  CREDO_ENV="$tmp/credo/credo.env"
 
   mkdir -p "$tmp/locks"
   lk="$tmp/locks/l"

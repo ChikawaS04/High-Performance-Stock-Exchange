@@ -103,7 +103,8 @@ startup.
 
 The venue's local endpoint is **`ws://localhost:8080/ws`** (no TLS, so `ws://`, not
 `wss://`; §3.6, demo only). The terminal itself connects to the same-origin `/ws`, which the
-dev server proxies there (see below).
+dev server proxies there; in production it is `wss://davidsexchange.com/ws` through Caddy (see
+[Same-origin URLs](#same-origin-urls-p16-4)).
 
 ### 2. Frontend (this app)
 
@@ -123,29 +124,61 @@ npm run test:watch   # vitest in watch mode
 npm run build        # tsc (strict typecheck) && vite build
 ```
 
-The terminal talks only to same-origin paths (P16-4): `/ws`, `/api`, `/health` and `/market`.
-`useOrderBook` defaults to `/ws` and resolves it against the page with the pure
-`resolveWsUrl` (`wss:` under `https:`, `ws:` otherwise). In production Caddy serves those
-paths beside the page. Under `npm run dev` the Vite dev server proxies them (WebSocket upgrades
-included) to the venue at `EXCHANGE_BACKEND_URL`, default `http://localhost:8080`; to target a
-venue on another port, set it in the shell or in `frontend/.env.local`:
+### Same-origin URLs (P16-4)
+
+The terminal talks only to paths on its own origin, never to a hard-coded host:
+
+| Path | What it is |
+|------|------------|
+| `/ws` | the venue's WebSocket (orders, BOOK, EXEC, TRADE) |
+| `/api/...` | the venue's read-only reports |
+| `/health` | the venue's status |
+| `/market/ignition` | the reference market open for the header (below) |
+
+`useOrderBook` defaults to `/ws` and resolves it against the page with the pure `resolveWsUrl`
+(`wss:` under `https:`, `ws:` otherwise), because a relative URL in the `WebSocket` constructor is
+not safe in every browser. `VITE_WS_URL` is an optional override of the WebSocket endpoint only
+(unset in the tracked `.env`, so no backend host is baked into a build).
+
+**In production** (`https://davidsexchange.com`) Caddy serves the built `dist/` and proxies exactly
+those four paths to the venue on the same host, so the page, the socket (`wss://davidsexchange.com/ws`)
+and every fetch share one origin: no CORS, no host in the bundle. React routes such as `/charts` load
+directly, because Caddy falls back to `index.html`.
+
+**In development** `npm run dev` mirrors that: the Vite dev server proxies the four paths (WebSocket
+upgrades included) to the venue at `EXCHANGE_BACKEND_URL`, default `http://localhost:8080`. Only
+`EXCHANGE_`-prefixed variables are loaded for it, so nothing reaches the browser. To target a venue
+on another port (for example the scratch venue on 18080), set it in the shell or in
+`frontend/.env.local`:
 
 ```
 EXCHANGE_BACKEND_URL=http://localhost:18080
 ```
 
-`VITE_WS_URL` is an optional override of the WebSocket endpoint only (unset in the tracked
-`.env`, so no backend host is baked into a build). `npm run build` runs a postbuild check
-(`scripts/checkDist.mjs`) that fails the build if `dist/` contains `localhost:8080`, `ALPACA_`
-or `APCA-`.
+`npm run build` runs a postbuild check (`scripts/checkDist.mjs`) that fails the build if `dist/`
+contains `localhost:8080`, `ALPACA_` or `APCA-`. After a deploy, `deploy/deploy.sh --check` repeats the
+check on the files Caddy actually serves (no `localhost:<port>`, `127.0.0.1`, `ALPACA_` or `APCA-`, and
+neither Alpaca key value). The bundle does contain a bare `http://localhost`: it is React Router's
+URL-parsing base, not a backend host.
 
-For the header Open field (P11), the terminal fetches the venue's `GET /market/ignition`
-(P16-3). The venue holds the Alpaca market-data credentials as backend environment variables,
-`ALPACA_KEY_ID` and `ALPACA_SECRET_KEY` (locally at Windows user scope; restart the IDE and
-terminals after setting them), and caches the open. The frontend holds no credential and
-`vite.config.ts` loads none. Without them the route is a 404, the Open field shows the empty
-marker, and everything else runs unchanged. The bots still read the keys from
-`frontend/.env.local` until P16-5.
+### The ignition route (P16-3)
+
+For the header Open field (P11), the terminal fetches the venue's `GET /market/ignition`, which
+answers `{"symbol":"ASML","openPx":<price units>,"date":YYYYMMDD}` with prices in $0.0001 units like
+every other price on the wire. The venue fetches the open from the Alpaca market-data API with
+credentials held only by the backend (`ALPACA_KEY_ID` and `ALPACA_SECRET_KEY`; on the server in
+`credo.env`, locally at Windows user scope, so restart the IDE and terminals after setting them) and
+caches it per New York trading date, so it calls Alpaca about once a day however many browsers open.
+The frontend holds no credential and `vite.config.ts` loads none.
+
+- **200:** the Open field shows the value.
+- **503 `UPSTREAM_UNAVAILABLE`** with `Retry-After` while nothing is cached: `useIgnitionPrice` waits
+  the `Retry-After` (clamped to 1 to 60 s), up to 10 attempts.
+- **404:** the venue has no keys, so it behaves as if the route did not exist; the Open field shows
+  the dash and everything else runs unchanged.
+- Any other failure keeps the single 2 s retry, then the dash.
+
+The bots read the same route (P16-5), so they no longer need `frontend/.env.local`.
 
 ---
 

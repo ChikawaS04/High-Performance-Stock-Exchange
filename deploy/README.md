@@ -11,8 +11,9 @@ The venue's container stack (Phase 16). One image, `credo-exchange:<git short sh
 | `credo.env.example` | Every setting, no secret. Copy to `credo.env`, mode 600 |
 | `postgres-init/01-exchange-role.sh` | Creates the login role `exchange` and the database `exchange` |
 | `backup/` | Nightly `pg_dump` script, systemd service and timer (P16-6) |
-| `Caddyfile`, `install-caddy.sh` | Production Caddy config (hash placeholder only) and its one-time installer (P16-10) |
-| `deploy.sh` | Deploy, roll back, restart the exchange alone, check and drill from David's PC, in Git Bash (P16-11, Session G) |
+| `Caddyfile`, `install-caddy.sh` | Production Caddy config with its two access modes (hash placeholder only) and its installer (P16-10, P16-13) |
+| `deploy.sh` | Deploy, roll back, restart, crash or bounce, check, drill, probe, flood and switch the Caddy mode from David's PC, in Git Bash (P16-11, Session G, P16-13) |
+| `flood-client.mjs` | The flood run of `deploy.sh --flood` (Node 22 or later), run on the PC only, never shipped (P16-13) |
 | `credo-server.sh`, `credo-lib.sh` | The server half: copied up by `deploy.sh` with scp and run with one ssh, never pasted |
 | `test/check-files.sh` | Static checks: `bash -n`, shellcheck if installed, no CR, the Caddyfile placeholder, and `credo-lib.sh`'s helpers on planted input |
 | `bench/` | The P16-12 measurement runner (its own README) |
@@ -60,8 +61,8 @@ the script says `previous tag: none (no tag other than <tag> is recorded ok)`. T
 a failure follows the same rule.
 
 Every server mode except `--check` refuses while a benchmark run holds `~/credo-bench/.lock` (see
-`bench/README.md`); deploy, `--tag` and `--restart-exchange` also hold `/opt/credo/.deploy.lock` for their
-whole run and refuse while another holds it.
+`bench/README.md`); deploy, `--tag`, `--restart-exchange`, `--crash-exchange` and `--bounce-postgres` also hold
+`/opt/credo/.deploy.lock` for their whole run and refuse while another holds it.
 
 Every Compose call unsets, for that call, every key named in `credo.env` or `credo.env.example`, because the
 calling shell beats `--env-file` (P16-5).
@@ -122,15 +123,31 @@ deploy/deploy.sh --check
 
 One PASS, FAIL, WAIT or SKIP line per item: migrate exited 0; postgres and exchange healthy and bots running on
 the `credo.env` tag; `/health` 200 on 127.0.0.1:8080; `/market/ignition` 200 with `openPx` and `date`;
-`/health` through Caddy 401 without the password; recovery and session open in the exchange log, read only
+the rows through Caddy (below); recovery and session open in the exchange log, read only
 from the current process (`--since` its `StartedAt`), with the newest session-open line's business date equal
 to the one `/health` reports (SKIP while `/health` says the session is closed);
 `access.xffFallback` 0 with at least one public connection (WAIT when there is none: open the site in a browser
 and re-run), 5 exempt connections, the network gateway at 172.30.0.1 equal to `WS_TRUSTED_PROXIES` and the bots at
 172.30.0.10 equal to `WS_EXEMPT_ADDRESSES`; `disk.freeBytes` within 256 MiB of `df /`; `journal.retention` and
 `database.retention` present; the backup timer listed and enabled; `current` pointing at the tag. Then the last
-RESEND completions and bot catch-ups (for P16-12). `--check --password` asks for the site password on the
-server (not shown, not stored, never in a command line) and adds `/health` and `/market/ignition` through Caddy.
+RESEND completions and bot catch-ups (for P16-12).
+
+**The rows through Caddy follow the live access mode** (P16-13), read from the `import private` or `import
+public` line of `/etc/caddy/Caddyfile` (or, if it has none, from the answer: 401 is private, an HSTS header is
+public):
+
+- **private:** `/health` 401 without the password and no HSTS header. With `--password` (asked on the server
+  without echo, never stored, never in a command line; curl gets it through `--config -` from a pipe), the rows
+  below run with it. Without `--password` they are one SKIP.
+- **public:** `/health` 200 without a password and HSTS equal to `max-age=86400; includeSubDomains`; the rows
+  below run without a password. `--password` is accepted and not asked.
+- Then, in either mode: `/market/ignition` 200; `/api/reports/daily?date=<business date>` 200 (item 3); and the
+  served bundle (item 12): `index.html` and every `/assets/` js and css it references are fetched through Caddy
+  and must be byte-identical to the files of `current`; those files and every file of the release must hold no
+  `ALPACA_`, `APCA-`, `localhost:<port>` or `127.0.0.1`; and neither Alpaca key value of `credo.env` may appear
+  (the values reach `grep -F` through `-f` from a pipe, never argv or an environment variable, and only "found"
+  or "not found" is printed). The bare `http://localhost` strings are counted as INFO: React Router's
+  URL-parsing base, not a backend host.
 
 ```bash
 deploy/deploy.sh --drill
@@ -140,6 +157,82 @@ The P16-6 restore drill: the newest dump into `exchange_drill`, compared with th
 stamped before the dump began (minus 5 minutes for the Reporter's lag): `clearing_run` by `closed_ts`, and
 `executions` by `event_ts` outside purged dates, each equal and non-zero; the Flyway version equal. The scratch
 database is dropped afterwards.
+
+## Acceptance helpers and the Caddy modes (P16-13)
+
+```bash
+deploy/deploy.sh --crash-exchange --yes
+```
+
+A hard kill (acceptance item 5). `docker kill` counts as a manual stop and the restart policy would leave the
+venue down, so the script sends SIGKILL from the host to the exchange container's main process: the host PID
+from `docker inspect`, checked to be a `java` process in that container's cgroup and read again just before
+the kill, signalled with `sudo -n kill -9`. Preflight (nothing changes until it passes): `--yes`, the deploy lock,
+no bench lock, exchange and bots running, `/health` 200, at least one bot connected, restart policy
+`unless-stopped`, and `sudo -n kill -0` working without a password. Then, bounded: `RestartCount` must rise within
+60 s, `/health` 200 within `--health-timeout`, and every bot's catch-up within `--catchup-timeout`. Printed: the
+PID and kill time, the restart count before and after, the daemon's events (a `die` with exit 137 and no `kill`,
+`stop` or `restart` request, which is what credits the restart to the policy: the script starts nothing), whether
+the new process met a fresh heartbeat and retried once after 11 s (P15-5), the snapshot used and the commands
+replayed (those since the last snapshot), the recovered seq against the seq applied before the kill, the bots'
+catch-ups, and the bots container unchanged. On a failure it prints the state, the log tail and
+`deploy/deploy.sh --tag <IMAGE_TAG>`, and exits 1.
+
+```bash
+deploy/deploy.sh --bounce-postgres --yes
+```
+
+PostgreSQL stopped and started (item 7). Preflight: `--yes`, the locks, not between 03:50 and 06:30 UTC (the
+calendar roll, clearing and the 06:15 backup), postgres healthy, the session OPEN (otherwise the bots do not
+trade and matching cannot be shown), the Reporter RUNNING with lag 0 (waited for up to 30 s), and
+`docker compose --dry-run stop postgres` naming postgres alone. Then `compose stop postgres`, and for
+`--down-seconds` (default 30) a sample every 5 s: `/health` must answer 200, `appliedInboundSeq` must rise, and
+`/api/reports/daily` must answer 503 `DATABASE_UNAVAILABLE`; the Reporter and clearing show BACKING_OFF. Then
+`compose start postgres`, healthy within 120 s, the Reporter RUNNING with lag 0 within `--catchup-timeout`, and
+`/api` 200 again; clearing, both retention outcomes and the exchange's and bots' processes (unchanged) are
+printed. A trap starts postgres again if the run ends early (including an ssh drop, which sends HUP). While the
+database is down, db-retention and journal retention skip with `REPORTER_NOT_RUNNING` (or
+`DATABASE_UNAVAILABLE`) if a run falls in the window, and delete nothing.
+
+```bash
+deploy/deploy.sh --probe-ports
+```
+
+From the PC (item 9), with bash's `/dev/tcp` and a 5 s timeout: 22, 80 and 443 open; 8080, 5432 and 18080 closed
+(refused or no answer). TCP only. It never connects to the server over ssh.
+
+```bash
+deploy/deploy.sh --flood
+```
+
+A flooding client (item 11). Close the site's tab in your browser first: it shares this PC's client key. The
+password is asked without echo (Enter when the site is public) and piped to `node deploy/flood-client.mjs`.
+The flooder connects through Caddy and sends `RESEND` at 50 a second until the venue closes it with 1008. The
+steady client goes through an ssh tunnel (`-L` to `127.0.0.1:8080`) with `X-Forwarded-For: 192.0.2.77`, so it
+arrives from the trusted proxy with its own client key, and sends one `RESEND` a second. Public RESEND is off in
+production, so every admitted RESEND is answered BUSY to its sender only and never journaled. Passes when: the
+flooder is closed with 1008; its admitted count is within the bucket's bound; frames were dropped and the venue
+counted them and the close; the steady client got an answer to every frame and stayed open; the exempt (bots')
+connection count never fell (sampled every second); and `credo-server.sh flood-report` finds no bot that lost its
+connection since the flood began. One flooder can take at most its client's 10 frames a second of the public
+bucket, for about 5 s.
+
+```bash
+deploy/deploy.sh --caddy public
+```
+
+```bash
+deploy/deploy.sh --caddy private
+```
+
+Install the repo Caddyfile on the server in that access mode, with `sudo` through an `ssh -t` terminal. The file
+has two snippets, `(private)` (basic_auth) and `(public)` (`Strict-Transport-Security: max-age=86400;
+includeSubDomains`, no preload; raised to 31536000 after a week), and one `import private` line in the site block.
+`install-caddy.sh --mode` renders it (public swaps that line; private asks for a new password twice without
+echo and puts its bcrypt hash in), validates the render, backs up the live file to
+`/etc/caddy/Caddyfile.bak-<UTC stamp>`, installs it, reloads Caddy, rolls back on any failure, and checks the
+answer (401 and no HSTS, or 200 and HSTS). It never prints the password or the hash, and never edits the repo
+copy. Going private again is the other command.
 
 `deploy.sh --dry-run` runs every local step for real, writes the image to a local file and prints each ssh and
 scp line instead of running it.

@@ -146,3 +146,47 @@ credo_outbound_field() {
     grep -o '"outbound":{"recordingId":[0-9-]*,"startPosition":[0-9-]*,"recordedPosition":[0-9-]*,"bytesOnDisk":[0-9-]*' <<< "$1" \
         | grep -o "\"$2\":-\?[0-9]*" | sed 's/.*://'
 }
+
+# --- P16-13 helpers ---------------------------------------------------------------------------------------
+
+# One field of a flat object in a JSON text: $1 json, $2 the object's key (its first occurrence), $3 the field.
+# Prints a number, a string without its quotes, or "null"; empty if absent. Only flat objects (no nested braces
+# before the field), which /health's reporter, clearing, connections and framesDropped objects are.
+credo_obj_field() {
+    grep -o "\"$2\":{[^{}]*" <<< "$1" | head -n 1 | grep -oE "\"$3\":(\"[^\"]*\"|-?[0-9]+|null)" | head -n 1 \
+        | sed -E 's/^"[^"]*"://; s/^"(.*)"$/\1/'
+}
+
+# The /assets/ files (.js and .css) an index.html references, one path per line, in order, unique.
+credo_index_assets() {
+    grep -oE '(src|href)="/assets/[^"]+\.(js|css)"' | sed -E 's/^(src|href)="//; s/"$//' | awk '!seen[$0]++' || true
+}
+
+# The access mode of a Caddyfile: "private" or "public" from its one `import private|public` line, else empty
+# (the P16-10 file, with basic_auth inline, has no such line).
+credo_caddy_mode() {
+    [ -r "$1" ] || return 0
+    sed -n -E 's/^[[:space:]]*import[[:space:]]+(private|public)[[:space:]]*(#.*)?$/\1/p' "$1" | head -n 1
+}
+
+# Whether a UTC time HHMM (4 digits) falls in the window kept free for the calendar roll, clearing and the
+# 06:15 backup: 03:50 to 06:30 UTC (New York midnight is 04:00 UTC in summer and 05:00 in winter).
+credo_in_quiet_window() {
+    local t=$((10#$1))
+    [ "$t" -ge 350 ] && [ "$t" -lt 630 ]
+}
+
+# Searches every file under the directories given for the values of ALPACA_KEY_ID and ALPACA_SECRET_KEY in
+# credo.env. The values go to grep -F through -f from a pipe, never through argv or an environment variable
+# (argv is readable in ps by anyone on the box), and are never printed. Exit 0: a value was found; 1: none
+# found; 2: neither key has a value (nothing to search for).
+credo_scan_secret_values() {
+    local n
+    n=$(sed -n -E 's/^[[:space:]]*(ALPACA_KEY_ID|ALPACA_SECRET_KEY)=(.+)$/\2/p' "$CREDO_ENV" 2>/dev/null | wc -l)
+    [ "$n" -gt 0 ] || return 2
+    if sed -n -E 's/^[[:space:]]*(ALPACA_KEY_ID|ALPACA_SECRET_KEY)=(.+)$/\2/p' "$CREDO_ENV" \
+        | grep -rqaF -f /dev/stdin -- "$@" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}

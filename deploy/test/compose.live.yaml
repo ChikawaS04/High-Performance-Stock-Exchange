@@ -1,6 +1,7 @@
 # Local live check only (deploy/test/live-local.sh), layered after compose.yaml and compose.local.yaml; never
 # shipped. Adds a stub of Alpaca's snapshot route (so /market/ignition answers 200 with test keys) and a Caddy
-# with basic_auth in front of the venue on 127.0.0.1:18081 (the "through Caddy" rows of the check).
+# on 127.0.0.1:18081 running the repo Caddyfile in either access mode, rendered by live-local.sh caddy-mode (the
+# "through Caddy" rows of the check, and the flood client's flooder).
 
 services:
 
@@ -17,6 +18,9 @@ services:
     ports:
       - "127.0.0.1:18081:80"
     volumes:
-      - ./live/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The folder, not the file, so a rewritten Caddyfile is seen by `caddy reload` (live-local.sh caddy-mode).
+      - ./live/caddy:/etc/caddy:ro
+      # The scratch release tree at the same absolute path as in the helper, so the current link resolves.
+      - ../../www:/tmp/credo-live/www:ro
     networks:
       - credo

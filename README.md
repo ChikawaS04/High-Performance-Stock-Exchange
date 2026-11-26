@@ -9,8 +9,8 @@ direct-access participant.
 
 ![Java](https://img.shields.io/badge/Java-21%20LTS-orange)
 ![Build](https://img.shields.io/badge/build-Maven-blue)
-![Backend tests](https://img.shields.io/badge/backend%20tests-867%20passing-brightgreen)
-![Frontend tests](https://img.shields.io/badge/frontend%20tests-402%20passing-brightgreen)
+![Backend tests](https://img.shields.io/badge/backend%20tests-1%2C245%20passing-brightgreen)
+![Frontend tests](https://img.shields.io/badge/frontend%20tests-1%2C299%20passing-brightgreen)
 ![Journal](https://img.shields.io/badge/journal-Aeron%20Archive-lightgrey)
 ![Database](https://img.shields.io/badge/database-PostgreSQL%20%2B%20Flyway-336791)
 ![Bench](https://img.shields.io/badge/benchmarks-JMH%201.37-informational)
@@ -36,6 +36,7 @@ scope.
 - [Startup and graceful shutdown](#startup-and-graceful-shutdown)
 - [PostgreSQL](#postgresql)
 - [Configuration and running](#configuration-and-running)
+- [Deployment](#deployment)
 - [Wire protocol](#wire-protocol)
 - [/health](#health)
 - [/api](#api)
@@ -597,6 +598,214 @@ Ctrl+C, run `java` directly rather than through Maven so the signal reaches the 
 
 ---
 
+## Deployment
+
+The venue runs at **https://davidsexchange.com** on one server, `credo-exchange-01` (a KVM guest with 4 vCPU,
+16 GB and a 100 GB disk, Linux 6.8). Operational detail lives in [`deploy/README.md`](deploy/README.md); this
+section is the overview.
+
+### The stack
+
+- **Caddy**, native on the host (apt, systemd): TLS, HTTP/3, the `www` redirect, the static terminal from
+  `/var/www/directroute/current`, and exact-path reverse proxying of `/ws`, `/health`, `/api`, `/api/*` and
+  `/market/*` to the venue on `127.0.0.1:8080`. It sets no `trusted_proxies`, so it replaces any
+  `X-Forwarded-For` a visitor sends.
+- **Docker Compose**, project `credo` in `/opt/credo`, four services from one settings file (`credo.env`, mode
+  600; every key is in `deploy/credo.env.example`):
+  - `postgres` (`postgres:17`, named volume, nightly dumps);
+  - `migrate`, a one-shot `db.MigrateCommand` that must exit 0 before the venue starts (the venue only validates);
+  - `exchange`, the image `credo-exchange:<first 12 hex of the commit>`, with its embedded Aeron media driver and
+    Archive, the journal and snapshots on `/srv/credo/data`, publishing only `127.0.0.1:8080`;
+  - `bots`, the same image running the five strategies, at the fixed address `172.30.0.10`.
+- Exactly one exchange instance ever exists: no replicas, and a deploy stops the old venue (graceful shutdown,
+  snapshot) before the new one recovers. The firewall allows 22, 80 and 443 only.
+
+| URL | What answers |
+|-----|--------------|
+| `https://davidsexchange.com/` | the terminal (`/trading`, `/charts` and every React route fall back to `index.html`) |
+| `wss://davidsexchange.com/ws` | the venue's WebSocket |
+| `/health`, `/api/...`, `/market/ignition` | the venue's HTTP routes, same origin |
+| `https://www.davidsexchange.com/` | a permanent redirect to the apex |
+
+### Operating it
+
+Every command runs from Git Bash on the PC (not PowerShell, which corrupts binary data piped to ssh), against
+`david@104.204.69.188` with key-only ssh.
+
+```bash
+deploy/deploy.sh
+```
+
+Deploys HEAD: refuses a dirty tree or an unpushed HEAD, builds the frontend and the image from `git archive
+HEAD`, ships the image over ssh, stops the bots then the exchange, runs `migrate`, waits for `/health` 200, then
+switches the static release. It prints the previous tag and its rollback line.
+
+```bash
+deploy/deploy.sh --tag <previous tag>
+```
+
+Rollback (or forward) to a tag still on the server, with no build. A tag below the schema floor (a newer
+migration or snapshot version already ran) is refused unless `--force`.
+
+```bash
+deploy/deploy.sh --check --password
+```
+
+One PASS, FAIL, WAIT or SKIP line per item: services, `/health`, ignition, recovery and session lines, access
+counters, network addresses, disk, retention, backups, the static link, and the rows through Caddy (`/health`,
+`/market/ignition`, an `/api` report, and the served bundle checked byte for byte and for forbidden strings).
+The Caddy rows follow the live access mode: with the password while the site is private, without it once public.
+
+```bash
+deploy/deploy.sh --drill
+```
+
+Restores the newest nightly dump into a scratch database and compares its counts with the live one.
+
+```bash
+deploy/deploy.sh --restart-exchange
+```
+
+Restarts the exchange alone under running bots and reports the shutdown snapshot, the recovery and every bot's
+catch-up timing.
+
+```bash
+deploy/deploy.sh --crash-exchange --yes
+```
+
+A hard kill: SIGKILL from the host to the exchange's main process (`docker kill` would count as a manual stop).
+The restart policy brings the same container back; the script proves the restart came from the policy, and
+reports the replay, the sequence continuing and the bots' catch-up.
+
+```bash
+deploy/deploy.sh --bounce-postgres --yes
+```
+
+Stops PostgreSQL alone, shows the venue matching and `/api` answering 503 while it is down, starts it again and
+waits until the Reporter is RUNNING with lag 0.
+
+```bash
+deploy/deploy.sh --probe-ports
+```
+
+From the PC: 22, 80 and 443 open; 8080, 5432 and 18080 closed.
+
+```bash
+deploy/deploy.sh --flood
+```
+
+Floods one WebSocket channel through Caddy until the venue closes it with 1008, while a second client with its
+own client key keeps getting answers, and checks that no bot lost its connection.
+
+```bash
+deploy/deploy.sh --caddy public
+```
+
+Installs the repo Caddyfile in public mode (no password, HSTS); `--caddy private` puts the password back.
+
+```bash
+deploy/bench/bench.sh start --stop-venue
+```
+
+The server measurement run (P16-12): stops the venue, runs the benchmark matrix in a container, and starts the
+venue again; `status` and `fetch` follow it.
+
+### Retention and the disk guard
+
+- **Journal:** the current day plus 2 closed business days (`JOURNAL_RETENTION_DAYS`). Old Archive segments are
+  purged, never past the oldest snapshot recovery may use or the Reporter's checkpoint; a Reporter that is not
+  RUNNING holds retention back.
+- **Database:** orders, executions and audit rows are kept for the newest 14 COMPLETE business dates
+  (`DB_RETENTION_DAYS`), deleted in small batches after each clearing run and once a day. Before a date's rows go,
+  its exact per-symbol figures are written to `daily_summary`, which is kept forever with candles, clearing
+  results, balances and positions. `/api/trades` and `/api/reports/statement` answer `410 {"error":"PURGED"}` for
+  a purged date; the daily and volume reports keep answering from `daily_summary`.
+- **Disk guard:** a WARN below 15 GiB free; below 5 GiB the venue refuses NEW orders (cancels still pass) until
+  6 GiB are free again; the Archive's floor is 1 GiB, at or below which the venue will not start. A disk that
+  fills anyway is a fail-stop: the recording fails, the engine halts with every applied command journaled, and
+  each restart refuses before writing until space is freed.
+
+### Backups
+
+`pg_dump -Fc` runs nightly at 06:15 UTC (after the New York roll and clearing in winter and summer time) into
+`/srv/credo/backups`, and 14 dumps are kept. The restore drill (`--drill`) has been run against the server's own
+dumps. A restored dump can resume the Reporter only while the journal still holds its checkpoint, so
+`JOURNAL_RETENTION_DAYS` must stay at 1 or more (P16-7 finding 5).
+
+### Public access limits
+
+- **Three token buckets** on every inbound WebSocket frame of a public connection, applied before the frame is
+  parsed: its channel (10 a second, burst 30), its client address (10 a second, burst 30), and one venue-wide
+  public bucket (20 a second, burst 100). A frame is admitted only if all three have a token, so a dropped frame
+  never reaches the gateway, the journal or the book.
+- **The 1008 close:** a channel that stays over its own or its client's limit for 5 s is closed with status 1008.
+  The public bucket drops but never closes.
+- **Connection caps:** 200 public connections venue-wide and 10 per client address, refused at the upgrade with
+  503. The client address is Caddy's `X-Forwarded-For`, honoured only from the Compose gateway.
+- The bots' address is exempt from every limit. Public RESEND is off in production (the terminal does not use it).
+
+### Limitations of the public site
+
+- **The public bucket is shared.** A few clients each just under their own limit can take the venue-wide bucket
+  from everyone else (P16-9 finding 3).
+- **A dropped frame is silent.** A NEW that is dropped gets no answer and stays PENDING in the blotter; a dropped
+  reprice cancel ends through the terminal's reprice timeout (P16-9 finding 4).
+- **HTTP is not rate limited.** `/health`, `/api` and `/market` pass no bucket; the `/api` executor's BUSY answer
+  bounds the database work and `/market/ignition` is cached (P16-9 finding 5).
+- **Every visitor is participant 1 and sees every execution.** EXEC is broadcast, so any visitor sees every fill
+  and could cancel another visitor's order by guessing its ClOrdID. Per-participant routing in the external
+  participants phase closes this (D15).
+
+### Thread layout in production
+
+Production runs layout **C2**: the engine busy-spins (`ENGINE_IDLE_STRATEGY=busy-spin` in `credo.env`), the Archive
+and media driver run SHARED with a backoff idle strategy, the rings block, and Netty, the Reporter, clearing and
+PostgreSQL wait or block. At the venue's real rate it is measurably better than the code default (C1) at p50 and
+p99, shows no measurable difference at p99.9 and is worse at p99.99, and it keeps to one spinning thread on four
+vCPUs. The code default stays backoff, for development machines. C3 (journal yielding as well) is the fastest at
+p50 and p99 closed but worse at p99.9 and under load, and it adds a second always-hot thread, so it waits for
+Synteq to confirm that the four vCPUs are dedicated physical cores (D17).
+
+### Measured on the server
+
+Measured in P16-12 on `credo-exchange-01`: Linux 6.8, Intel Xeon Platinum 8260 KVM guest, 4 vCPU (one thread per
+core as exposed), 16 GB, no swap, Docker 29.10, JDK 21.0.12 in a `maven:3.9-eclipse-temurin-21` container with
+`--memory 6g`, the Aeron directory on `/dev/shm` and the Archive on the root disk, with the live venue stopped.
+Latency cells ran 3 interleaved replicates; a triple is min/median/max of the replicates. The open-loop sender
+fell up to 5 to 11 ms behind schedule at times, so open-loop tails are upper bounds. These figures are not
+comparable with the desktop figures under [Performance](#performance), and none is combined with them.
+
+| Measurement | Result |
+|-------------|--------|
+| Matching engine alone | 20,248,411 orders/s, error 328,461 (JMH, 3 forks x 10) |
+| Pipeline, unjournaled reference (engine busy-spin) | 629,658 orders/s, error 21,812 |
+| Pipeline, journaled, engine busy-spin, rings blocking | 349,041 orders/s, error 18k |
+| C1 code defaults (engine backoff, journal backoff, SHARED, rings blocking), closed loop | p50 104/106/106 us, p99 168 us, p99.9 255/279/295 us, p99.99 0.97/1.12/1.15 ms |
+| C2 production (engine busy-spin, the rest as C1), closed loop | p50 71 us, p99 114/117/119 us, p99.9 287/393/652 us, p99.99 1.99/2.27/2.74 ms |
+| C3 (engine busy-spin, journal yielding), closed loop | p50 24/27/30 us, p99 45/50/51 us, p99.9 683/803/931 us |
+| Open loop at 20,000 orders/s | C1 p50 89 us, p99 0.36 to 1.04 ms; C2 p50 44 us, p99 0.94 to 1.23 ms; p99.9 between 2.6 and 4.9 ms for all six layouts measured |
+| Full-window RESEND read, warm cache | about 93 MiB/s (100 and 400 MiB recordings, 5 reads each, spread under 2%) |
+| `--restart-exchange` on the live venue, 327 MiB outbound window | `/health` 200 after 5 s, recovery 949 ms with 0 replayed; each full read 3.50 to 3.65 s, served one at a time; all 5 bots caught up 18 s after `/health` 200 |
+| Database purge, 4 COMPLETE dates (9,313,055 rows) | a full day in 41 to 62 s |
+
+What the data supports, and no more:
+
+- C2 is measurably better than C1 at p50 and p99 (non-overlapping replicates), shows no measurable difference at
+  p99.9, and is worse at p99.99 (about 2.3 against 1.1 ms).
+- C3 is the fastest at p50 and p99 closed, but worse at p99.9 closed and at p99 under load.
+- Journal throughput is not raised by engine spinning (the ranges overlap).
+- Spinning rings collapse under load on 4 vCPU; a DEDICATED Archive shows no consistent gain; CPU sets are mixed.
+  None is adopted.
+- The latency blip of a journal purge is real at p99.9 and above under a purge every second; in production a
+  16 MiB segment lasts hours, so purges are a few a day.
+
+**No seek fix yet.** A full-window catch-up read takes about 3.6 s and the reads are served one at a time, so five
+bots are back 18 s after an exchange restart under running bots, with the venue matching throughout, and a deploy
+never triggers it (it restarts the bots fresh). Starting the read at a snapshot's outbound position is carried
+forward.
+
+---
+
 ## Wire protocol
 
 One WebSocket at `ws://host:port/ws` (exact path; `/ws/` or a query string gets 404). All prices
@@ -830,7 +1039,9 @@ within error. The engine's 224 B per NEW is the `Order`, boxed map keys and a ne
 price level; an unknown cancel allocates 24 B (a boxed id).
 
 **Journaled latency:** Windows, Archive backoff, about 1 to 2 ms p50; Archive busy-spin, about 37 µs
-p50; Linux not yet measured.
+p50. Linux figures from the production server are under
+[Deployment: Measured on the server](#measured-on-the-server), measured separately and never
+combined with these.
 
 Why the default journaled figure is high, and why it is a platform finding rather than a journal
 cost, is under [Known limitations](#known-limitations).
@@ -984,10 +1195,10 @@ Stated plainly, because each is a thing a reviewer would find anyway.
   backoff to busy-spin cut p50 27x, to within 2.8x of unjournaled. The Archive's backoff parks when
   idle, and on this Windows machine a "1 µs" park lasts about 8 ms (median), so a quiet venue, the
   normal case here, pays it on every command. This is a platform and configuration issue, not a cost
-  of journaling. Busy-spinning costs a full core per thread, so the fix (an Archive and driver
-  idle-strategy setting, with defaults chosen by measurement) is deferred to Phase 16 on the target
-  Linux platform, and no journaled latency figure is quoted beyond the one in
-  [Performance](#performance).
+  of journaling. Busy-spinning costs a full core per thread, so Phase 16 added the Archive, driver and
+  ring wait settings and measured them on the Linux server; the production choice and its figures are
+  under [Deployment](#thread-layout-in-production). The Windows figures in
+  [Performance](#performance) stand as measured there.
 - **`BlockingWaitStrategy` caps the pipeline.** All three rings use it, so the full pipeline runs far
   below the engine's own rate. The wait strategy is a latency-against-CPU choice made per platform.
 - **EXEC is broadcast.** Execution reports go to every connected client, not only the order's owner,
@@ -1023,12 +1234,12 @@ Stated plainly, because each is a thing a reviewer would find anyway.
 
 ## Roadmap
 
-Phase 16, containerization and deployment: a container image (with the Agrona flag), a Render
-service with a persistent disk at the data directory, Render Postgres with `db.MigrateCommand` as the
-pre-deploy step, the terminal as a static site, and a backend proxy for the Alpaca reference data.
-Before choosing defaults there: an Archive and media driver idle-strategy setting, then the P15-13
-benchmarks re-run on the Render instance (idle strategies, Archive threading, ring wait strategy),
-and a `/health` that answers 503 during recovery instead of a closed port.
+Phase 16, containerization and deployment, is built: one container image, a Compose stack with
+PostgreSQL, a migration job and the bots on its own server, Caddy and the static terminal, journal
+and database retention, a disk guard, public access limits, nightly backups, a deploy and rollback
+flow, and the thread layout chosen by measurement on the server (see [Deployment](#deployment)).
+Carried from it: per-participant routing (the broadcast limitation), HTTP rate limits, off-box
+backups, a faster bots' catch-up read, and C3 once dedicated cores are confirmed.
 
 Later: per-participant sessions and execution routing, a participant id on the order command,
 pre-trade risk and a wallet, day and GTD time in force, and terminal adoption of RESEND and SESSION.

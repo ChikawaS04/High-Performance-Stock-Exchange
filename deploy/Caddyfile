@@ -1,6 +1,22 @@
-# /etc/caddy/Caddyfile: production (Phase 16, P16-10, D11).
-# On the server the placeholder below is replaced by the bcrypt hash; the repo copy never holds it.
+# /etc/caddy/Caddyfile: production (Phase 16, P16-10, D11; access modes P16-13).
+# Installed only by install-caddy.sh, which renders it in one of two access modes from the one `import` line in
+# the site block: `import private` (the bring-up password, no HSTS) or `import public` (no password, HSTS).
+# The repo copy is never edited by the installer: it keeps `import private` and the hash placeholder below,
+# which the private render replaces with a bcrypt hash and the public render leaves in the unused snippet.
 # No trusted_proxies anywhere, so Caddy replaces any X-Forwarded-For a visitor sends (P16-9).
+
+# Private: the whole site, /ws included, behind basic_auth (D11, D15).
+(private) {
+	basic_auth {
+		credo REPLACE_WITH_HASH
+	}
+}
+
+# Public: HSTS for a day while the site settles, raised to a year (31536000) after a week; no preload.
+# includeSubDomains is safe with the www redirect below, which Caddy serves over HTTPS with its own certificate.
+(public) {
+	header Strict-Transport-Security "max-age=86400; includeSubDomains"
+}
 
 davidsexchange.com {
 	encode zstd gzip
@@ -12,10 +28,8 @@ davidsexchange.com {
 		-Server
 	}
 
-	# Bring-up password (D11, D15); removed at P16-13 once the caps are accepted.
-	basic_auth {
-		credo REPLACE_WITH_HASH
-	}
+	# The access mode (install-caddy.sh switches this one line).
+	import private
 
 	# The venue: exact paths only (the router passes only the exact /ws).
 	@backend path /ws /health /api /api/* /market/*
