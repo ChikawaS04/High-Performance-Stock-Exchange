@@ -13,7 +13,8 @@
 #     the /health field readers, the asset, Caddy-mode, time-window and secret-value helpers, and the lock probe
 #     (where flock exists; Git Bash has none);
 #  6. the two Caddy access modes rendered by install-caddy.sh --render, and the HSTS value kept in step;
-#  7. flood-client.mjs never staged for the server, and syntax-checked with node when it is installed.
+#  7. flood-client.mjs never staged for the server, and syntax-checked with node when it is installed;
+#  8. every deploy.sh mode without its optional flags, under --dry-run: exit 0 and some output (set -e traps).
 # CRs are counted with tr, never grep: Git Bash's grep cannot be trusted with a CR pattern. Both detectors are
 # first proven on planted files (a CRLF file, a bcrypt-shaped string), so a pass is not a broken detector.
 # Exit 1 on any failure.
@@ -128,6 +129,42 @@ if command -v node > /dev/null 2>&1; then
     node --check deploy/flood-client.mjs 2> "$tmp/err" && ok "node --check deploy/flood-client.mjs" || bad "node --check flood-client.mjs: $(cat "$tmp/err")"
 else
     echo "SKIP  node is not installed; flood-client.mjs not syntax-checked"
+fi
+
+# 8. Every deploy.sh mode without its optional flags, under --dry-run (P16-13 follow-up): each must exit 0 and
+#    print something. Under set -e an assignment like cmd="...$( [ "$password" -eq 1 ] && echo x)" returns 1 when
+#    the flag is absent and ends the script silently, which is how `deploy.sh --check` failed at acceptance step 3.
+#    A dry run touches nothing remote (every ssh and scp line is printed instead), and the work folder it keeps
+#    is removed here. CHECK_DEPLOY_SH points the row at another copy (used to prove it fails on the old line).
+deploy_sh="${CHECK_DEPLOY_SH:-deploy/deploy.sh}"
+dry_fail=""
+n=0
+while IFS= read -r m; do
+    n=$((n + 1))
+    # shellcheck disable=SC2086
+    out=$(bash "$deploy_sh" $m --dry-run < /dev/null 2>&1); rc=$?
+    for w in $(sed -n 's/^deploy.sh: dry run: work folder kept at //p' <<< "$out"); do
+        case "$w" in /tmp/*|"${TMPDIR:-/tmp}"/*|"${TEMP:-/tmp}"/*) rm -rf "$w" ;; esac
+    done
+    if [ "$rc" -ne 0 ] || [ -z "$(grep -v 'work folder kept at' <<< "$out")" ]; then
+        dry_fail="$dry_fail [$m: exit $rc, $(grep -vc 'work folder kept at' <<< "$out") line(s)]"
+    fi
+done <<'EOF'
+--check
+--restart-exchange
+--crash-exchange --yes
+--bounce-postgres --yes
+--probe-ports
+--drill
+--flood
+--caddy public
+--caddy private
+--tag 000000000000
+EOF
+if [ -z "$dry_fail" ]; then
+    ok "$deploy_sh --dry-run: all $n modes without their optional flags exit 0 and print their lines"
+else
+    bad "$deploy_sh --dry-run: modes that failed or printed nothing:$dry_fail"
 fi
 
 # 5. The pure helpers of credo-lib.sh (Session G): the log-line filters on planted lines in the formats pinned by

@@ -82,7 +82,7 @@ check_env_keys() {
 }
 
 image_label() {
-    docker image inspect -f "{{ index .Config.Labels \"$2\" }}" "credo-exchange:$1" 2>/dev/null | sed 's/<no value>//'
+    docker image inspect -f "{{ index .Config.Labels \"$2\" }}" "credo-exchange:$1" 2>/dev/null | sed 's/<no value>//' || true
 }
 
 # The compatibility floor: the highest credo.flyway and credo.snapshot of every attempt that reached compose up.
@@ -595,7 +595,7 @@ cmd_crash_exchange() {
     pid=$(exchange_pid "$ex") || die "cannot identify the exchange's main process (host PID, java, in its cgroup)"
     sudo -n kill -0 "$pid" 2>/dev/null \
         || die "sudo -n kill cannot signal PID $pid without a password; david needs a NOPASSWD sudoers entry for /usr/bin/kill"
-    session=$(grep -o '"session":"[A-Z]*"' <<< "$health" | head -n 1 | sed 's/.*:"\([A-Z]*\)"/\1/')
+    session=$(grep -o '"session":"[A-Z]*"' <<< "$health" | head -n 1 | sed 's/.*:"\([A-Z]*\)"/\1/' || true)
     say "crash-exchange of $image: exchange ${ex:0:12} (host PID $pid, restart count $restarts), bots ${bots:0:12} left running ($exempt connected), session ${session:-?}"
 
     # The kill. The PID and the container's start time are read again just before it, so a process that changed
@@ -686,7 +686,7 @@ api_probe() {   # prints "<code> <error or ok>" for /api/reports/daily of a date
     local out code err
     out=$(curl -s -m 15 -w '\n%{http_code}' "${CREDO_HEALTH_URL%/health}/api/reports/daily?date=$1" || true)
     code=$(tail -n 1 <<< "$out")
-    err=$(grep -o '"error":"[A-Z_]*"' <<< "$out" | head -n 1 | sed 's/.*:"\(.*\)"/\1/')
+    err=$(grep -o '"error":"[A-Z_]*"' <<< "$out" | head -n 1 | sed 's/.*:"\(.*\)"/\1/' || true)
     echo "${code:-000} ${err:-ok}"
 }
 
@@ -721,7 +721,7 @@ cmd_bounce_postgres() {
     code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$CREDO_HEALTH_URL" || true)
     [ "$code" = 200 ] || die "/health answers ${code:-nothing}, not 200"
     health=$(curl -s -m 5 "$CREDO_HEALTH_URL" || true)
-    session=$(grep -o '"session":"[A-Z]*"' <<< "$health" | head -n 1 | sed 's/.*:"\([A-Z]*\)"/\1/')
+    session=$(grep -o '"session":"[A-Z]*"' <<< "$health" | head -n 1 | sed 's/.*:"\([A-Z]*\)"/\1/' || true)
     [ "$session" = OPEN ] || die "the session is ${session:-unknown}, not OPEN, so the bots do not trade and matching cannot be shown"
     bdate=$(credo_json_num "$health" businessDate)
     # The Reporter commits in batches (every 200 ms under load), so lag 0 is waited for, up to 30 s.
@@ -912,7 +912,7 @@ bundle_rows() {
     else
         row FAIL "bundle: forbidden string in: ${hits% }"
     fi
-    bare=$(cat "$tmpd/index.html" "$tmpd"/asset* | grep -aoE 'https?://localhost([^:0-9]|$)' | wc -l | tr -d ' ')
+    bare=$(cat "$tmpd/index.html" "$tmpd"/asset* | grep -aoE 'https?://localhost([^:0-9]|$)' | wc -l | tr -d ' ' || true)
     echo "INFO  bundle: $bare bare http://localhost string(s) in the served files: React Router's URL-parsing base, not a backend host"
     credo_scan_secret_values "$tmpd" "$dir/" || rc=$?
     case "$rc" in
@@ -1039,9 +1039,9 @@ cmd_check() {
     # (recovered)"), compared with the business date /health reports. The date is read from that line
     # only: other lines name business dates too (clearing's "Cleared business date N" follows a roll).
     open_line=$(credo_session_open_lines <<< "$logs" | tail -n 1)
-    open_date=$(grep -oE '[0-9]{8}' <<< "$open_line" | head -n 1)
+    open_date=$(grep -oE '[0-9]{8}' <<< "$open_line" | head -n 1 || true)
     h_date=$(json_num "$health" businessDate)
-    h_session=$(grep -o '"session":"[A-Z]*"' <<< "$health" | head -n 1 | sed 's/.*:"\([A-Z]*\)"/\1/')
+    h_session=$(grep -o '"session":"[A-Z]*"' <<< "$health" | head -n 1 | sed 's/.*:"\([A-Z]*\)"/\1/' || true)
     if [ "$h_session" != OPEN ]; then
         row SKIP "exchange log: session ${h_session:-unknown} on /health (business date ${h_date:-none}); no open line expected"
     elif [ -z "$open_date" ]; then

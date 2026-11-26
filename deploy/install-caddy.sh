@@ -110,7 +110,8 @@ if [ "$mode" = private ]; then
     read -r -s -p "Again:    " PW2; echo
     [ -n "$PW1" ] || fail "empty password"
     [ "$PW1" = "$PW2" ] || fail "the two passwords differ; run the script again"
-    HASH=$(printf '%s\n' "$PW1" | caddy hash-password 2>/dev/null | tail -n 1)
+    # || true: a failed hash must reach render_file's bcrypt check ("nothing was changed"), not end the script.
+    HASH=$(printf '%s\n' "$PW1" | caddy hash-password 2>/dev/null | tail -n 1 || true)
     unset PW1 PW2
     echo "OK  hash made"
     render_file "$src" private "$TMP" "$HASH"
@@ -130,14 +131,15 @@ sleep 2
 systemctl is-active --quiet caddy || rollback "caddy is not active after reload"
 echo "OK  caddy reloaded in $mode mode"
 
-# Checks.
+# Checks. Each reader ends in || true: a failed curl or openssl must show as a value below (and fail the final
+# verdict), not end the script silently with the new file already live.
 echo
-code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+code() { curl -s -o /dev/null -w '%{http_code}' "$@" || true; }
 SITE=$(code https://davidsexchange.com/)
-HSTS=$(curl -s -o /dev/null -D - https://davidsexchange.com/ | tr -d '\r' | sed -n -E 's/^[Ss]trict-[Tt]ransport-[Ss]ecurity:[[:space:]]*//p' | head -n 1)
+HSTS=$(curl -s -o /dev/null -D - https://davidsexchange.com/ | tr -d '\r' | sed -n -E 's/^[Ss]trict-[Tt]ransport-[Ss]ecurity:[[:space:]]*//p' | head -n 1 || true)
 WWW=$(code https://www.davidsexchange.com/)
-WWWLOC=$(curl -sI https://www.davidsexchange.com/ | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}')
-CERT=$(echo | openssl s_client -connect davidsexchange.com:443 -servername davidsexchange.com 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null)
+WWWLOC=$(curl -sI https://www.davidsexchange.com/ | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}' || true)
+CERT=$(echo | openssl s_client -connect davidsexchange.com:443 -servername davidsexchange.com 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null || true)
 UDP=$(ss -ulnp | grep -c ':443 .*caddy' || true)
 ERRS=$(journalctl -u caddy --since "-2 min" --no-pager | grep -ci '"level":"error"' || true)
 if [ "$mode" = private ]; then

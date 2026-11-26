@@ -140,7 +140,10 @@ run_on_server() {   # extra ssh options..., then -- then the remote command word
 
 case "$mode" in
 check)
-    cmd="bash $REMOTE_STAGE/credo-server.sh check$( [ "$password" -eq 1 ] && echo ' --password'); rc=\$?; rm -rf $REMOTE_STAGE; exit \$rc"
+    # The suffix is set first: a `$( [ ... ] && echo ...)` inside the assignment would make the assignment
+    # return 1 without --password, and set -e would end the script silently (P16-13 acceptance step 3).
+    if [ "$password" -eq 1 ]; then check_args=" --password"; else check_args=""; fi
+    cmd="bash $REMOTE_STAGE/credo-server.sh check$check_args; rc=\$?; rm -rf $REMOTE_STAGE; exit \$rc"
     if [ "$password" -eq 1 ]; then run_on_server -t "$TARGET" "$cmd"; else run_on_server "$TARGET" "$cmd"; fi
     exit 0 ;;
 drill)
@@ -244,8 +247,8 @@ no_cr "$SRC/app/backend/docker"
 say "frontend: npm ci and npm run build (with the dist check)"
 ( cd "$SRC/app/frontend" && npm ci --no-audit --no-fund && npm run build )
 [ -f "$SRC/app/frontend/dist/index.html" ] || die "the frontend build produced no dist/index.html"
-flyway=$(ls "$SRC/app/backend/src/main/resources/db/migration" | sed -n -E 's/^V([0-9]+)__.*/\1/p' | sort -n | tail -n 1)
-snapshot=$(grep -o -E 'version="[0-9]+"' "$SRC/app/backend/src/main/resources/sbe/snapshot-schema.xml" | head -n 1 | tr -dc '0-9')
+flyway=$(ls "$SRC/app/backend/src/main/resources/db/migration" | sed -n -E 's/^V([0-9]+)__.*/\1/p' | sort -n | tail -n 1 || true)
+snapshot=$(grep -o -E 'version="[0-9]+"' "$SRC/app/backend/src/main/resources/sbe/snapshot-schema.xml" | head -n 1 | tr -dc '0-9' || true)
 [ -n "$flyway" ] && [ -n "$snapshot" ] || die "cannot read the migration or snapshot schema version"
 say "image credo-exchange:$tag (migrations to V$flyway, snapshot schema $snapshot)"
 docker build -q --label "credo.sha=$full" --label "credo.flyway=$flyway" --label "credo.snapshot=$snapshot" \

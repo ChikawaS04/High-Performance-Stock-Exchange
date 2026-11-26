@@ -136,15 +136,19 @@ credo_tag_note() {
     fi
 }
 
+# The /health readers below always succeed and print nothing when the field is absent. Callers assign them
+# (`x=$(credo_json_num ...)`) under set -e and pipefail, where a grep that finds nothing would otherwise make the
+# assignment fail and end the script silently, before the FAIL or SKIP row that reports the absence.
+
 # The first number after "key": in a JSON text (keys read this way are unique in /health), or empty.
 credo_json_num() {
-    grep -o "\"$2\":-\?[0-9]*" <<< "$1" | head -n 1 | sed 's/.*://'
+    grep -o "\"$2\":-\?[0-9]*" <<< "$1" | head -n 1 | sed 's/.*://' || true
 }
 
 # One field of /health's journal.outbound object ("startPosition", "recordedPosition", "bytesOnDisk").
 credo_outbound_field() {
     grep -o '"outbound":{"recordingId":[0-9-]*,"startPosition":[0-9-]*,"recordedPosition":[0-9-]*,"bytesOnDisk":[0-9-]*' <<< "$1" \
-        | grep -o "\"$2\":-\?[0-9]*" | sed 's/.*://'
+        | grep -o "\"$2\":-\?[0-9]*" | sed 's/.*://' || true
 }
 
 # --- P16-13 helpers ---------------------------------------------------------------------------------------
@@ -154,7 +158,7 @@ credo_outbound_field() {
 # before the field), which /health's reporter, clearing, connections and framesDropped objects are.
 credo_obj_field() {
     grep -o "\"$2\":{[^{}]*" <<< "$1" | head -n 1 | grep -oE "\"$3\":(\"[^\"]*\"|-?[0-9]+|null)" | head -n 1 \
-        | sed -E 's/^"[^"]*"://; s/^"(.*)"$/\1/'
+        | sed -E 's/^"[^"]*"://; s/^"(.*)"$/\1/' || true
 }
 
 # The /assets/ files (.js and .css) an index.html references, one path per line, in order, unique.
